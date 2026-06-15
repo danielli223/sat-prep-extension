@@ -1,0 +1,6 @@
+agent-reports/*
+/.gstack/
+.gstack/
+.superpowers/
+extension/node_modules/
+extension/dist/
