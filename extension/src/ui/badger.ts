@@ -11,12 +11,17 @@ const LABEL: Record<State, string> = { done: '✓ done', missed: '⚠ missed', n
 
 export function badge(listRoot: Element, seen: Record<string, 'done' | 'missed'>): void {
   for (const { id, node } of readListQuestionIds(listRoot)) {
-    node.querySelector(`.${BADGE_CLASS}`)?.remove();
+    // Anchor the chip INSIDE the row's id cell (the (c) requirement). A <span> appended directly to a
+    // <tr> is invalid table markup — real browsers hoist stray inline content out of the row, so the
+    // chip would render outside the table. The id cell is a <td>, a valid chip parent. Fall back to the
+    // row only if the cell is missing (defensive; the live DOM always has .id-column).
+    const anchor = node.querySelector('.id-column') ?? node;
+    anchor.querySelector(`.${BADGE_CLASS}`)?.remove();   // idempotent: de-dup against the same anchor
     const state: State = seen[id] ?? 'new';
-    const chip = node.ownerDocument.createElement('span');
+    const chip = anchor.ownerDocument.createElement('span');
     chip.className = BADGE_CLASS;
     chip.setAttribute('data-state', state);
     chip.textContent = LABEL[state];   // textContent, never innerHTML — no CB text can leak in
-    node.appendChild(chip);
+    anchor.appendChild(chip);
   }
 }
