@@ -82,6 +82,21 @@ function currentExplanation(doc: Document, id: string): string | null {
   return modal ? (readQuestion(modal)?.explanation ?? null) : null;
 }
 
+// CB injects the rationale — and thus the correct answer — into the DOM ASYNCHRONOUSLY after the
+// reveal box is checked. If the student clicks Check before it lands (they checked fast, or just
+// navigated to this question), the answer reads as null and a perfectly gradeable question would
+// wrongly show "couldn't grade" (a trust-killer, live 2026-06-16). Re-nudge the reveal and poll
+// briefly (~1s) before giving up; the common case (answer already present) returns on the first read.
+async function awaitCorrectAnswer(doc: Document, id: string): Promise<string | null> {
+  let answer = currentCorrectAnswer(doc, id);
+  for (let i = 0; answer === null && i < 10; i++) {
+    ensureAnswerRevealed(doc);
+    await new Promise((r) => setTimeout(r, 100));
+    answer = currentCorrectAnswer(doc, id);
+  }
+  return answer;
+}
+
 // §8.5 graceful degradation: an IndexedDB write failure must leave the session WORKING but untracked,
 // never throw into the loop. Wrap each Plan 2 store write (recordAttempt / saveNote / saveSession) in this.
 export async function safeWrite(write: Promise<unknown>): Promise<void> {
@@ -194,8 +209,11 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
                            // would write duplicate attempts and corrupt Plan 3's deriveStats.
     checked = true;
     // Read the answer at CHECK TIME from the live DOM (spike) — the QuestionView captured on show
-    // predates CB's reveal, so its correctAnswer may be stale/null.
-    const answer = currentCorrectAnswer(doc, view.id);
+    // predates CB's reveal. Usually it's already present (synchronous fast path); only if it isn't —
+    // CB injects the rationale async after reveal and a too-fast Check can beat it — do we poll, so a
+    // gradeable question never shows a spurious "couldn't grade" (live 2026-06-16).
+    let answer = currentCorrectAnswer(doc, view.id);
+    if (answer === null) answer = await awaitCorrectAnswer(doc, view.id);
     const result = score(pick, answer ?? '');
     const live: LiveContent = {
       stem: view.stem,
