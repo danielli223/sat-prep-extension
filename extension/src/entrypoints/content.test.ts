@@ -383,3 +383,100 @@ describe('content wiring against the LIVE cb-table-react DOM (no .results-page w
     stop();
   });
 });
+
+// --- Plan 4: resilience gate + degraded path (appended; Plan 2/3 suites above are untouched) ---
+import { handleQuestion, guardedStart, safeWrite } from './content';
+import { isEnabled } from '../resilience/killswitch';
+import { detectBlock } from '../resilience/block-detect';
+import { BLOCK_NOTICE_ID } from '../resilience/contract-check';
+import { mountHost } from '../ui/host';
+import * as contract from '../resilience/contract-check';
+import type { QuestionView } from '../cb/reader';
+
+vi.mock('../resilience/killswitch', () => ({ isEnabled: vi.fn() }));
+vi.mock('../resilience/block-detect', () => ({ detectBlock: vi.fn(() => null), BLOCK_REASON: {} }));
+
+// QuestionView fixture for the §2.4 happy path (the existing Plan 2/3 suites use inline HTML strings,
+// not a shared `view` const, so we declare a well-formed view here — INPUT DATA only, no assertion).
+const view: QuestionView = {
+  id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear equations', difficulty: 'Hard',
+  stem: 'stem', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
+  correctAnswer: 'B', explanation: 'because',
+};
+
+describe('content bootstrap gate (§2.5 / §8.3)', () => {
+  // Use the REAL Plan 2 mountHost here (not mocked) so we can assert the §8.3 notice actually lands
+  // in the single shadow host; only the resilience inputs are mocked.
+  beforeEach(() => { vi.clearAllMocks(); document.body.innerHTML = ''; });
+
+  it('does NOT run the loop when the kill-switch is disabled', async () => {
+    (isEnabled as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    const runner = vi.fn(async () => {});
+    await guardedStart(document, runner);
+    expect(runner).not.toHaveBeenCalled();
+    expect(mountHost(document).getElementById(BLOCK_NOTICE_ID)).toBeNull(); // nothing mounted
+  });
+
+  it('does NOT run the loop on a CB block — it mounts the §8.3 "use CB directly" notice instead', async () => {
+    (isEnabled as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    (detectBlock as ReturnType<typeof vi.fn>).mockReturnValue('forbidden');
+    const runner = vi.fn(async () => {});
+
+    await guardedStart(document, runner);
+
+    expect(runner).not.toHaveBeenCalled();   // disable, never retry, never call the API
+    // §8.3: the real renderBlockNotice mounted a non-verdict "use CB directly" notice in the host
+    const notice = mountHost(document).getElementById(BLOCK_NOTICE_ID)!;
+    expect(notice).not.toBeNull();
+    expect(notice.textContent).toMatch(/use the question bank directly on CB/i);
+  });
+
+  it('runs the loop when enabled and not blocked', async () => {
+    (isEnabled as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    (detectBlock as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    const runner = vi.fn(async () => {});
+    await guardedStart(document, runner);
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(mountHost(document).getElementById(BLOCK_NOTICE_ID)).toBeNull(); // no block notice on the happy path
+  });
+});
+
+describe('per-question degraded path (§2.4)', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('renders the banner + bumps the counter on a failed contract check, and does NOT render the card', async () => {
+    const shadow = {} as ShadowRoot;
+    const renderQuestion = vi.fn();
+    const banner = vi.spyOn(contract, 'renderBanner').mockImplementation(() => {});
+    const bump = vi.spyOn(contract, 'bumpFailureCounter').mockResolvedValue(1);
+    vi.spyOn(contract, 'checkContract').mockReturnValue({ ok: false, reason: 'unreadable' });
+
+    await handleQuestion(shadow, null, renderQuestion);
+
+    expect(banner).toHaveBeenCalledWith(shadow);
+    expect(bump).toHaveBeenCalledTimes(1);
+    expect(renderQuestion).not.toHaveBeenCalled();   // never render a card we couldn't fully read
+  });
+
+  it('runs Plan 2\'s renderQuestion thunk (not the banner) when the contract check passes', async () => {
+    const shadow = {} as ShadowRoot;
+    const renderQuestion = vi.fn();
+    const banner = vi.spyOn(contract, 'renderBanner').mockImplementation(() => {});
+    vi.spyOn(contract, 'checkContract').mockReturnValue({ ok: true });
+
+    await handleQuestion(shadow, view, renderQuestion);
+
+    expect(renderQuestion).toHaveBeenCalledTimes(1);  // Plan 2's existing renderCard(shadow, vm, live, handlers) call
+    expect(banner).not.toHaveBeenCalled();
+  });
+});
+
+describe('§8.5 graceful degradation — IndexedDB write failure leaves the session working, untracked', () => {
+  it('safeWrite swallows an IndexedDB write rejection (never throws into the loop)', async () => {
+    await expect(safeWrite(Promise.reject(new Error('IDB write failed')))).resolves.toBeUndefined();
+  });
+
+  it('safeWrite resolves through a successful write', async () => {
+    await expect(safeWrite(Promise.resolve())).resolves.toBeUndefined();
+  });
+});

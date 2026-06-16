@@ -19,6 +19,9 @@ import { resumeSession, type ResumeResult } from '../ui/resume';
 import { dropCoachmark, COACHMARK_CLASS } from '../ui/coachmark';
 import { OPEN_JOURNAL } from '../messages';
 import { readListQuestionIds } from '../cb/list-reader';
+import { isEnabled } from '../resilience/killswitch';    // Plan 4 (§2.5)
+import { detectBlock } from '../resilience/block-detect';// Plan 4 (§8.3)
+import { checkContract, renderBanner, renderBlockNotice, bumpFailureCounter } from '../resilience/contract-check'; // Plan 4 (§2.4/§8.3)
 
 const DEVICE_KEY = 'fp-device-id';
 function deviceId(): string {
@@ -79,6 +82,41 @@ function currentExplanation(doc: Document, id: string): string | null {
   return modal ? (readQuestion(modal)?.explanation ?? null) : null;
 }
 
+// §8.5 graceful degradation: an IndexedDB write failure must leave the session WORKING but untracked,
+// never throw into the loop. Wrap each Plan 2 store write (recordAttempt / saveNote / saveSession) in this.
+export async function safeWrite(write: Promise<unknown>): Promise<void> {
+  try { await write; } catch { /* §8.5: session works, this datum is just untracked */ }
+}
+
+// §2.4 degraded path, extracted from Plan 2's showQuestion so it is unit-testable. On a failed
+// contract check we show the non-verdict banner + bump the failure counter and DO NOT render the card.
+// `renderQuestion` is Plan 2's existing renderCard(shadow, toCardVM(view), live, handlers) closure —
+// Plan 4 never re-calls renderCard with a different signature.
+export async function handleQuestion(
+  shadow: ShadowRoot,
+  view: QuestionView | null,
+  renderQuestion: () => void,
+): Promise<void> {
+  if (!checkContract(view).ok) {
+    renderBanner(shadow);
+    await bumpFailureCounter();
+    return;
+  }
+  renderQuestion(); // contract passed → run Plan 2's existing 4-arg renderCard call site unchanged
+}
+
+// §2.5 + §8.3 gate that wraps Plan 2/3's start. `runner` is the post-Plan-3 startup body (runLoop +
+// badger + panel toggle + handleMessage listener). Disabled flag → mount nothing. CB block → mount
+// the §8.3 "use CB directly" notice and return; never retry, never call the API.
+export async function guardedStart(doc: Document, runner: () => Promise<void>): Promise<void> {
+  if (!(await isEnabled())) return;                 // §2.5: hosted kill-switch off
+  if (detectBlock(doc) !== null) {                  // §8.3: CB block
+    renderBlockNotice(mountHost(doc));              // disable AND point the student to CB
+    return;
+  }
+  await runner();
+}
+
 export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Promise<ShadowRoot> {
   const shadow = mountHost(doc);
 
@@ -116,7 +154,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         // Fire-and-forget from inside the MutationObserver callback. The observer outlives a single
         // runLoop, so a stale write can land after the page (or, in tests, the DB connection) is torn
         // down — that loses to the teardown and is a harmless no-op, never an unhandled rejection.
-        void saveSession(db, session).catch(() => {});
+        void safeWrite(saveSession(db, session));   // §8.5: best-effort; an IDB failure leaves the session untracked, not broken
       }
       showQuestion(view);
     });
@@ -138,12 +176,15 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       onEliminate: () => {},
       onCheck: (pick) => onCheck(view, pick),
       onReveal: () => {},
-      onNote: (text) => { if (text) void saveNote(db, makeNote({ deviceId: dev, questionId: view.id, text })); },
+      onNote: (text) => { if (text) void safeWrite(saveNote(db, makeNote({ deviceId: dev, questionId: view.id, text }))); },
       onNext: () => onNext(view),
       onToggleCalc: () => toggleGeoGebra(shadow),
       onOpenDesmos: () => openDesmos(),
     };
-    renderCard(shadow, toCardVM(view, index, total), live, handlers);   // "Q n of N", never "Q n of n"
+    // §2.4: only paint the card when the DOM contract holds; otherwise degrade to the banner.
+    void handleQuestion(shadow, view, () =>
+      renderCard(shadow, toCardVM(view, index, total), live, handlers),   // "Q n of N", never "Q n of n"
+    );
   }
 
   async function onCheck(view: QuestionView, pick: string): Promise<void> {
@@ -162,10 +203,10 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       // mark the correct choice so renderVerdict can light it green even on a wrong pick
       const correctLetter = answer.trim().toUpperCase();
       shadow.querySelector(`.fp-choice[data-letter="${correctLetter}"]`)?.setAttribute('data-correct', 'true');
-      await recordAttempt(db, makeAttempt({
+      await safeWrite(recordAttempt(db, makeAttempt({
         deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
-      }));
+      })));
     }
     renderVerdict(shadow, { pick, result }, live);   // graded===false → non-verdict state (contract §2.4)
   }
@@ -177,7 +218,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       session.lastQuestionId = view.id;
       session.updatedAt = nowIso();
       session.dirty = true;
-      await saveSession(db, session);
+      await safeWrite(saveSession(db, session));
     }
     // No auto-advance / prefetch: the next question appears only when the student navigates CB.
   }
@@ -271,12 +312,15 @@ export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): P
 // Boot (skipped under test: no chrome runtime). Plan 2 runs the scored loop; Plan 3 adds the
 // badger + journal panel toggle + coachmark binding + the open-journal message listener.
 if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
-  void (async () => {
+  // Plan 4: the whole post-Plan-3 startup body runs through the §2.5/§8.3 gate. isEnabled() off →
+  // mount nothing; a CB block → mount the §8.3 "use CB directly" notice and return (never retry,
+  // never call the API). When enabled and unblocked, the runner is Plan 2/3's startup verbatim.
+  void guardedStart(document, async () => {
     const db = await openStore();
     await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
 
     mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
     watchResultsList(document, db);   // badge on list render + whenever CB re-renders it (coachmarks bind on panel open)
     chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
-  })();
+  });
 }
