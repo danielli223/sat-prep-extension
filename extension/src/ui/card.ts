@@ -1,4 +1,4 @@
-import { html } from './host';
+import { html, cardSlot } from './host';
 import type { CardVM, LiveContent } from './view-model';
 import type { ScoreResult } from '../scoring';
 
@@ -28,7 +28,9 @@ export function renderCard(shadow: ShadowRoot, vm: CardVM, live: LiveContent, h:
          <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" />
        </label>`;
 
-  shadow.innerHTML = html(`
+  // Render into the dedicated card slot, NOT the whole shadow root: the calculator iframe and any
+  // other persistent overlays live in a sibling extras slot that must survive a card repaint.
+  cardSlot(shadow).innerHTML = html(`
     <div class="fp-card">
       <div class="fp-trust">Real College Board question · live, unaltered</div>
       <div class="fp-progress">${esc(vm.skill)} › ${esc(vm.difficulty)} · Q ${vm.position.index} of ${vm.position.total}</div>

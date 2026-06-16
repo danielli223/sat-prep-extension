@@ -28,6 +28,12 @@ function filterContextOf(v: QuestionView): string {
 // Loaded-results count N for the "Q n of N" header. A plain count of CB's rendered result rows —
 // NOT Plan 3's readListQuestionIds selector, and NOT a stored questionID→metadata index (spec §10).
 // Falls back to 1 when CB shows a single open question with no surrounding list.
+//
+// NEEDS-LIVE-VERIFICATION: unlike the reader/observer selectors, these list selectors
+// ([data-testid="result-row"], table.results-list tbody tr) are NOT yet attributed to the live CB
+// DOM spike. Plan 3 owns the verified list selector (readListQuestionIds) and should supersede these.
+// Low risk: this value is display-only ("Q n of N"), never stored — if the selectors miss live, N
+// degrades gracefully to the documented 1 fallback.
 function countLoadedResults(doc: Document): number {
   return Math.max(1, doc.querySelectorAll('[data-testid="result-row"], table.results-list tbody tr').length);
 }
@@ -43,12 +49,26 @@ function ensureAnswerRevealed(doc: Document): void {
   if (box && !box.checked) box.click();
 }
 
-// Read the correct answer AT CHECK TIME from the live container. The QuestionView captured when the
-// modal first appeared predates the reveal (correctAnswer === null then), so we must re-read it here.
-function currentCorrectAnswer(doc: Document, id: string): string | null {
-  const modal = [...doc.querySelectorAll('.cb-dialog-container')]
+// Find CB's live dialog container for a given question id. The QuestionView captured when the modal
+// first appeared predates the reveal, so check-time/reveal-time reads must go back to the live DOM.
+function currentModal(doc: Document, id: string): Element | null {
+  return [...doc.querySelectorAll('.cb-dialog-container')]
     .find((el) => (el.textContent ?? '').includes(`Question ID: ${id}`)) ?? null;
+}
+
+// Read the correct answer AT CHECK TIME from the live container (correctAnswer === null at observe
+// time, before CB injects the rationale on reveal).
+function currentCorrectAnswer(doc: Document, id: string): string | null {
+  const modal = currentModal(doc, id);
   return modal ? (readQuestion(modal)?.correctAnswer ?? null) : null;
+}
+
+// Read the explanation AT REVEAL/CHECK TIME from the live container. Like the answer, CB injects the
+// rationale text into the DOM only after ensureAnswerRevealed clicks the reveal box, so the
+// observe-time view.explanation is null in the real reveal-gated flow — never trust that snapshot.
+function currentExplanation(doc: Document, id: string): string | null {
+  const modal = currentModal(doc, id);
+  return modal ? (readQuestion(modal)?.explanation ?? null) : null;
 }
 
 export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Promise<ShadowRoot> {
@@ -87,9 +107,16 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   }
 
   let index = 0;
+  let checked = false;   // per-question guard: at most one attempt recorded per Check session (reset on show)
   function showQuestion(view: QuestionView): void {
+    checked = false;   // new question on screen → re-arm scoring
     ensureAnswerRevealed(doc);   // trigger CB's reveal so the answer is in the DOM by Check time (spike)
-    const live: LiveContent = { stem: view.stem, explanationGetter: () => view.explanation };
+    // Read the explanation LIVE from the post-reveal DOM, never the observe-time snapshot (which is
+    // null before CB injects the rationale). Falls back to the snapshot only if the live read fails.
+    const live: LiveContent = {
+      stem: view.stem,
+      explanationGetter: () => currentExplanation(doc, view.id) ?? view.explanation,
+    };
     const handlers: CardHandlers = {
       onSelect: () => {},
       onEliminate: () => {},
@@ -104,11 +131,17 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   }
 
   async function onCheck(view: QuestionView, pick: string): Promise<void> {
+    if (checked) return;   // ignore repeat Check clicks: makeAttempt mints a fresh id, so re-recording
+                           // would write duplicate attempts and corrupt Plan 3's deriveStats.
+    checked = true;
     // Read the answer at CHECK TIME from the live DOM (spike) — the QuestionView captured on show
     // predates CB's reveal, so its correctAnswer may be stale/null.
     const answer = currentCorrectAnswer(doc, view.id);
     const result = score(pick, answer ?? '');
-    const live: LiveContent = { stem: view.stem, explanationGetter: () => view.explanation };
+    const live: LiveContent = {
+      stem: view.stem,
+      explanationGetter: () => currentExplanation(doc, view.id) ?? view.explanation,
+    };
     if (result.graded && answer) {
       // mark the correct choice so renderVerdict can light it green even on a wrong pick
       const correctLetter = answer.trim().toUpperCase();

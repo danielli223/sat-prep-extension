@@ -1,4 +1,4 @@
-import { html } from './host';
+import { html, cardSlot } from './host';
 
 export interface StartPanelState { hasSession: boolean; }
 export interface StartPanelHandlers {
@@ -8,7 +8,9 @@ export interface StartPanelHandlers {
 }
 
 export function renderStartPanel(shadow: ShadowRoot, state: StartPanelState, h: StartPanelHandlers): void {
-  shadow.innerHTML = html(`
+  // Render into the card slot so a later renderCard repaint (or the calculator in the extras slot)
+  // can't be clobbered, and vice versa.
+  cardSlot(shadow).innerHTML = html(`
     <div class="fp-start">
       <div class="fp-onboarding">These are College Board's own questions, served live from collegeboard.org.
         We never rewrite them, never run them through AI, and never store them — only your answers and progress.</div>
