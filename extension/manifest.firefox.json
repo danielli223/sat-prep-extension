@@ -9,6 +9,9 @@
     "*://satsuiteeducatorquestionbank.collegeboard.org/*",
     "https://config.focusedpractice.app/*"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.geogebra.org"
+  },
   "background": { "scripts": ["background.js"] },
   "content_scripts": [
     {
@@ -17,5 +20,5 @@
       "run_at": "document_idle"
     }
   ],
-  "action": { "default_title": "Focused Practice" }
+  "action": { "default_title": "Focused Practice", "default_popup": "popup.html" }
 }

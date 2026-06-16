@@ -3,13 +3,22 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 
-const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
+const EXT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const SRC = join(EXT_ROOT, 'src');
+
+// Trees the legal guard scans. The guard is the build-failing backstop for "never call CB", so it
+// must see EVERY tree that can ship or run executable code — not just src/. tests/ and scripts/ can
+// equally hide a fetch to CB (a fixture fetcher, a build step), so they are scanned too. node_modules
+// and the dist* build outputs are excluded (third-party / generated, not our source).
+const SCAN_ROOTS = [SRC, join(EXT_ROOT, 'tests'), join(EXT_ROOT, 'scripts')];
+const EXCLUDE_DIR = /^(?:node_modules|dist.*)$/;
 
 function tsFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
+    if (EXCLUDE_DIR.test(name)) return [];
     const p = join(dir, name);
     if (statSync(p).isDirectory()) return tsFiles(p);
-    return p.endsWith('.ts') ? [p] : [];
+    return p.endsWith('.ts') || p.endsWith('.mjs') || p.endsWith('.js') ? [p] : [];
   });
 }
 
@@ -48,11 +57,15 @@ const FETCH_LITERAL = /fetch\(\s*[`'"]([^`'"]+)[`'"]/g;           // each fetche
 const RETRY_ON_CB = /(retry|while\s*\([^)]*\)|for\s*\([^)]*\))[^\n;]*collegeboard\.org/i;
 
 describe('legal CI guard', () => {
-  const files = tsFiles(SRC);
+  // The guard names the very tokens it bans (FORBIDDEN_TOKEN, the CB-network regexes, the
+  // "// NEVER qbank-api" doc-comment). Those are the ban-list definition, not a real call — and a
+  // self-scan would trip on them. Exclude only THIS file; every other tree/file is still scanned.
+  const SELF = fileURLToPath(import.meta.url);
+  const files = SCAN_ROOTS.flatMap(tsFiles).filter((f) => f !== SELF);
   it('scans at least the core source files', () => { expect(files.length).toBeGreaterThan(5); });
 
   for (const file of files) {
-    it(`${file.replace(SRC, 'src')}: no qbank-api / no CB network call / no questionId→metadata index`, () => {
+    it(`${file.replace(EXT_ROOT, '.')}: no qbank-api / no CB network call / no questionId→metadata index`, () => {
       const code = executableCode(readFileSync(file, 'utf8'));
       expect(code, 'must not reference qbank-api').not.toMatch(FORBIDDEN_TOKEN);
       expect(code, 'must not issue network calls to collegeboard.org').not.toMatch(FETCH_TO_CB);

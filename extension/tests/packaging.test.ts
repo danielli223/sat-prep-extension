@@ -39,4 +39,22 @@ describe('packaging — three browser manifests', () => {
     expect(firefox.background.scripts).toEqual(['background.js']);
     expect(firefox.browser_specific_settings.gecko.id).toMatch(/@/);
   });
+
+  // The three variants must be EQUIVALENT packages, not just CB-host-equal. The GeoGebra frame
+  // policy and the journal popup are product surface — dropping them in Firefox/Edge (as the
+  // original variants did) ships a different, broken extension.
+  it('all three carry the same GeoGebra frame-src CSP (extension_pages)', () => {
+    for (const m of manifests) {
+      expect(m.content_security_policy?.extension_pages, 'missing extension_pages CSP').toBeTruthy();
+      expect(m.content_security_policy.extension_pages).toContain('frame-src https://www.geogebra.org');
+    }
+    const csps = manifests.map((m) => m.content_security_policy.extension_pages);
+    expect(new Set(csps).size, 'CSP extension_pages diverges across variants').toBe(1);
+  });
+
+  it('all three expose the journal popup via action.default_popup', () => {
+    for (const m of manifests) {
+      expect(m.action?.default_popup, 'missing action.default_popup').toBe('popup.html');
+    }
+  });
 });

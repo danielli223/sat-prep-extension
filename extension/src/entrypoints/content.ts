@@ -109,8 +109,10 @@ export async function handleQuestion(
 // badger + panel toggle + handleMessage listener). Disabled flag → mount nothing. CB block → mount
 // the §8.3 "use CB directly" notice and return; never retry, never call the API.
 export async function guardedStart(doc: Document, runner: () => Promise<void>): Promise<void> {
+  // isEnabled() fetches OUR config host only (never CB) — so a takedown flag wins over a block, and
+  // the §8.3 "never call the API" rule is intact: the only network here is to our own kill-switch.
   if (!(await isEnabled())) return;                 // §2.5: hosted kill-switch off
-  if (detectBlock(doc) !== null) {                  // §8.3: CB block
+  if (detectBlock(doc) !== null) {                  // §8.3: CB block — pure DOM read, no network
     renderBlockNotice(mountHost(doc));              // disable AND point the student to CB
     return;
   }
