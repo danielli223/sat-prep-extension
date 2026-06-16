@@ -247,7 +247,11 @@ export function mountPanelToggle(doc: Document, onOpen: () => void = () => {}): 
   if (existing) return existing;
   const btn = doc.createElement('button');
   btn.className = 'fp-panel-toggle';
-  btn.textContent = 'Journal';
+  btn.textContent = '📓 Journal';
+  // Light-DOM launcher (not in our shadow), so style inline: a fixed pill in the top-right corner.
+  btn.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483000;background:#3b82f6;color:#fff;' +
+    'border:none;border-radius:9px;padding:8px 14px;font:700 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+    'cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);';
   btn.addEventListener('click', onOpen);
   doc.body.appendChild(btn);
   return btn;

@@ -9,6 +9,17 @@ export const BADGE_CLASS = 'fp-badge';
 type State = 'done' | 'missed' | 'new';
 const LABEL: Record<State, string> = { done: '✓ done', missed: '⚠ missed', new: 'new' };
 
+// The chips live in CB's LIGHT DOM (not our shadow root), so the shadow stylesheet can't reach them.
+// Style them inline as small pills, colored per state to match the approved journal mockup
+// (done=green, missed=red, new=gray). Inline-only — no <style> injected into CB's page.
+const PILL = 'display:inline-block;margin-left:8px;padding:1px 7px;border-radius:9px;' +
+  'font:700 10px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;vertical-align:middle;';
+const STYLE: Record<State, string> = {
+  done: PILL + 'background:#dcfce7;color:#16a34a;',
+  missed: PILL + 'background:#fee2e2;color:#dc2626;',
+  new: PILL + 'background:#f1f5f9;color:#6b7280;',
+};
+
 export function badge(listRoot: Element, seen: Record<string, 'done' | 'missed'>): void {
   for (const { id, node } of readListQuestionIds(listRoot)) {
     // Anchor the chip INSIDE the row's id cell (the (c) requirement). A <span> appended directly to a
@@ -21,6 +32,7 @@ export function badge(listRoot: Element, seen: Record<string, 'done' | 'missed'>
     const chip = anchor.ownerDocument.createElement('span');
     chip.className = BADGE_CLASS;
     chip.setAttribute('data-state', state);
+    chip.style.cssText = STYLE[state];   // inline pill styling (light DOM; shadow CSS can't reach here)
     chip.textContent = LABEL[state];   // textContent, never innerHTML — no CB text can leak in
     anchor.appendChild(chip);
   }
