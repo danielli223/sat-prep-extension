@@ -111,7 +111,10 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
           deviceId: dev, filterContext: filterContextOf(view), orderMode,
           shuffleSeed: orderMode === 'random' ? newSeed() : 0,
         });
-        void saveSession(db, session);
+        // Fire-and-forget from inside the MutationObserver callback. The observer outlives a single
+        // runLoop, so a stale write can land after the page (or, in tests, the DB connection) is torn
+        // down — that loses to the teardown and is a harmless no-op, never an unhandled rejection.
+        void saveSession(db, session).catch(() => {});
       }
       showQuestion(view);
     });
