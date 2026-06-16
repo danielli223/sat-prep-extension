@@ -181,6 +181,10 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   let checked = false;   // per-question guard: at most one attempt recorded per Check session (reset on show)
   function showQuestion(view: QuestionView): void {
     checked = false;   // new question on screen → re-arm scoring
+    // Refresh "Q n of N": the results list may not have been in the DOM at Start (e.g. the student
+    // opened a question first), which left N stuck at the fallback 1 ("Q 2 of 1", live 2026-06-16).
+    // It is in the DOM behind the modal now. Never let N drop below the current position.
+    total = Math.max(total, countLoadedResults(doc), index + 1);
     ensureAnswerRevealed(doc);   // trigger CB's reveal so the answer is in the DOM by Check time (spike)
     // Read the explanation LIVE from the post-reveal DOM, never the observe-time snapshot (which is
     // null before CB injects the rationale). Falls back to the snapshot only if the live read fails.

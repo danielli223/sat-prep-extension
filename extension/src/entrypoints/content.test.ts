@@ -139,6 +139,20 @@ describe('content loop wiring', () => {
     await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
     expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 5');
   });
+
+  it('reads N at SHOW time, so "Q n of N" is right even if the list was not in the DOM at Start', async () => {
+    // Live 2026-06-16: starting before the list rendered (or from a single-question view) left N at the
+    // fallback 1 → "Q 2 of 1". The list is in the DOM behind the modal by show time; read it then.
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');   // NO list present at Start
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML +=
+      '<table class="cb-table-react"><tbody>' +
+      Array.from({ length: 7 }, () => '<tr><td>q</td></tr>').join('') + '</tbody></table>';
+    document.body.innerHTML += mc;                          // list + question arrive after Start
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 7');   // not "Q 1 of 1"
+  });
 });
 
 // Spike addendum (2026-06-15): CB injects the correct answer into the DOM ONLY once its
