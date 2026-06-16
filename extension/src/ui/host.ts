@@ -82,6 +82,32 @@ const BASE_CSS = `
 .fp-start>button{display:block;width:100%;margin-bottom:8px;padding:11px;border-radius:9px;border:1px solid #cbd5e1;
   background:#fff;cursor:pointer;font:inherit;font-weight:600;color:#0f172a;}
 .fp-start>button.fp-start-list{background:#3b82f6;color:#fff;border-color:#3b82f6;}
+.fp-panel{position:fixed;top:0;right:0;height:100vh;width:min(460px,100vw);overflow-y:auto;background:#fff;
+  color:#1f2937;box-shadow:-12px 0 40px rgba(0,0,0,.3);pointer-events:auto;padding:20px;box-sizing:border-box;}
+.fp-panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
+.fp-panel-head h2{font-size:18px;margin:0;}
+.fp-panel-close{border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;}
+.fp-panel h3{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;margin:18px 0 8px;}
+.fp-stats{display:flex;gap:8px;margin-top:12px;}
+.fp-stat{flex:1;background:#f1f5f9;border-radius:8px;padding:10px;text-align:center;}
+.fp-stat-n{display:block;font-size:18px;font-weight:800;}
+.fp-stat-l{font-size:9px;text-transform:uppercase;color:#6b7280;}
+.fp-weak-area{margin-bottom:11px;}
+.fp-weak-head{display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;}
+.fp-acc{font-weight:700;} .fp-acc-low{color:#dc2626;} .fp-acc-mid{color:#d97706;} .fp-acc-high{color:#16a34a;}
+.fp-bar{height:7px;background:#f1f5f9;border-radius:4px;overflow:hidden;}
+.fp-bar-fill{height:7px;border-radius:4px;background:#3b82f6;}
+.fp-bar-low{background:#dc2626;} .fp-bar-mid{background:#d97706;} .fp-bar-high{background:#16a34a;}
+.fp-weak-area .fp-practice-link,.fp-mistake-actions a{display:inline-block;margin-top:6px;font-size:12px;color:#1e40af;
+  background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:4px 9px;text-decoration:none;font-weight:600;}
+.fp-mistakes{list-style:none;margin:0;padding:0;}
+.fp-mistake{border:1px solid #e5e7eb;border-left:3px solid #dc2626;border-radius:8px;padding:10px;margin-bottom:8px;}
+.fp-mistake-meta{font-size:11px;color:#6b7280;margin-bottom:5px;}
+.fp-mistake-meta code{background:#f1f5f9;border-radius:4px;padding:1px 4px;}
+.fp-mistake-note{font-size:12px;color:#92400e;background:#fffbeb;border-radius:6px;padding:6px;margin:0 0 6px;}
+.fp-mistake-actions{display:flex;gap:6px;}
+.fp-mistake-actions .fp-find-link{background:#fff;border:1px solid #d1d5db;color:#6b7280;}
+.fp-empty{font-size:12px;color:#9ca3af;}
 `;
 
 // The shadow root holds two sibling slots so a card repaint never clobbers persistent UI:

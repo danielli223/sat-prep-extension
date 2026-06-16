@@ -25,9 +25,10 @@ const pct = (n: number) => `${Math.round(n * 100)}%`;
 const day = (iso: string) => iso.slice(0, 10);
 
 function weakAreaHtml(s: { skill: string; accuracy: number; total: number }): string {
+  const tier = s.accuracy < 0.5 ? 'low' : s.accuracy < 0.7 ? 'mid' : 'high';   // red / amber / green
   return `<div class="fp-weak-area">
-    <div class="fp-weak-head"><span class="fp-skill">${esc(s.skill)}</span><span class="fp-acc">${pct(s.accuracy)} (${s.total})</span></div>
-    <div class="fp-bar"><div class="fp-bar-fill" style="width:${pct(s.accuracy)}"></div></div>
+    <div class="fp-weak-head"><span class="fp-skill">${esc(s.skill)}</span><span class="fp-acc fp-acc-${tier}">${pct(s.accuracy)} (${s.total})</span></div>
+    <div class="fp-bar"><div class="fp-bar-fill fp-bar-${tier}" style="width:${pct(s.accuracy)}"></div></div>
     <a class="fp-practice-link" data-skill="${esc(s.skill)}" href="${CB_SEARCH_URL}" target="_blank" rel="noopener">Practice ${esc(s.skill)} on CB</a>
   </div>`;
 }
@@ -54,7 +55,7 @@ export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
   let panel = host.querySelector('.fp-panel');
   if (!panel) { panel = document.createElement('section'); panel.className = 'fp-panel'; host.appendChild(panel); }
   setHtml(panel, `
-    <header class="fp-panel-head"><h2>Your progress</h2></header>
+    <header class="fp-panel-head"><h2>Your progress</h2><button class="fp-panel-close" aria-label="Close">✕</button></header>
     <div class="fp-stats">
       <div class="fp-stat"><span class="fp-stat-n">${stats.total}</span><span class="fp-stat-l">done</span></div>
       <div class="fp-stat"><span class="fp-stat-n">${pct(stats.accuracy)}</span><span class="fp-stat-l">accuracy</span></div>
@@ -64,4 +65,6 @@ export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
     <div class="fp-weak-areas">${weak || '<p class="fp-empty">Answer a few questions to see your weak areas.</p>'}</div>
     <h3>Mistakes</h3>
     ${mistakesHtml}`);
+
+  panel.querySelector('.fp-panel-close')?.addEventListener('click', () => panel!.remove());
 }

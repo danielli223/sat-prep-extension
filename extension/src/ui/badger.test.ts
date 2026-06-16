@@ -52,4 +52,12 @@ describe('badge', () => {
       expect(chip.textContent).toMatch(/^(✓ done|⚠ missed|new)$/);
     }
   });
+
+  it('styles each chip as an inline pill (light DOM — the shadow stylesheet cannot reach it)', () => {
+    const root = loadList();
+    badge(root, { ab12cd34: 'done' });
+    const chip = root.querySelector(`.${BADGE_CLASS}`) as HTMLElement;
+    expect(chip.getAttribute('style')).toMatch(/border-radius/);   // it's a pill, not bare text
+    expect(chip.style.background).not.toBe('');                    // a per-state colour is applied inline
+  });
 });

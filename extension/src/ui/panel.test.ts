@@ -78,4 +78,20 @@ describe('renderPanel', () => {
     renderPanel(root, { stats: { ...stats, perSkill: [] }, mistakes: [] });
     expect(root.textContent).toContain('No mistakes logged yet');
   });
+
+  it('has a close button that removes the panel', () => {
+    const root = shadow();
+    renderPanel(root, vm);
+    expect(root.querySelector('.fp-panel')).not.toBeNull();
+    (root.querySelector('.fp-panel-close') as HTMLElement).click();
+    expect(root.querySelector('.fp-panel')).toBeNull();
+  });
+
+  it('colours weak-area bars by accuracy tier (worst = low)', () => {
+    const root = shadow();
+    renderPanel(root, vm);
+    const bars = [...root.querySelectorAll('.fp-bar-fill')];
+    expect(bars[0]!.classList.contains('fp-bar-low')).toBe(true);    // Inferences 25% → low (red)
+    expect(bars[1]!.classList.contains('fp-bar-high')).toBe(true);   // Linear equations 100% → high (green)
+  });
 });
