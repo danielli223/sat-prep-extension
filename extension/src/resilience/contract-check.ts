@@ -12,8 +12,11 @@ export type ContractResult =
 export function checkContract(view: QuestionView | null): ContractResult {
   if (view === null) return { ok: false, reason: 'unreadable' };
   if (!view.id || view.id.trim() === '') return { ok: false, reason: 'missing-id' };
-  // We can present a question if it has choices (MC) OR a revealed correct answer (grid-in).
-  if (view.choices.length === 0 && (view.correctAnswer === null || view.correctAnswer.trim() === '')) {
+  // Presentable once we've read the question itself — a stem (grid-in) or choices (MC). The correct
+  // answer (grid-in) and even the full choice set may still be loading; those gate SCORING (polled at
+  // Check), NOT display. A view with neither a stem nor choices is a failed read. (Live 2026-06-16:
+  // requiring the grid-in answer here banner'd EVERY grid-in, whose answer is null until CB reveals it.)
+  if (view.stem.trim() === '' && view.choices.length === 0) {
     return { ok: false, reason: 'no-answerable-content' };
   }
   return { ok: true };
