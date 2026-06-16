@@ -229,3 +229,62 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     expect(panel.textContent).not.toContain('No explanation available');
   });
 });
+
+// --- Plan 3 additions (badger + panel toggle + coachmark + resume) ---
+import { refreshBadges, mountPanelToggle, bindPanelCoachmarks, resumeFor } from './content';
+import { recordAttempt, saveSession } from '../store';
+import { makeAttempt, makeSession } from '../model';
+
+// INPUT fixture conformed to the FROZEN list-reader contract (table.cb-table-react, bare 8-hex in
+// td.id-column) so readListQuestionIds actually yields the two rows — data only, no assertion change.
+const LIST = `<div class="results-page"><table class="cb-table-react"><tbody>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ab12cd34</button></td></tr>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ef56ab78</button></td></tr>
+</tbody></table></div>`;
+
+describe('content wiring (Plan 3)', () => {
+  beforeEach(() => { document.body.innerHTML = ''; });
+
+  it('refreshBadges reads the store and badges the on-screen list', async () => {
+    const db = await freshDb();
+    await recordAttempt(db, makeAttempt({ deviceId: 'd', questionId: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'X', difficulty: 'Hard', pick: 'B', correct: false }));
+    document.body.innerHTML = LIST;
+    await refreshBadges(db, document.querySelector('.results-page')!);
+    const chips = document.querySelectorAll('.fp-badge');
+    expect(chips).toHaveLength(2);
+    expect(chips[0]!.getAttribute('data-state')).toBe('missed');   // ab12cd34 was missed
+    expect(chips[1]!.getAttribute('data-state')).toBe('new');      // ef56ab78 unseen
+  });
+
+  it('mountPanelToggle adds a single toggle button (idempotent)', () => {
+    mountPanelToggle(document);
+    mountPanelToggle(document);
+    expect(document.querySelectorAll('.fp-panel-toggle')).toHaveLength(1);
+  });
+
+  it('bindPanelCoachmarks: clicking a Practice link drops a coachmark whose confirm re-badges', async () => {
+    const db = await freshDb();
+    document.body.innerHTML = LIST;
+    const hostEl = document.createElement('div'); document.body.appendChild(hostEl);
+    const host = hostEl.attachShadow({ mode: 'open' });
+    host.innerHTML = '<a class="fp-practice-link" data-skill="Inferences" href="#">Practice Inferences on CB</a>';
+
+    bindPanelCoachmarks(host, db, document.querySelector('.results-page')!);
+    (host.querySelector('a.fp-practice-link') as HTMLElement).click();
+    const mark = host.querySelector('.fp-coachmark')!;
+    expect(mark.textContent).toContain('Inferences');             // coachmark names the skill to filter
+    (host.querySelector('.fp-coachmark-confirm') as HTMLElement).click();
+    expect(document.querySelectorAll('.fp-badge').length).toBe(2); // confirm re-ran the badger (highlight)
+  });
+
+  it('resumeFor reads getSession and scrolls to lastQuestionId (contract §2.3)', async () => {
+    const db = await freshDb();
+    const s = makeSession({ deviceId: 'd', filterContext: 'SAT|Math|Algebra|Hard', orderMode: 'list', shuffleSeed: 0 });
+    s.lastQuestionId = 'ef56ab78';
+    await saveSession(db, s);
+    document.body.innerHTML = LIST;
+    const result = await resumeFor(db, document.querySelector('.results-page')!, 'SAT|Math|Algebra|Hard');
+    expect(result).not.toBeNull();
+    expect(result!.plan.resumeId).toBe('ef56ab78');
+  });
+});
