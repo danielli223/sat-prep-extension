@@ -228,6 +228,35 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     expect(panel.textContent).toContain('Subtract 7');
     expect(panel.textContent).not.toContain('No explanation available');
   });
+
+  it('polls for CB\'s answer when the rationale lands AFTER Check — no spurious "couldn\'t grade"', async () => {
+    // Live 2026-06-16: a grid-in showed "couldn't grade" because CB injects the rationale a moment
+    // after the reveal box is checked, and Check read an empty answer. The loop must poll, then grade.
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += unrevealedModal;
+    const box = document.querySelector('.hide-rationale-checkbox input') as HTMLInputElement;
+    box.addEventListener('change', () => {
+      if (box.checked && !document.querySelector('.rationale')) {
+        setTimeout(() => {   // CB injects the answer ~150ms after the box is checked
+          (document.querySelector('.rationale-slot') as HTMLElement).innerHTML =
+            '<div class="rationale"><p>Correct Answer: B</p><div>because.</div></div>';
+        }, 150);
+      }
+    });
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+
+    // Pick B and Check immediately — the answer is NOT in the DOM at this instant.
+    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (shadow.querySelector('.fp-check') as HTMLElement).click();
+
+    // The loop polls until the answer lands, then grades — never the indeterminate "couldn't grade".
+    await vi.waitFor(async () => { expect(await getAttempts(db)).toHaveLength(1); }, { timeout: 2500 });
+    expect(shadow.querySelector('.fp-indeterminate')).toBeNull();
+    expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+  });
 });
 
 // --- Plan 3 additions (badger + panel toggle + coachmark + resume) ---
