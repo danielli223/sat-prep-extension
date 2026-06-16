@@ -54,3 +54,52 @@ describe('bumpFailureCounter', () => {
     expect(mem[FAILURE_KEY]).toBe(2);
   });
 });
+
+import { renderBanner, BANNER_ID, renderBlockNotice, BLOCK_NOTICE_ID } from './contract-check';
+import { mountHost } from '../ui/host';
+
+describe('renderBanner (non-verdict degraded state)', () => {
+  it('mounts one dismissible banner inside the shadow host with no red/green verdict', () => {
+    document.body.innerHTML = '';
+    const root = mountHost(document);
+    renderBanner(root);
+
+    const banner = root.getElementById(BANNER_ID)!;
+    expect(banner).not.toBeNull();
+    expect(banner.textContent).toContain("Couldn't read this one");
+    expect(banner.textContent).toMatch(/answer it on CB/i);
+    // non-verdict: no scoring colors anywhere in the banner
+    expect(banner.querySelector('.correct')).toBeNull();
+    expect(banner.querySelector('.incorrect')).toBeNull();
+
+    // idempotent: a second render does not stack a duplicate
+    renderBanner(root);
+    expect(root.querySelectorAll(`#${BANNER_ID}`)).toHaveLength(1);
+
+    // dismissible
+    banner.querySelector<HTMLButtonElement>('[data-action="dismiss"]')!.click();
+    expect(root.getElementById(BANNER_ID)).toBeNull();
+  });
+});
+
+describe('renderBlockNotice (§8.3 — disable AND point to CB)', () => {
+  it('mounts one non-verdict notice telling the student to use CB directly', () => {
+    document.body.innerHTML = '';
+    const root = mountHost(document);
+    renderBlockNotice(root);
+
+    const notice = root.getElementById(BLOCK_NOTICE_ID)!;
+    expect(notice).not.toBeNull();
+    expect(notice.textContent).toMatch(/use the question bank directly on CB|answer .* directly on CB/i);
+    // non-verdict: no scoring colors
+    expect(notice.querySelector('.correct')).toBeNull();
+    expect(notice.querySelector('.incorrect')).toBeNull();
+    // links the student to CB's own page (we point them there; we never retry/enumerate)
+    const link = notice.querySelector<HTMLAnchorElement>('a[href]')!;
+    expect(link.href).toMatch(/satsuiteeducatorquestionbank\.collegeboard\.org/i);
+
+    // idempotent: a second render does not stack a duplicate
+    renderBlockNotice(root);
+    expect(root.querySelectorAll(`#${BLOCK_NOTICE_ID}`)).toHaveLength(1);
+  });
+});
