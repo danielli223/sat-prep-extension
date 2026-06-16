@@ -11,6 +11,10 @@ import { renderStartPanel } from '../ui/start-panel';
 import { toggleGeoGebra, openDesmos } from '../ui/calculator';
 import { newSeed } from '../order';
 import type { Session } from '../types';
+import { badge } from '../ui/badger';
+import { getSeen } from '../journal';
+import { resumeSession, type ResumeResult } from '../ui/resume';
+import { dropCoachmark } from '../ui/coachmark';
 
 const DEVICE_KEY = 'fp-device-id';
 function deviceId(): string {
@@ -83,7 +87,11 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   renderStartPanel(shadow, { hasSession: !!existing }, {
     onStartList: () => start('list'),
     onStartRandom: () => start('random'),
-    onResume: () => start(existing?.orderMode ?? 'list'),   // Plan 3 deepens resume; here we just begin the loop
+    onResume: async () => {
+      const list = findResultsList(doc);
+      if (list && existing) await resumeFor(db, list, existing.filterContext);   // read getSession, rebuild order, scroll
+      void start(existing?.orderMode ?? 'list');
+    },
   });
 
   let session: Session | null = null;
@@ -168,6 +176,54 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   }
 
   return shadow;
+}
+
+// Find CB's results list on the page (isolated row→node knowledge stays in list-reader; here we
+// only need the container the badger walks).
+export function findResultsList(doc: Document): Element | null {
+  return doc.querySelector('.results-page');
+}
+
+/** Read the store and (re)badge the on-screen results list with done/missed/new chips. */
+export async function refreshBadges(db: IDBPDatabase, listRoot: Element): Promise<void> {
+  badge(listRoot, await getSeen(db));
+}
+
+/** Add the journal-panel toggle button to the page (idempotent). Clicking mounts the panel. */
+export function mountPanelToggle(doc: Document, onOpen: () => void = () => {}): HTMLButtonElement {
+  const existing = doc.querySelector<HTMLButtonElement>('.fp-panel-toggle');
+  if (existing) return existing;
+  const btn = doc.createElement('button');
+  btn.className = 'fp-panel-toggle';
+  btn.textContent = 'Journal';
+  btn.addEventListener('click', onOpen);
+  doc.body.appendChild(btn);
+  return btn;
+}
+
+/** Contract §2.3 resume read, used by the start panel's onResume and the integration boot. */
+export function resumeFor(db: IDBPDatabase, listRoot: Element, filterContext: string): Promise<ResumeResult | null> {
+  return resumeSession(db, listRoot, filterContext);
+}
+
+/** Wire the panel's Practice/Find coachmark links: open CB (the <a> default) AND drop a coachmark
+ *  that, on confirm, re-runs the badger to highlight the now-filtered questions (spec §7 hand-off).
+ *  We never automate CB's filter — the student sets it (D3); confirm only re-badges what's on screen. */
+export function bindPanelCoachmarks(host: ShadowRoot, db: IDBPDatabase, listRoot: Element): void {
+  host.querySelectorAll<HTMLAnchorElement>('a.fp-practice-link, a.fp-find-link').forEach((a) => {
+    a.addEventListener('click', () => {
+      const skill = a.dataset.skill ?? '';
+      dropCoachmark(host, {
+        skill,
+        onConfirm: () => {
+          // Paint chips synchronously for an instant highlight, then reconcile with the store's
+          // done/missed map (idempotent: the async pass replaces these chips, never duplicates).
+          badge(listRoot, {});
+          void refreshBadges(db, listRoot);
+        },
+      });
+    });
+  });
 }
 
 // Boot (only fires in the extension, not in unit tests which import runLoop directly).
