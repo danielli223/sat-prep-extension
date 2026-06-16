@@ -5,6 +5,9 @@
   "description": "A study companion that adds scoring, a mistake journal, and a calculator on top of the official SAT question bank. Not affiliated with, authorized, or endorsed by College Board; SAT is a trademark of the College Board.",
   "permissions": ["storage"],
   "host_permissions": ["*://satsuiteeducatorquestionbank.collegeboard.org/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.geogebra.org"
+  },
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
