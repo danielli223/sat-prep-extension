@@ -1,3 +1,5 @@
+import { OPEN_JOURNAL } from '../messages';
+
 // Toolbar popup (spec §9 #9, §4 step 1). A plain link to CB's Question Bank (expressly permitted,
 // D3) plus an "Open journal" button that tells the active tab's content script to mount the panel.
 // No CB content is ever read here. Built with createElement (no innerHTML in the popup surface).
@@ -20,7 +22,7 @@ export function renderPopup(root: HTMLElement): void {
     if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const id = tabs[0]?.id;
-        if (id !== undefined) chrome.tabs.sendMessage(id, { type: 'open-journal' });
+        if (id !== undefined) chrome.tabs.sendMessage(id, { type: OPEN_JOURNAL });
         window.close();
       });
     }

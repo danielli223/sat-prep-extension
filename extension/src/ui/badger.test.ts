@@ -24,6 +24,18 @@ describe('badge', () => {
     expect(chips[2]!.textContent).toContain('new');
   });
 
+  it('anchors each chip INSIDE the row\'s .id-column cell (valid table markup — the (c) requirement)', () => {
+    const root = loadList();
+    badge(root, { ab12cd34: 'done' });
+    for (const chip of root.querySelectorAll(`.${BADGE_CLASS}`)) {
+      // A <span> appended straight to a <tr> is invalid markup browsers relocate out of the row; the
+      // chip must live in the id cell. Assert the chip's parent is the .id-column <td>, not the <tr>.
+      const parent = chip.parentElement!;
+      expect(parent.classList.contains('id-column')).toBe(true);
+      expect(parent.tagName).toBe('TD');
+    }
+  });
+
   it('is idempotent: re-running with new data replaces chips, never duplicates them', () => {
     const root = loadList();
     badge(root, { ab12cd34: 'missed' });

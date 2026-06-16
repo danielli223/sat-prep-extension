@@ -231,7 +231,7 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
 });
 
 // --- Plan 3 additions (badger + panel toggle + coachmark + resume) ---
-import { refreshBadges, mountPanelToggle, bindPanelCoachmarks, resumeFor, handleMessage } from './content';
+import { refreshBadges, mountPanelToggle, bindPanelCoachmarks, resumeFor, handleMessage, findResultsList } from './content';
 import { HOST_ID } from '../ui/host';
 import { recordAttempt, saveSession } from '../store';
 import { makeAttempt, makeSession } from '../model';
@@ -302,5 +302,67 @@ describe('content wiring (Plan 3)', () => {
     const db = await freshDb();
     await handleMessage(db, { type: 'something-else' });
     expect(document.getElementById(HOST_ID)).toBeNull();
+  });
+});
+
+// The LIVE CB results list is a bare `table.cb-table-react` with NO `.results-page` wrapper (spike
+// 2026-06-15; list-reader.ts). These cases use that real DOM shape — not the synthetic-only
+// `.results-page` — so the badger/resume/coachmark paths are proven against production markup, not a
+// fixture-only selector. (INPUT DOM conformed to the frozen list-reader contract.)
+const LIVE_LIST = `<table class="cb-table-react"><tbody>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ab12cd34</button></td></tr>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ef56ab78</button></td></tr>
+</tbody></table>`;
+
+describe('content wiring against the LIVE cb-table-react DOM (no .results-page wrapper)', () => {
+  beforeEach(() => { document.body.innerHTML = ''; });
+
+  it('findResultsList returns the live table.cb-table-react container', () => {
+    document.body.innerHTML = LIVE_LIST;
+    const list = findResultsList(document);
+    expect(list).not.toBeNull();
+    expect(list!.tagName).toBe('TABLE');
+    expect(list!.classList.contains('cb-table-react')).toBe(true);
+  });
+
+  it('refreshBadges badges the real list rows found via findResultsList', async () => {
+    const db = await freshDb();
+    await recordAttempt(db, makeAttempt({ deviceId: 'd', questionId: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'X', difficulty: 'Hard', pick: 'B', correct: false }));
+    document.body.innerHTML = LIVE_LIST;
+    await refreshBadges(db, findResultsList(document)!);
+    const chips = document.querySelectorAll('.fp-badge');
+    expect(chips).toHaveLength(2);
+    expect(chips[0]!.getAttribute('data-state')).toBe('missed');   // ab12cd34 was missed
+    expect(chips[1]!.getAttribute('data-state')).toBe('new');      // ef56ab78 unseen
+  });
+
+  it('handleMessage renders the panel and binds a real .fp-practice-link → coachmark → re-badge', async () => {
+    const db = await freshDb();
+    // One missed attempt → a weak-area row is rendered with a real a.fp-practice-link for its skill.
+    await recordAttempt(db, makeAttempt({ deviceId: 'd', questionId: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Inferences', difficulty: 'Hard', pick: 'B', correct: false }));
+    document.body.innerHTML = LIVE_LIST;
+
+    await handleMessage(db, { type: 'open-journal' });   // mounts panel AND binds its coachmark links
+    const host = document.getElementById(HOST_ID)!.shadowRoot!;
+    const link = host.querySelector('a.fp-practice-link') as HTMLElement;
+    expect(link).not.toBeNull();   // the panel actually rendered a Practice link
+
+    link.click();                                                  // bound by handleMessage, not boot
+    const mark = host.querySelector('.fp-coachmark')!;
+    expect(mark.textContent).toContain('Inferences');
+    (host.querySelector('.fp-coachmark-confirm') as HTMLElement).click();
+    expect(document.querySelectorAll('.fp-badge').length).toBe(2); // confirm re-ran the badger
+  });
+
+  it('resumeFor scrolls to lastQuestionId using the live cb-table-react container (D9)', async () => {
+    const db = await freshDb();
+    const s = makeSession({ deviceId: 'd', filterContext: 'SAT|Math|Algebra|Hard', orderMode: 'list', shuffleSeed: 0 });
+    s.lastQuestionId = 'ef56ab78';
+    await saveSession(db, s);
+    document.body.innerHTML = LIVE_LIST;
+    const result = await resumeFor(db, findResultsList(document)!, 'SAT|Math|Algebra|Hard');
+    expect(result).not.toBeNull();
+    expect(result!.plan.resumeId).toBe('ef56ab78');
+    expect(result!.scrolledTo).not.toBeNull();   // the row was found + scrolled in the live DOM
   });
 });

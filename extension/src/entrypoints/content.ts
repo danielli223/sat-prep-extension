@@ -16,7 +16,8 @@ import { badge } from '../ui/badger';
 import { getSeen, getMistakes } from '../journal';
 import { deriveStats } from '../stats';
 import { resumeSession, type ResumeResult } from '../ui/resume';
-import { dropCoachmark } from '../ui/coachmark';
+import { dropCoachmark, COACHMARK_CLASS } from '../ui/coachmark';
+import { OPEN_JOURNAL } from '../messages';
 
 const DEVICE_KEY = 'fp-device-id';
 function deviceId(): string {
@@ -184,9 +185,11 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
 }
 
 // Find CB's results list on the page (isolated row→node knowledge stays in list-reader; here we
-// only need the container the badger walks).
+// only need the container the badger walks). The LIVE CB list is table.cb-table-react with NO
+// .results-page wrapper (spike 2026-06-15; see list-reader.ts) — returning the bare table is what the
+// real DOM exposes. readListQuestionIds self-matches the table, so the badger anchors on real rows.
 export function findResultsList(doc: Document): Element | null {
-  return doc.querySelector('.results-page');
+  return doc.querySelector('table.cb-table-react');
 }
 
 /** Read the store and (re)badge the on-screen results list with done/missed/new chips. */
@@ -233,9 +236,16 @@ export function bindPanelCoachmarks(host: ShadowRoot, db: IDBPDatabase, listRoot
 
 /** Single panel-mount path: the toggle button and the popup's open-journal message both call this. */
 export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): Promise<void> {
-  if (msg?.type !== 'open-journal') return;
+  if (msg?.type !== OPEN_JOURNAL) return;
   const host = mountHost(document);
+  // Clear any coachmark left over from a prior open (the panel re-renders into the same .fp-panel,
+  // but a stale .fp-coachmark would otherwise persist across re-opens).
+  host.querySelector(`.${COACHMARK_CLASS}`)?.remove();
   renderPanel(host, { stats: deriveStats(await getAttempts(db)), mistakes: await getMistakes(db) });
+  // Bind the coachmark links AFTER the panel exists — renderPanel injects a.fp-practice-link /
+  // a.fp-find-link, so binding earlier (e.g. at boot, against an empty host) matches nothing.
+  const list = findResultsList(document);
+  if (list) bindPanelCoachmarks(host, db, list);
 }
 
 // Boot (skipped under test: no chrome runtime). Plan 2 runs the scored loop; Plan 3 adds the
@@ -245,12 +255,9 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
     const db = await openStore();
     await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
 
-    mountPanelToggle(document, () => void handleMessage(db, { type: 'open-journal' }));
+    mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
     const list = findResultsList(document);
-    if (list) {
-      await refreshBadges(db, list);
-      bindPanelCoachmarks(mountHost(document), db, list);     // panel links → coachmark → re-badge
-    }
+    if (list) await refreshBadges(db, list);   // badge the real rows on boot; coachmarks bind on panel open
     observeQuestions(document, () => {
       const l = findResultsList(document);
       if (l) void refreshBadges(db, l);
