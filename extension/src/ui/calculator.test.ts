@@ -9,7 +9,7 @@ beforeEach(() => { document.body.innerHTML = ''; });
 
 const noop = () => ({
   onSelect: vi.fn(), onEliminate: vi.fn(), onCheck: vi.fn(), onReveal: vi.fn(), onNote: vi.fn(),
-  onNext: vi.fn(), onToggleCalc: vi.fn(), onOpenDesmos: vi.fn(),
+  onNext: vi.fn(), onToggleCalc: vi.fn(), onOpenDesmos: vi.fn(), onClose: vi.fn(),
 });
 const sampleView: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear', difficulty: 'Hard',

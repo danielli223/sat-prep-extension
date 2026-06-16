@@ -39,6 +39,9 @@ const BASE_CSS = `
 .${EXTRAS_SLOT_CLASS}>*{pointer-events:auto;}
 .fp-card,.fp-start{width:100%;max-width:460px;max-height:88vh;overflow:auto;background:#fff;color:#1f2937;
   border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:20px;box-sizing:border-box;}
+.fp-card-head{display:flex;justify-content:space-between;align-items:center;gap:12px;}
+.fp-start-head{display:flex;justify-content:flex-end;margin-bottom:10px;}
+.fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
 .fp-trust{font-size:10px;letter-spacing:.04em;color:#16a34a;font-weight:700;text-transform:uppercase;margin-bottom:10px;}
 .fp-trust::before{content:"\\25CF  ";}
 .fp-progress{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#6b7280;
