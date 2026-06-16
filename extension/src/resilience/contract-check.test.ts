@@ -29,8 +29,10 @@ describe('checkContract', () => {
     expect(checkContract(ok)).toEqual({ ok: true });
   });
 
-  it('passes a grid-in view (no choices) that still has id + answer', () => {
-    expect(checkContract({ ...ok, choices: [], correctAnswer: '5' })).toEqual({ ok: true });
+  it('passes a grid-in BEFORE its answer is revealed (the answer is for scoring, not display)', () => {
+    // At show time CB has not injected the grid-in answer yet (correctAnswer === null); the card must
+    // still render — the answer is polled at Check, never required to PRESENT the question.
+    expect(checkContract({ ...ok, choices: [], correctAnswer: null })).toEqual({ ok: true });
   });
 
   it('fails when readQuestion returned null (unreadable)', () => {
@@ -41,8 +43,8 @@ describe('checkContract', () => {
     expect(checkContract({ ...ok, id: '' })).toEqual({ ok: false, reason: 'missing-id' });
   });
 
-  it('fails when there are neither choices nor a correct answer (cannot score or display)', () => {
-    expect(checkContract({ ...ok, choices: [], correctAnswer: null })).toEqual({ ok: false, reason: 'no-answerable-content' });
+  it('fails when the read yielded neither a stem nor choices (a failed read)', () => {
+    expect(checkContract({ ...ok, stem: '', choices: [], correctAnswer: null })).toEqual({ ok: false, reason: 'no-answerable-content' });
   });
 });
 
