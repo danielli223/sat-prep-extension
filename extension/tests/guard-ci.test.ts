@@ -40,6 +40,13 @@ const FETCH_TO_CB =
 const QID_METADATA_INDEX =
   /(?:Record|Map)<\s*(?:questionId|string)\s*,\s*\{[^}]*\b(?:skill|domain|difficulty)\b[^}]*\}/i;
 
+// Plan 4 hardening: the kill-switch may fetch OUR host ONLY. Any other fetched http(s) literal that
+// is NOT our config host is a violation. We also forbid any "retry on CB block" shape (spec §8.3:
+// on a block we DISABLE, never retry).
+const OUR_CONFIG_HOST = 'config.focusedpractice.app';
+const FETCH_LITERAL = /fetch\(\s*[`'"]([^`'"]+)[`'"]/g;           // each fetched string literal
+const RETRY_ON_CB = /(retry|while\s*\([^)]*\)|for\s*\([^)]*\))[^\n;]*collegeboard\.org/i;
+
 describe('legal CI guard', () => {
   const files = tsFiles(SRC);
   it('scans at least the core source files', () => { expect(files.length).toBeGreaterThan(5); });
@@ -50,6 +57,22 @@ describe('legal CI guard', () => {
       expect(code, 'must not reference qbank-api').not.toMatch(FORBIDDEN_TOKEN);
       expect(code, 'must not issue network calls to collegeboard.org').not.toMatch(FETCH_TO_CB);
       expect(code, 'must not build a questionId→metadata index (spec §10)').not.toMatch(QID_METADATA_INDEX);
+      // (a) every fetched literal URL must be OUR config host (or a relative/extension URL)
+      for (const m of code.matchAll(FETCH_LITERAL)) {
+        const target = m[1]!;
+        if (/^https?:\/\//i.test(target)) {
+          expect(target, `fetch target ${target} must be OUR config host`).toContain(OUR_CONFIG_HOST);
+          expect(target, 'must never fetch collegeboard.org').not.toMatch(/collegeboard\.org/i);
+        }
+      }
+      // (b) no retry/loop pointed at a CB block (spec §8.3 — disable, never retry)
+      expect(code, 'must not retry against collegeboard.org').not.toMatch(RETRY_ON_CB);
     });
   }
+
+  it('the kill-switch fetches exactly OUR config host (allowlist is non-vacuous)', () => {
+    const ks = readFileSync(join(SRC, 'resilience', 'killswitch.ts'), 'utf8');
+    expect(ks, 'killswitch must fetch via the config constant').toMatch(/CONFIG_FLAG_URL/);
+    expect(ks, 'killswitch must not hardcode a CB URL').not.toMatch(/collegeboard\.org/i);
+  });
 });
