@@ -15,6 +15,6 @@ export default defineConfig({
     // store-backed tests that pin system time (e.g. journal.test.ts) — the DB callbacks never fire.
     // Tests that need deterministic timestamps (model/journal) only ever fake Date.
     fakeTimers: { toFake: ['Date'] },
-    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'tests/**/*.test.ts', '*.test.ts'],
   },
 });
