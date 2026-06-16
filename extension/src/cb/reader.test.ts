@@ -59,4 +59,15 @@ describe('readQuestion', () => {
       '<div>explanation</div></div></div>';
     expect(readQuestion(document.querySelector('.cb-dialog-container')!)!.correctAnswer).toBe('1/3, .333, .3333');
   });
+
+  it('strips MathJax <style>/<script> noise out of the stem (RAM-only spotlight)', () => {
+    document.body.innerHTML =
+      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
+      '<div class="cb-dialog-content"><div class="question-content">' +
+      '<style>*{stroke-linecap:butt;stroke-linejoin:round;}</style>' +
+      '<div class="question">If 3x = 9, what is x? [SYNTHETIC]</div></div></div></div>';
+    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
+    expect(v.stem).not.toContain('stroke-linecap');
+    expect(v.stem).toContain('If 3x = 9');
+  });
 });

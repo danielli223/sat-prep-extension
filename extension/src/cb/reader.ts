@@ -16,6 +16,17 @@ export interface QuestionView {
 const ID_RE = /Question ID:\s*([0-9a-f]{8})/i;
 const ANS_RE = /Correct Answer:\s*(.+)/i;
 
+// CB renders the question stem with embedded MathJax/SVG, which carries a <style> block whose CSS
+// text leaks into textContent ("*{stroke-linecap:butt;…}", spike 2026-06-15). Clone, drop style/script,
+// then read text. RAM-only spotlight — never stored.
+function readStem(root: Element): string {
+  const qc = root.querySelector('.question-content');
+  if (!qc) return '';
+  const clone = qc.cloneNode(true) as Element;
+  clone.querySelectorAll('style, script').forEach((n) => n.remove());
+  return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
 // `root` is CB's div.cb-dialog-container (see observer.ts) — the element that actually holds the
 // question. The [role="dialog"] node itself does NOT contain the question content.
 export function readQuestion(root: Element): QuestionView | null {
@@ -54,7 +65,7 @@ export function readQuestion(root: Element): QuestionView | null {
   return {
     id: idMatch[1]!,
     section: cell(1), domain: cell(2), skill: cell(3), difficulty: cell(4),
-    stem: (root.querySelector('.question-content')?.textContent ?? '').trim(),
+    stem: readStem(root),
     choices,
     correctAnswer,
     explanation: (rationale?.textContent ?? '').trim() || null,
