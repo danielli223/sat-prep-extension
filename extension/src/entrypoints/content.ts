@@ -146,6 +146,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   renderStartPanel(shadow, { hasSession: !!existing }, {
     onStartList: () => start('list'),
     onStartRandom: () => start('random'),
+    onClose: () => cardSlot(shadow).replaceChildren(),   // hide the start panel without starting a session
     onResume: async () => {
       const list = findResultsList(doc);
       if (list && existing) await resumeFor(db, list, existing.filterContext);   // read getSession, rebuild order, scroll
@@ -201,6 +202,8 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       onNext: () => onNext(view),
       onToggleCalc: () => toggleGeoGebra(shadow),
       onOpenDesmos: () => openDesmos(),
+      // ✕ hides the card; the observer stays alive, so opening the next CB question re-paints it.
+      onClose: () => cardSlot(shadow).replaceChildren(),
     };
     // §2.4: only paint the card when the DOM contract holds; otherwise degrade to the banner.
     void handleQuestion(shadow, view, () =>

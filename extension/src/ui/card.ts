@@ -11,6 +11,7 @@ export interface CardHandlers {
   onNext: () => void;
   onToggleCalc: () => void;
   onOpenDesmos: () => void;
+  onClose: () => void;   // ✕ dismiss: hide the overlay; the caller clears the card slot but keeps the session alive
 }
 export interface Verdict { pick: string; result: ScoreResult; }
 
@@ -32,7 +33,10 @@ export function renderCard(shadow: ShadowRoot, vm: CardVM, live: LiveContent, h:
   // other persistent overlays live in a sibling extras slot that must survive a card repaint.
   cardSlot(shadow).innerHTML = html(`
     <div class="fp-card">
-      <div class="fp-trust">Real College Board question · live, unaltered</div>
+      <div class="fp-card-head">
+        <div class="fp-trust">Real College Board question · live, unaltered</div>
+        <button class="fp-overlay-close" aria-label="Close">✕</button>
+      </div>
       <div class="fp-progress">${esc(vm.skill)} › ${esc(vm.difficulty)} · Q ${vm.position.index} of ${vm.position.total}</div>
       <div class="fp-stem">${esc(live.stem)}</div>
       ${answerBody}
@@ -72,6 +76,7 @@ export function renderCard(shadow: ShadowRoot, vm: CardVM, live: LiveContent, h:
     });
   });
 
+  shadow.querySelector('.fp-overlay-close')!.addEventListener('click', () => h.onClose());
   shadow.querySelector('.fp-check')!.addEventListener('click', () => h.onCheck(pickValue()));
   shadow.querySelector('.fp-reveal')!.addEventListener('click', () => {
     const text = live.explanationGetter();   // read CB's words LIVE at click time; never stored

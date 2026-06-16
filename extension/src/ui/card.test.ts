@@ -17,7 +17,7 @@ beforeEach(() => { document.body.innerHTML = ''; });
 
 function noop() { return {
   onSelect: vi.fn(), onEliminate: vi.fn(), onCheck: vi.fn(), onReveal: vi.fn(), onNote: vi.fn(),
-  onNext: vi.fn(), onToggleCalc: vi.fn(), onOpenDesmos: vi.fn() }; }
+  onNext: vi.fn(), onToggleCalc: vi.fn(), onOpenDesmos: vi.fn(), onClose: vi.fn() }; }
 
 describe('renderCard', () => {
   it('paints trust badge, header, stem, A–D choices, and the controls', () => {
@@ -42,6 +42,17 @@ describe('renderCard', () => {
     expect(h.onSelect).toHaveBeenCalledWith('B');
     expect(h.onEliminate).toHaveBeenCalledWith('C');
     expect(h.onCheck).toHaveBeenCalledWith('B');
+  });
+
+  it('renders a ✕ close button that fires onClose', () => {
+    const shadow = mountHost(document);
+    const h = noop();
+    renderCard(shadow, toCardVM(mc, 0, 1), live(mc), h);
+    const close = shadow.querySelector('.fp-overlay-close') as HTMLElement;
+    expect(close).not.toBeNull();
+    expect(close.getAttribute('aria-label')).toBe('Close');
+    close.click();
+    expect(h.onClose).toHaveBeenCalledOnce();
   });
 
   it('renders a grid-in input instead of choices for kind "grid"', () => {
