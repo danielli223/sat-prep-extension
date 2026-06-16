@@ -231,7 +231,8 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
 });
 
 // --- Plan 3 additions (badger + panel toggle + coachmark + resume) ---
-import { refreshBadges, mountPanelToggle, bindPanelCoachmarks, resumeFor } from './content';
+import { refreshBadges, mountPanelToggle, bindPanelCoachmarks, resumeFor, handleMessage } from './content';
+import { HOST_ID } from '../ui/host';
 import { recordAttempt, saveSession } from '../store';
 import { makeAttempt, makeSession } from '../model';
 
@@ -286,5 +287,20 @@ describe('content wiring (Plan 3)', () => {
     const result = await resumeFor(db, document.querySelector('.results-page')!, 'SAT|Math|Algebra|Hard');
     expect(result).not.toBeNull();
     expect(result!.plan.resumeId).toBe('ef56ab78');
+  });
+
+  it('handleMessage("open-journal") mounts the panel into the shared host', async () => {
+    const db = await freshDb();
+    await handleMessage(db, { type: 'open-journal' });
+    // The shared host carries id HOST_ID; the panel section lands inside its shadow root.
+    const host = document.getElementById(HOST_ID);
+    expect(host).not.toBeNull();
+    expect(host!.shadowRoot!.querySelector('.fp-panel')).not.toBeNull();
+  });
+
+  it('handleMessage ignores unrelated message types', async () => {
+    const db = await freshDb();
+    await handleMessage(db, { type: 'something-else' });
+    expect(document.getElementById(HOST_ID)).toBeNull();
   });
 });
