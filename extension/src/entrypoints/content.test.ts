@@ -74,6 +74,26 @@ describe('content loop wiring', () => {
     expect(shadow.querySelector('.fp-wrong')).toBeNull();
   });
 
+  it('records ONE attempt even when Check is clicked repeatedly (no duplicate attempts)', async () => {
+    const db = await freshDb();
+    document.body.innerHTML += '<table class="results-list"><tbody><tr><td>row</td></tr></tbody></table>';
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+
+    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    const check = shadow.querySelector('.fp-check') as HTMLElement;
+    check.click();
+    check.click();
+    check.click();
+
+    // makeAttempt mints a fresh attemptId each call; without a per-question guard, three clicks would
+    // write three attempts and silently corrupt Plan 3's deriveStats. Exactly one must be recorded.
+    expect(await getAttempts(db)).toHaveLength(1);
+  });
+
   it('note change saves a note; Next updates session.lastQuestionId', async () => {
     const db = await freshDb();
     const shadow = await runLoop(document, db, 'dev-1');
@@ -148,5 +168,33 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     expect(attempts).toHaveLength(1);
     expect(attempts[0]!.correct).toBe(true);
     expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+  });
+
+  it('reveals CB explanation read LIVE from the post-reveal DOM, not the stale observe-time snapshot', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // First paint has NO rationale (view.explanation === null at observe time). The reveal box wiring
+    // injects CB's rationale only after ensureAnswerRevealed clicks it — exactly the live reveal-gated
+    // flow. The loop must re-read the explanation at click time, never the null observe-time snapshot.
+    document.body.innerHTML += unrevealedModal;
+    const box = document.querySelector('.hide-rationale-checkbox input') as HTMLInputElement;
+    box.addEventListener('change', () => {
+      if (box.checked && !document.querySelector('.rationale')) {
+        const slot = document.querySelector('.rationale-slot') as HTMLElement;
+        slot.innerHTML =
+          '<div class="rationale"><p>Correct Answer: B</p><div>Subtract 7, divide by 3. [SYNTHETIC]</div></div>';
+      }
+    });
+
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+
+    // Reveal explanation BEFORE any Check. The explanation was null at observe time but is now live in
+    // the DOM; the card must show CB's actual words, not "No explanation available".
+    (shadow.querySelector('.fp-reveal') as HTMLElement).click();
+    const panel = shadow.querySelector('.fp-explanation')!;
+    expect(panel.textContent).toContain('Subtract 7');
+    expect(panel.textContent).not.toContain('No explanation available');
   });
 });
