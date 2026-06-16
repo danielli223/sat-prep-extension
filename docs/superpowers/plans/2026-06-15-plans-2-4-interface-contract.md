@@ -110,6 +110,13 @@ export function newSeed(): number;   // 32-bit int; used when orderMode === 'ran
   **non-verdict** state: reveal CB's own answer/explanation, show no red/green, record **no**
   attempt (or record with the actual `correct` only when `graded===true`). A wrong verdict is the
   trust-killer — never guess.
+- **Reveal-gating (spike 2026-06-15, design spec §12.1):** `readQuestion(...).correctAnswer` is
+  `null` until CB's "Show correct answer and explanation" control is checked — CB injects the
+  rationale into the DOM only then (MC choices are present regardless). **Plan 2 owns triggering the
+  reveal** (`ensureAnswerRevealed(doc)` clicks `.hide-rationale-checkbox input`) and **re-reading the
+  answer at Check time** (the initial `QuestionView` predates the reveal). The focus card overlays
+  the dimmed CB page, so the student never sees CB's revealed answer until our own verdict. *Legal
+  flag:* this actuates a CB control — still no API/enumeration/prefetch, but raise it in IP review.
 - Plan 4 layers on top: a failure counter + a "Couldn't read this one — answer it on CB" banner +
   the DOM-contract self-check. Plan 4 does this by **modifying** Plan 2's loop call sites; Plan 2
   must NOT pre-stub resilience.

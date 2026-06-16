@@ -21,6 +21,42 @@
 
 **Cross-boundary ownership (contract §2/§3):** this plan **creates** `src/ui/host.ts` (`mountHost`/`HOST_ID`/`TT_POLICY`, §2.1) and `src/order.ts` (`shuffleIds`/`newSeed`, §2.2), and **writes** the session-resume protocol (§2.3). It **does NOT** import or stub `isEnabled()` (§2.5 — Plan 4 inserts that gate) and **does NOT** pre-stub resilience banners (§2.4 — Plan 4 enriches the non-verdict state). Plans 3 & 4 reuse `mountHost`/`shuffleIds`.
 
+> **Spike addendum (2026-06-15) — revealing CB's answer before scoring.** The live DOM-contract
+> spike (design spec §12.1) found that CB injects the rationale — and therefore the **correct answer** —
+> into the DOM **only when its "Show correct answer and explanation" checkbox is checked**; it is absent
+> (not merely hidden) otherwise. MC answer choices are present regardless. So `readQuestion(...).correctAnswer`
+> is `null` until that control is triggered, and the loop must trigger it or **every** question falls to the
+> never-guess `graded:false` path and nothing ever scores. Two concrete additions to Task 7 (`runLoop`):
+>
+> 1. When a question is shown, call `ensureAnswerRevealed(doc)` so CB injects the rationale. The focus card
+>    sits over the **dimmed** CB page (D2), so the student never sees CB's revealed answer until our own
+>    verdict/explanation step.
+>
+>    ```ts
+>    // Reads the rendered DOM + toggles ONE control on the CURRENT user-chosen question — no API call,
+>    // no enumeration, no prefetch. Selectors observed live in the spike (.hide-rationale-checkbox).
+>    function ensureAnswerRevealed(doc: Document): void {
+>      const box = doc.querySelector<HTMLInputElement>('.hide-rationale-checkbox input[type="checkbox"]');
+>      if (box && !box.checked) box.click();
+>    }
+>    ```
+> 2. Read the correct answer **at Check time** from the live container (the `QuestionView` captured when the
+>    modal first appeared predates the reveal), then score:
+>
+>    ```ts
+>    function currentCorrectAnswer(doc: Document, id: string): string | null {
+>      const modal = [...doc.querySelectorAll('.cb-dialog-container')]
+>        .find((el) => (el.textContent ?? '').includes(`Question ID: ${id}`)) ?? null;
+>      return modal ? (readQuestion(modal)?.correctAnswer ?? null) : null;
+>    }
+>    // in onCheck: const answer = currentCorrectAnswer(doc, view.id); const result = score(pick, answer ?? '');
+>    ```
+>
+> **Legal review item:** programmatically checking the reveal box *actuates* a CB control — a step beyond
+> purely passive reading (still no `qbank-api`, no enumeration, no prefetch; the user already chose this
+> question). Surface this to the IP attorney alongside the §10 bright lines. If it doesn't clear, the fallback
+> is to require the student to reveal CB's answer themselves before our verdict (less seamless, fully passive).
+
 ---
 
 ## File structure
