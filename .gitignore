@@ -6,3 +6,4 @@ extension/node_modules/
 extension/dist/
 extension/dist-firefox/
 extension/dist-edge/
+/.claude/
