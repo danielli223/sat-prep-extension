@@ -1,4 +1,5 @@
 import type { QuestionView } from '../cb/reader';
+import { html } from '../ui/host';
 
 // DOM-contract self-check (spec §8.1, contract §2.4). Verifies CB's expected data is present on a
 // read view BEFORE the loop trusts it. On failure we NEVER guess a score — the caller degrades to
@@ -32,4 +33,43 @@ export async function bumpFailureCounter(): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+export const BANNER_ID = 'fp-degraded-banner';
+
+// Non-verdict degraded banner (contract §2.4). Shows CB's own page is authoritative here; renders
+// NO red/green. Idempotent + dismissible. Mounts inside the single shadow host (HOST_ID). All HTML
+// goes through Plan 2's `html()` — the SINGLE `focused-practice` policy created once in host.ts;
+// we never re-create the policy here (contract §2.1: ONE policy, created in host.ts).
+export function renderBanner(root: ShadowRoot): void {
+  if (root.getElementById(BANNER_ID)) return; // idempotent
+  const el = root.ownerDocument!.createElement('div');
+  el.id = BANNER_ID;
+  el.setAttribute('role', 'status');
+  el.innerHTML = html(`
+    <div class="fp-banner">
+      <span class="fp-banner-text">Couldn't read this one — answer it on CB.</span>
+      <button type="button" data-action="dismiss" class="fp-banner-dismiss" aria-label="Dismiss">×</button>
+    </div>`) as string;
+  el.querySelector<HTMLButtonElement>('[data-action="dismiss"]')!.addEventListener('click', () => el.remove());
+  root.appendChild(el);
+}
+
+export const BLOCK_NOTICE_ID = 'fp-block-notice';
+
+// §8.3 "disable AND point to CB" notice. Shown when block-detection fires: the overlay disables
+// itself for this page and tells the student to use CB's question bank directly. We NEVER retry,
+// NEVER call the API — we just link them to CB's own page. Non-verdict; not dismissible (the overlay
+// is off for this page). Idempotent. HTML goes through Plan 2's single `html()` policy.
+export function renderBlockNotice(root: ShadowRoot): void {
+  if (root.getElementById(BLOCK_NOTICE_ID)) return; // idempotent
+  const el = root.ownerDocument!.createElement('div');
+  el.id = BLOCK_NOTICE_ID;
+  el.setAttribute('role', 'status');
+  el.innerHTML = html(`
+    <div class="fp-banner">
+      <span class="fp-banner-text">Focused Practice is paused on this page. Use the question bank directly on CB:</span>
+      <a class="fp-banner-link" href="https://satsuiteeducatorquestionbank.collegeboard.org/" target="_blank" rel="noopener noreferrer">Open the College Board question bank</a>
+    </div>`) as string;
+  root.appendChild(el);
 }
