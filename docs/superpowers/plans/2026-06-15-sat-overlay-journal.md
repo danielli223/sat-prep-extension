@@ -229,19 +229,23 @@ Isolated CB-DOM knowledge, a sibling of `reader.ts`/`observer.ts`: pull each res
 
 - [ ] **Step 1: Create the synthetic fixture `extension/src/cb/__fixtures__/results-list.html`**
 
-> **Synthetic only.** Mimics CB's results-list *structure* (a table of rows, each with a `Question ID:` cell) with **fabricated** text. Never paste real CB question content into the repo (contract §0).
+> **Synthetic only, real structure.** Mirrors the LIVE CB results-list DOM confirmed by the spike
+> (2026-06-15): `table.cb-table-react` with `tbody tr` rows; each row's id is the **bare 8-hex** in
+> `td.id-column > button` (NO "Question ID:" prefix — that prefix only appears in the modal's `<h4>`).
+> Columns: checkbox, ID #, Difficulty, Domain, Skill. Text is fabricated `[SYNTHETIC]`; never paste
+> real CB question content into the repo (contract §0).
 
 ```html
 <div class="results-page">
-  <table class="question-bank-results">
+  <table class="cb-table cb-table-react cb-no-border-left-right">
     <thead>
-      <tr><th>Question ID</th><th>Skill</th><th>Difficulty</th></tr>
+      <tr><th></th><th>ID #</th><th>Difficulty</th><th>Domain</th><th>Skill</th></tr>
     </thead>
     <tbody>
-      <tr class="result-row"><td class="qid">Question ID: ab12cd34</td><td>Linear equations [SYNTHETIC]</td><td>Hard</td></tr>
-      <tr class="result-row"><td class="qid">Question ID: ef56ab78</td><td>Inferences [SYNTHETIC]</td><td>Medium</td></tr>
-      <tr class="result-row"><td class="qid">Question ID: 99ff00aa</td><td>Geometry [SYNTHETIC]</td><td>Easy</td></tr>
-      <tr class="result-row no-id"><td class="qid">loading…</td><td></td><td></td></tr>
+      <tr><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ab12cd34</button></td><td class="difficulty-column">Hard</td><td>Algebra</td><td>Linear equations [SYNTHETIC]</td></tr>
+      <tr><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ef56ab78</button></td><td class="difficulty-column">Medium</td><td>Algebra</td><td>Inferences [SYNTHETIC]</td></tr>
+      <tr><td class="checked-column"></td><td class="id-column"><button class="cb-btn">99ff00aa</button></td><td class="difficulty-column">Easy</td><td>Geometry</td><td>Geometry [SYNTHETIC]</td></tr>
+      <tr class="loading-row"><td class="checked-column"></td><td class="id-column"></td><td></td><td></td><td></td></tr>
     </tbody>
   </table>
 </div>
@@ -263,16 +267,16 @@ function loadList(): Element {
 }
 
 describe('readListQuestionIds', () => {
-  it('extracts {id,node} for every row that carries a Question ID, in document order', () => {
+  it('extracts {id,node} for every row that carries a question id, in document order', () => {
     const rows = readListQuestionIds(loadList());
     expect(rows.map((r) => r.id)).toEqual(['ab12cd34', 'ef56ab78', '99ff00aa']);
     expect(rows[0]!.node).toBeInstanceOf(Element);
-    expect(rows[0]!.node.classList.contains('result-row')).toBe(true);
+    expect(rows[0]!.node.tagName).toBe('TR');   // the row node, for the badger to anchor a chip on
   });
 
-  it('skips rows with no Question ID (e.g. a loading row)', () => {
+  it('skips rows with no id (e.g. a loading row)', () => {
     const rows = readListQuestionIds(loadList());
-    expect(rows.some((r) => r.node.classList.contains('no-id'))).toBe(false);
+    expect(rows.some((r) => r.node.classList.contains('loading-row'))).toBe(false);
   });
 
   it('returns [] when the root has no result rows', () => {
@@ -296,13 +300,16 @@ Expected: FAIL — cannot import from `./list-reader`.
 // only IDs + the node to anchor a chip on.
 export interface ListRow { id: string; node: Element; }
 
-const ROW_ID_RE = /Question ID:\s*([0-9a-f]{6,})/i;
+// Live CB results list (spike 2026-06-15): table.cb-table-react, each row's id is the BARE 8-hex in
+// td.id-column (no "Question ID:" prefix — that is only in the modal's <h4>). node is the <tr> so the
+// badger can attach a chip without touching CB's HTML. Only the id is read; no question content.
+const ROW_ID_RE = /^[0-9a-f]{8}$/i;
 
 export function readListQuestionIds(listRoot: Element): ListRow[] {
   const rows: ListRow[] = [];
-  for (const node of listRoot.querySelectorAll('.result-row')) {
-    const m = (node.textContent ?? '').match(ROW_ID_RE);
-    if (m) rows.push({ id: m[1]!, node });
+  for (const node of listRoot.querySelectorAll('table.cb-table-react tbody tr')) {
+    const id = node.querySelector('.id-column')?.textContent?.trim() ?? '';
+    if (ROW_ID_RE.test(id)) rows.push({ id, node });
   }
   return rows;
 }
