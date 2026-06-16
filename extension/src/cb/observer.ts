@@ -12,6 +12,10 @@ export function observeQuestions(doc: Document, onShown: (view: QuestionView) =>
     const modal = [...doc.querySelectorAll('.cb-dialog-container')]
       .find((el) => /Question ID:/i.test(el.textContent ?? '')) ?? null;
     if (!modal) { lastId = null; return; }
+    // The modal renders progressively: the header (with the id) appears before .cb-dialog-content
+    // (meta table + answer choices). Wait until the meta data row is present so we never emit a
+    // partial view — otherwise dedup-by-id would lock in empty taxonomy/choices (spike 2026-06-15).
+    if (!modal.querySelector('table.cb-table td')) return;
     const view = readQuestion(modal);
     if (view && view.id !== lastId) { lastId = view.id; onShown(view); }
   };
