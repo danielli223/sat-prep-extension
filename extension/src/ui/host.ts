@@ -31,11 +31,15 @@ function ensurePolicy(): void {
 // backdrop with a centered white card, green=correct / red=wrong / blue=selected. Scoped to this
 // shadow root, so nothing leaks to (or is overridden by) College Board's page.
 const BASE_CSS = `
-.${CARD_SLOT_CLASS}{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+/* Explicit overlay layering (all three are position:fixed → each its own stacking context). Without
+   z-index, stacking fell to DOM order and the calculator/panel buried each other. Card (the dimmed
+   modal) sits lowest; the journal panel above it; the extras slot (calculator + future floating
+   tools) on top so a tool is never hidden under another overlay. */
+.${CARD_SLOT_CLASS}{position:fixed;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;
   background:rgba(15,23,42,.55);padding:24px;box-sizing:border-box;pointer-events:auto;
   font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
 .${CARD_SLOT_CLASS}:empty{display:none;}
-.${EXTRAS_SLOT_CLASS}{position:fixed;inset:0;pointer-events:none;}
+.${EXTRAS_SLOT_CLASS}{position:fixed;inset:0;z-index:3;pointer-events:none;}
 .${EXTRAS_SLOT_CLASS}>*{pointer-events:auto;}
 .fp-card,.fp-start{width:100%;max-width:460px;max-height:88vh;overflow:auto;background:#fff;color:#1f2937;
   border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:20px;box-sizing:border-box;}
@@ -78,6 +82,9 @@ const BASE_CSS = `
 .fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
   padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}
 .fp-note::placeholder{color:#b45309;}
+/* Bottom-LEFT so the floating calculator never collides with the right-docked .fp-panel journal. */
+.fp-geogebra{position:fixed;left:16px;bottom:16px;width:440px;max-width:92vw;height:660px;max-height:86vh;
+  border:1px solid #cbd5e1;border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.4);background:#fff;}
 .fp-calc{display:flex;gap:8px;}
 .fp-calc-pin,.fp-desmos{background:#f1f5f9;color:#334155;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;}
 .fp-onboarding{font-size:12px;color:#0c4a6e;line-height:1.5;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px;margin-bottom:14px;}
@@ -85,7 +92,7 @@ const BASE_CSS = `
 .fp-start>button{display:block;width:100%;margin-bottom:8px;padding:11px;border-radius:9px;border:1px solid #cbd5e1;
   background:#fff;cursor:pointer;font:inherit;font-weight:600;color:#0f172a;}
 .fp-start>button.fp-start-list{background:#3b82f6;color:#fff;border-color:#3b82f6;}
-.fp-panel{position:fixed;top:0;right:0;height:100vh;width:min(460px,100vw);overflow-y:auto;background:#fff;
+.fp-panel{position:fixed;top:0;right:0;z-index:2;height:100vh;width:min(460px,100vw);overflow-y:auto;background:#fff;
   color:#1f2937;box-shadow:-12px 0 40px rgba(0,0,0,.3);pointer-events:auto;padding:20px;box-sizing:border-box;}
 .fp-panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
 .fp-panel-head h2{font-size:18px;margin:0;}
