@@ -36,6 +36,43 @@ describe('toggleGeoGebra', () => {
     expect(shadow.querySelector('iframe.fp-geogebra')).toBeNull();
   });
 
+  it('sizes the iframe as a fixed floating panel so the FULL calculator shows (not the default box)', () => {
+    // Regression: .fp-geogebra had no CSS rule, so the iframe fell back to the browser default
+    // (~300x150) in static flow and only a slice — the keyboard — was visible ("not shown in
+    // complete"). The fix gives it an explicit size and fixed positioning.
+    const shadow = mountHost(document);
+    toggleGeoGebra(shadow);
+    const iframe = shadow.querySelector('iframe.fp-geogebra') as HTMLIFrameElement;
+    const cs = getComputedStyle(iframe);
+    expect(cs.position).toBe('fixed');                 // floating panel, not collapsed static flow
+    for (const dim of [cs.width, cs.height]) {
+      expect(dim).not.toBe('');                        // an explicit size was applied...
+      expect(dim).not.toBe('auto');
+      expect(dim).not.toBe('0px');
+      expect(dim).toMatch(/\d+\s*(px|vw|vh|%)/);        // ...as a real length, not a default
+    }
+  });
+
+  it('docks clear of the right-docked journal panel and stacks above it (no overlap, never hidden)', () => {
+    // Regression: the calculator and the .fp-panel journal were BOTH right-docked, so they overlapped
+    // and one hid the other. Fix: dock the calculator bottom-LEFT, and give its stacking layer
+    // (.fp-extras-slot) an explicit z-index above the panel so it can never be buried underneath.
+    const shadow = mountHost(document);
+    toggleGeoGebra(shadow);
+    const iframe = shadow.querySelector('iframe.fp-geogebra') as HTMLIFrameElement;
+    const cs = getComputedStyle(iframe);
+    expect(cs.left).toMatch(/\d/);                     // docked left (not the right edge the panel owns)
+
+    // Compare the two stacking layers. The panel rule applies by class even on a bare element.
+    const extras = shadow.querySelector('.fp-extras-slot') as HTMLElement;
+    const panel = document.createElement('section');
+    panel.className = 'fp-panel';
+    shadow.appendChild(panel);
+    const zExtras = Number(getComputedStyle(extras).zIndex);
+    const zPanel = Number(getComputedStyle(panel).zIndex);
+    expect(zExtras).toBeGreaterThan(zPanel);           // calculator layer is above the panel
+  });
+
   it('survives a card re-render: the open iframe is NOT clobbered when renderCard repaints', () => {
     const shadow = mountHost(document);
     renderCard(shadow, toCardVM(sampleView, 0, 1), live, noop());
