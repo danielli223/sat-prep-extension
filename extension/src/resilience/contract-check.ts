@@ -21,8 +21,15 @@ export function checkContract(view: QuestionView | null): ContractResult {
 
 export const FAILURE_KEY = 'contract.failureCount';
 
+// Sentinel returned when the storage read/write itself failed. Distinct from 0 ("no failures yet")
+// so a future "disable after N failures" reading this value never undercounts on storage flakiness.
+// On success the return is always >= 1 (a successful bump means at least this failure).
+export const FAILURE_COUNT_UNKNOWN = -1;
+
 // Persisted, monotonically increasing failure tally. Observable signal that CB's DOM drifted —
-// feeds the kill-switch decision (spec §8.1/§8.2). Best-effort; never throws.
+// feeds the kill-switch decision (spec §8.1/§8.2). Best-effort; never throws. Returns the new count
+// on success (>= 1), or FAILURE_COUNT_UNKNOWN (-1) if storage failed — NOT 0, which would collide
+// with "no failures yet".
 export async function bumpFailureCounter(): Promise<number> {
   try {
     const got = await chrome.storage.local.get(FAILURE_KEY);
@@ -31,7 +38,7 @@ export async function bumpFailureCounter(): Promise<number> {
     await chrome.storage.local.set({ [FAILURE_KEY]: next });
     return next;
   } catch {
-    return 0;
+    return FAILURE_COUNT_UNKNOWN;
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { checkContract, bumpFailureCounter, FAILURE_KEY } from './contract-check';
+import { checkContract, bumpFailureCounter, FAILURE_KEY, FAILURE_COUNT_UNKNOWN } from './contract-check';
 import type { QuestionView } from '../cb/reader';
 
 function stubChrome() {
@@ -52,6 +52,15 @@ describe('bumpFailureCounter', () => {
     expect(await bumpFailureCounter()).toBe(1);
     expect(await bumpFailureCounter()).toBe(2);
     expect(mem[FAILURE_KEY]).toBe(2);
+  });
+
+  it('returns the UNKNOWN sentinel (not 0) when storage fails — never collides with "no failures yet"', async () => {
+    vi.stubGlobal('chrome', {
+      storage: { local: { get: async () => { throw new Error('storage off'); }, set: async () => {} } },
+    });
+    const got = await bumpFailureCounter();
+    expect(got).toBe(FAILURE_COUNT_UNKNOWN);
+    expect(got).not.toBe(0); // 0 would be indistinguishable from a clean first read
   });
 });
 
