@@ -10,6 +10,11 @@ export default defineConfig({
     environmentOptions: {
       happyDOM: { settings: { disableIframePageLoading: true } },
     },
+    // Fake ONLY Date when a test calls vi.useFakeTimers(). fake-indexeddb schedules its async work
+    // via setImmediate/setTimeout (lib/scheduling.js); faking those (the vitest default) deadlocks
+    // store-backed tests that pin system time (e.g. journal.test.ts) — the DB callbacks never fire.
+    // Tests that need deterministic timestamps (model/journal) only ever fake Date.
+    fakeTimers: { toFake: ['Date'] },
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
   },
 });
