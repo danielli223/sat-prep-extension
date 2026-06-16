@@ -4,7 +4,7 @@ import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
 import { observeQuestions } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
-import { mountHost } from '../ui/host';
+import { mountHost, cardSlot } from '../ui/host';
 import { toCardVM, type LiveContent } from '../ui/view-model';
 import { renderCard, renderVerdict, type CardHandlers } from '../ui/card';
 import { renderStartPanel } from '../ui/start-panel';
@@ -29,13 +29,13 @@ function filterContextOf(v: QuestionView): string {
 // NOT Plan 3's readListQuestionIds selector, and NOT a stored questionID→metadata index (spec §10).
 // Falls back to 1 when CB shows a single open question with no surrounding list.
 //
-// NEEDS-LIVE-VERIFICATION: unlike the reader/observer selectors, these list selectors
-// ([data-testid="result-row"], table.results-list tbody tr) are NOT yet attributed to the live CB
-// DOM spike. Plan 3 owns the verified list selector (readListQuestionIds) and should supersede these.
-// Low risk: this value is display-only ("Q n of N"), never stored — if the selectors miss live, N
-// degrades gracefully to the documented 1 fallback.
+// table.cb-table-react tbody tr is the live CB results list (confirmed in the 2026-06-15 spike:
+// 10 loaded rows). The other selectors are synthetic-fixture/defensive fallbacks. Plan 3 owns the
+// verified list reader (readListQuestionIds) and may supersede this. Display-only ("Q n of N"),
+// never stored — if every selector misses, N degrades gracefully to the documented 1 fallback.
 function countLoadedResults(doc: Document): number {
-  return Math.max(1, doc.querySelectorAll('[data-testid="result-row"], table.results-list tbody tr').length);
+  return Math.max(1, doc.querySelectorAll(
+    'table.cb-table-react tbody tr, [data-testid="result-row"], table.results-list tbody tr').length);
 }
 
 // Spike addendum (2026-06-15, design spec §12.1): CB injects the rationale — and therefore the
@@ -91,6 +91,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   let total = 1;   // loaded-results count N for "Q n of N"; fixed at Start
 
   function start(orderMode: 'list' | 'random'): void {
+    cardSlot(shadow).replaceChildren();   // dismiss the start panel so the student can open a CB question
     total = countLoadedResults(doc);   // read N once, before the first card paints
     let started = false;
     stop = observeQuestions(doc, (view) => {
@@ -156,6 +157,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
 
   async function onNext(view: QuestionView): Promise<void> {
     index++;
+    cardSlot(shadow).replaceChildren();   // clear our card so the student can navigate CB to the next question
     if (session) {
       session.lastQuestionId = view.id;
       session.updatedAt = nowIso();

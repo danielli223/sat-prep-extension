@@ -108,6 +108,37 @@ describe('content loop wiring', () => {
     expect((await getNotes(db))[0]!.text).toBe('missed the trap');
     expect((await getSession(db, 'SAT|Math|Algebra|Hard'))!.lastQuestionId).toBe('ab12cd34');
   });
+
+  it('Start dismisses the start panel so the student can open a CB question', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    expect(shadow.querySelector('.fp-start')).not.toBeNull();   // panel shown on boot
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    expect(shadow.querySelector('.fp-start')).toBeNull();       // cleared so CB is reachable
+    expect(shadow.querySelector('.fp-card')).toBeNull();        // no question opened yet
+  });
+
+  it('Next clears the card so the student can navigate CB to the next question', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    (shadow.querySelector('.fp-next') as HTMLElement).click();
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).toBeNull());
+  });
+
+  it('headers "Q n of N" from the live cb-table-react results list', async () => {
+    const db = await freshDb();
+    document.body.innerHTML +=
+      '<table class="cb-table-react"><tbody>' +
+      Array.from({ length: 5 }, () => '<tr><td>q</td></tr>').join('') + '</tbody></table>';
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 5');
+  });
 });
 
 // Spike addendum (2026-06-15): CB injects the correct answer into the DOM ONLY once its
