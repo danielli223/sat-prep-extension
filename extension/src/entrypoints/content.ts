@@ -1,5 +1,5 @@
 import type { IDBPDatabase } from 'idb';
-import { openStore, recordAttempt, saveNote, saveSession, getSession } from '../store';
+import { openStore, recordAttempt, saveNote, saveSession, getSession, getAttempts } from '../store';
 import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
 import { observeQuestions } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
@@ -8,11 +8,13 @@ import { mountHost, cardSlot } from '../ui/host';
 import { toCardVM, type LiveContent } from '../ui/view-model';
 import { renderCard, renderVerdict, type CardHandlers } from '../ui/card';
 import { renderStartPanel } from '../ui/start-panel';
+import { renderPanel } from '../ui/panel';
 import { toggleGeoGebra, openDesmos } from '../ui/calculator';
 import { newSeed } from '../order';
 import type { Session } from '../types';
 import { badge } from '../ui/badger';
-import { getSeen } from '../journal';
+import { getSeen, getMistakes } from '../journal';
+import { deriveStats } from '../stats';
 import { resumeSession, type ResumeResult } from '../ui/resume';
 import { dropCoachmark } from '../ui/coachmark';
 
@@ -226,7 +228,30 @@ export function bindPanelCoachmarks(host: ShadowRoot, db: IDBPDatabase, listRoot
   });
 }
 
-// Boot (only fires in the extension, not in unit tests which import runLoop directly).
+/** Single panel-mount path: the toggle button and the popup's open-journal message both call this. */
+export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): Promise<void> {
+  if (msg?.type !== 'open-journal') return;
+  const host = mountHost(document);
+  renderPanel(host, { stats: deriveStats(await getAttempts(db)), mistakes: await getMistakes(db) });
+}
+
+// Boot (skipped under test: no chrome runtime). Plan 2 runs the scored loop; Plan 3 adds the
+// badger + journal panel toggle + coachmark binding + the open-journal message listener.
 if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
-  void openStore().then((db) => runLoop(document, db, deviceId()));
+  void (async () => {
+    const db = await openStore();
+    await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
+
+    mountPanelToggle(document, () => void handleMessage(db, { type: 'open-journal' }));
+    const list = findResultsList(document);
+    if (list) {
+      await refreshBadges(db, list);
+      bindPanelCoachmarks(mountHost(document), db, list);     // panel links → coachmark → re-badge
+    }
+    observeQuestions(document, () => {
+      const l = findResultsList(document);
+      if (l) void refreshBadges(db, l);
+    });
+    chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
+  })();
 }
