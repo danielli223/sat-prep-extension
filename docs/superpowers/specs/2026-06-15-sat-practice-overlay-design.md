@@ -188,6 +188,28 @@ session  { sessionId, userId:null, deviceId, filterContext, orderMode, shuffleSe
 
 ---
 
+## 12.1 Live DOM-contract spike results — 2026-06-15
+
+Ran the spike against the live public Educator bank (SAT → Math → Algebra, 582 questions, **not logged in**). Detection and reading confirmed for both **multiple-choice** and **grid-in** across 7 questions (`ac472881`, `3f5a3602`, `3d1070c9`, `002dba45`, `edc1b7b7`, `f224df07`, `fa80893a`). The shipped Plan 1 reader/observer selectors were **wrong against the real DOM** (synthetic-fixture guesses); fixed in `extension/src/cb/{reader,observer}.ts` and the fixtures re-mirrored to the real structure (text still fabricated). Corrections:
+
+| Assumed (Plan 1) | Live reality → fix |
+|---|---|
+| modal = `[role="dialog"]` | content lives in **`div.cb-dialog-container`** (the dialog node holds only chrome; a cookie banner also uses `role=dialog`). Observer now matches the container holding "Question ID:". |
+| id `[0-9a-f]{6,}` over whole modal | over-captures `…C` from an adjacent "Copy" control (C is hex). Read the **`h4`** with a fixed **8-hex** capture. |
+| `table.meta` | real meta table is **`table.cb-table`**; reader now picks the data row by `<td>` presence (thead/tbody-safe). Column order unchanged. |
+| `.answer-choices .choice` (with `.letter`) | choices are **`.answer-choices ul > li`**; the A–D letter is **CSS-generated, not in the text** → derive from list **index**. |
+| `.question-stem` | stem is in **`.question-content`** (`.prompt`/`.question`). |
+| `Correct Answer:` via `([^\n]+)` | over-captures the explanation; read the **smallest element inside `.rationale`** matching "Correct Answer:". |
+| `.rationale` | ✓ correct as-is. |
+
+**Reveal behaviour (key Plan 2 input).** The correct answer + rationale are **injected into the DOM only when "Show correct answer and explanation" is checked** — absent (not merely hidden) otherwise. **MC answer choices are always present**, revealed or not. → Plan 2's overlay can always read the question + choices, but to **score** it must trigger CB's own reveal control (programmatically check the box, read the injected answer, then surface CB's explanation through our flow; the focus card hides CB's reveal from the student until our verdict). Flag for legal review: this actuates a CB control on the *current* user-chosen question — still no API call / no enumeration / no prefetch, but a step beyond purely passive reading.
+
+**Grid-in answer formats (scoring calibration — validated).** Observed: single integers (`3`, `17`) and a **comma-separated multi-form list** `.1764, .1765, 3/17` (a repeating decimal accepted as truncated **or** rounded to 4 places, **or** the fraction). `scoring.ts` already handles every observed form via `splitAnswers` (comma/"or") + `numericAccept` (rounded-or-truncated to the pick's decimals, leading-dot decimals) — **no scoring change needed**. Anything unrecognised still falls to the `{ graded:false }` never-guess path.
+
+**Result:** reader/observer rewritten + 51/51 tests green + bundle clean. The scoring assumption holds: the correct answer is reliably in the rendered DOM (once revealed) for both question types.
+
+---
+
 ## 13. The one sentence that keeps it legal
 
 *The official question lives and dies on College Board's own page in the student's own browser; we are only the scoring-and-journal layer around it, and the only things that ever reach us are question IDs and the student's own data.*
