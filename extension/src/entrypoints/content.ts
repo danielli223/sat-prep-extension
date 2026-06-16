@@ -18,6 +18,7 @@ import { deriveStats } from '../stats';
 import { resumeSession, type ResumeResult } from '../ui/resume';
 import { dropCoachmark, COACHMARK_CLASS } from '../ui/coachmark';
 import { OPEN_JOURNAL } from '../messages';
+import { readListQuestionIds } from '../cb/list-reader';
 
 const DEVICE_KEY = 'fp-device-id';
 function deviceId(): string {
@@ -234,6 +235,25 @@ export function bindPanelCoachmarks(host: ShadowRoot, db: IDBPDatabase, listRoot
   });
 }
 
+/** Badge the results list now and whenever CB (re)renders it. The React list is NOT in the DOM at
+ *  document_idle, so a one-shot boot badge misses it, and observeQuestions only fires on question
+ *  modals — not list changes (live 2026-06-16: chips never appeared on the list view). Gate on the
+ *  row-id signature so the badger's OWN chip mutations don't re-trigger (no mutate→observe→mutate loop;
+ *  readListQuestionIds ignores chip text, so the signature is stable once badged). Returns disconnect. */
+export function watchResultsList(doc: Document, db: IDBPDatabase): () => void {
+  let lastSig = '';
+  const reBadge = (): void => {
+    const list = findResultsList(doc);
+    if (!list) return;
+    const sig = readListQuestionIds(list).map((r) => r.id).join(',');
+    if (sig && sig !== lastSig) { lastSig = sig; void refreshBadges(db, list); }
+  };
+  reBadge();
+  const mo = new MutationObserver(reBadge);
+  mo.observe(doc.body, { childList: true, subtree: true });
+  return () => mo.disconnect();
+}
+
 /** Single panel-mount path: the toggle button and the popup's open-journal message both call this. */
 export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): Promise<void> {
   if (msg?.type !== OPEN_JOURNAL) return;
@@ -256,12 +276,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
     await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
 
     mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
-    const list = findResultsList(document);
-    if (list) await refreshBadges(db, list);   // badge the real rows on boot; coachmarks bind on panel open
-    observeQuestions(document, () => {
-      const l = findResultsList(document);
-      if (l) void refreshBadges(db, l);
-    });
+    watchResultsList(document, db);   // badge on list render + whenever CB re-renders it (coachmarks bind on panel open)
     chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
   })();
 }

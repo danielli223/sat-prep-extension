@@ -231,7 +231,7 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
 });
 
 // --- Plan 3 additions (badger + panel toggle + coachmark + resume) ---
-import { refreshBadges, mountPanelToggle, bindPanelCoachmarks, resumeFor, handleMessage, findResultsList } from './content';
+import { refreshBadges, mountPanelToggle, bindPanelCoachmarks, resumeFor, handleMessage, findResultsList, watchResultsList } from './content';
 import { HOST_ID } from '../ui/host';
 import { recordAttempt, saveSession } from '../store';
 import { makeAttempt, makeSession } from '../model';
@@ -364,5 +364,22 @@ describe('content wiring against the LIVE cb-table-react DOM (no .results-page w
     expect(result).not.toBeNull();
     expect(result!.plan.resumeId).toBe('ef56ab78');
     expect(result!.scrolledTo).not.toBeNull();   // the row was found + scrolled in the live DOM
+  });
+
+  it('watchResultsList badges the list when CB renders it AFTER boot (list-load trigger, not question-modal)', async () => {
+    // Live 2026-06-16: the React list is not in the DOM at document_idle, and the old re-badge trigger
+    // (observeQuestions) only fires on question modals — so chips never appeared on the list view.
+    const db = await freshDb();
+    await recordAttempt(db, makeAttempt({ deviceId: 'd', questionId: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'X', difficulty: 'Hard', pick: 'D', correct: true }));
+    const stop = watchResultsList(document, db);   // starts with NO list (document_idle, pre-render)
+    expect(document.querySelector('.fp-badge')).toBeNull();
+
+    document.body.innerHTML = LIVE_LIST;           // CB renders the results list later
+    await vi.waitFor(() => expect(document.querySelector('.fp-badge')).not.toBeNull());
+
+    const chips = document.querySelectorAll('.fp-badge');
+    expect(chips).toHaveLength(2);                  // both rows badged; no self-trigger duplicate
+    expect(chips[0]!.getAttribute('data-state')).toBe('done');   // ab12cd34 answered correctly
+    stop();
   });
 });
