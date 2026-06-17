@@ -98,11 +98,20 @@ describe('toggleGeoGebra', () => {
 });
 
 describe('openDesmos', () => {
-  it('opens desmos.com/calculator in a separate window (not an iframe)', () => {
-    const spy = vi.fn();
+  it('opens desmos.com in a fresh _blank window with noopener (no reusable, disownable handle)', () => {
+    // Regression (live 2026-06-16): opening with a NAMED target ('fp-desmos') and then nulling
+    // win.opener meant a SECOND click tried to re-navigate the now-cross-origin (desmos.com) named
+    // window without being its opener — Chrome blocks that as "Unsafe attempt to initiate navigation".
+    // Use _blank (a new window each click, nothing to re-navigate) + the standard `noopener` token
+    // (prevents reverse-tabnabbing AND makes window.open return null, so we never hold/disown a handle).
+    const spy = vi.fn((..._args: unknown[]) => null);
     vi.stubGlobal('open', spy);
     openDesmos();
-    expect(spy).toHaveBeenCalledWith('https://www.desmos.com/calculator', 'fp-desmos', expect.stringContaining('width='));
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [url, target, features] = spy.mock.calls[0]!;
+    expect(url).toBe('https://www.desmos.com/calculator');
+    expect(target).toBe('_blank');                       // NOT a reusable named target
+    expect(features).toMatch(/\bnoopener\b/);
     vi.unstubAllGlobals();
   });
 });
