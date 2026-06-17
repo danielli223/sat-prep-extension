@@ -4,11 +4,21 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'happy-dom',
-    // Keep the suite hermetic / offline-safe: when a test mounts the GeoGebra <iframe>, happy-dom
-    // must NOT actually fetch geogebra.org. This suppresses the iframe page load only; iframe.src is
-    // still the real URL, so no assertion is weakened.
+    // Keep the suite hermetic / offline-safe.
+    // - disableIframePageLoading: when a test mounts the GeoGebra <iframe>, happy-dom must NOT fetch
+    //   geogebra.org. iframe.src is still the real URL, so no assertion is weakened.
+    // - disableJavaScript*: tests inject CB-shaped HTML fixtures into the LIVE document; happy-dom would
+    //   otherwise EVALUATE any <script> they carry. A CB script is an ES module, so it surfaces as an
+    //   unhandled "Unexpected token 'export'" rejection that fails the run (exit 1). We assert DOM
+    //   structure, never execute page scripts, so disabling script eval/loading is pure hardening.
     environmentOptions: {
-      happyDOM: { settings: { disableIframePageLoading: true } },
+      happyDOM: {
+        settings: {
+          disableIframePageLoading: true,
+          disableJavaScriptEvaluation: true,
+          disableJavaScriptFileLoading: true,
+        },
+      },
     },
     // Fake ONLY Date when a test calls vi.useFakeTimers(). fake-indexeddb schedules its async work
     // via setImmediate/setTimeout (lib/scheduling.js); faking those (the vitest default) deadlocks
