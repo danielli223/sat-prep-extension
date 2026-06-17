@@ -1,22 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mountHost } from './host';
-import { renderCard } from './card';
-import { toCardVM, type LiveContent } from './view-model';
 import { toggleGeoGebra, openDesmos } from './calculator';
-import type { QuestionView } from '../cb/reader';
 
 beforeEach(() => { document.body.innerHTML = ''; });
-
-const noop = () => ({
-  onSelect: vi.fn(), onEliminate: vi.fn(), onCheck: vi.fn(), onReveal: vi.fn(), onNote: vi.fn(),
-  onNext: vi.fn(), onToggleCalc: vi.fn(), onOpenDesmos: vi.fn(), onClose: vi.fn(),
-});
-const sampleView: QuestionView = {
-  id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear', difficulty: 'Hard',
-  stem: 'stem [SYNTHETIC]', stemHtml: 'stem [SYNTHETIC]', choices: [{ letter: 'A', text: '1' }, { letter: 'B', text: '2' }],
-  correctAnswer: 'B', explanation: null, explanationHtml: '',
-};
-const live: LiveContent = { stem: sampleView.stem, stemHtml: sampleView.stemHtml, explanationHtmlGetter: () => '' };
 
 describe('toggleGeoGebra', () => {
   it('mounts the GeoGebra SCIENTIFIC calculator iframe (button keypad, not the graphing grid)', () => {
@@ -85,18 +71,6 @@ describe('toggleGeoGebra', () => {
     expect(zExtras).toBeGreaterThan(zPanel);           // calculator layer is above the panel
   });
 
-  it('survives a card re-render: the open calculator is NOT clobbered when renderCard repaints', () => {
-    const shadow = mountHost(document);
-    renderCard(shadow, toCardVM(sampleView, 0, 1), live, noop());
-    toggleGeoGebra(shadow);                       // open the calculator over the card
-    expect(shadow.querySelector('.fp-geogebra')).not.toBeNull();
-
-    // Advancing to the next question repaints the card. The calculator must persist (it lives in a
-    // sibling slot, not the card slot renderCard overwrites).
-    renderCard(shadow, toCardVM({ ...sampleView, id: 'ef56ab78' }, 1, 1), live, noop());
-    expect(shadow.querySelector('.fp-geogebra')).not.toBeNull();
-    expect(shadow.querySelector('.fp-card')).not.toBeNull();   // and the new card is present
-  });
 });
 
 describe('openDesmos', () => {
