@@ -2,6 +2,7 @@ agent-reports/*
 /.gstack/
 .gstack/
 .superpowers/
+docs/superpowers/
 extension/node_modules/
 extension/dist/
 extension/dist-firefox/
