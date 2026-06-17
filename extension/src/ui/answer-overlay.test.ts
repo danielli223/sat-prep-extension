@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard } from './answer-overlay';
+import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard } from './answer-overlay';
 import { score } from '../scoring';
 import type { CardVM } from './view-model';
 
@@ -73,12 +73,14 @@ describe('renders interactive UI', () => {
 });
 
 describe('mountAnswerOverlay', () => {
-  it('mounts a shadow host inside .answer-content and hides CB\'s native choices', () => {
+  it('mounts a shadow host inside .answer-content and hides CB\'s native choices (whitelist: everything but our host)', () => {
     const ac = cbAnswerContent();
     const shadow = mountAnswerOverlay(ac, vm, noop());
     expect(ac.querySelector('.fp-answer-host')!.shadowRoot).toBe(shadow);
+    // Whitelist masking: every CB direct child is hidden; our host is the only visible one.
     expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
     expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('none');
+    expect((ac.querySelector('.fp-answer-host') as HTMLElement).style.display).toBe('');
   });
 
   it('re-mounting reuses the single host (no duplicate overlays)', () => {
@@ -88,9 +90,57 @@ describe('mountAnswerOverlay', () => {
     expect(ac.querySelectorAll('.fp-answer-host')).toHaveLength(1);
   });
 
+  it('hides a CB node injected AFTER mount via the MutationObserver (async-injected .rationale leak)', async () => {
+    // Mount against an .answer-content with NO .rationale (the live pre-reveal state), then inject one
+    // — exactly what CB's async reveal does ~150ms later. The observer must hide it (no inline leak).
+    document.body.innerHTML =
+      '<div class="cb-dialog-container"><div class="answer-content">' +
+      '<div class="answer-choices"><ul><li>3</li><li>5</li></ul></div>' +
+      '</div></div>';
+    const ac = findAnswerContent(document.querySelector('.cb-dialog-container')!)!;
+    mountAnswerOverlay(ac, vm, noop());
+    expect(ac.querySelector('.rationale')).toBeNull();   // not present at mount
+
+    const late = document.createElement('div');
+    late.className = 'rationale';
+    late.innerHTML = '<p>Correct Answer: B</p>';
+    ac.appendChild(late);                                // CB injects it later, as a direct child
+    await new Promise((r) => setTimeout(r, 0));          // happy-dom fires MutationObserver callbacks async
+    expect(late.style.display).toBe('none');             // observer hid it — no leaked "Correct Answer"
+  });
+
   it('findAnswerContent returns null when CB has no .answer-content (overlay no-ops)', () => {
     document.body.innerHTML = '<div class="cb-dialog-container"><div class="cb-dialog-header"></div></div>';
     expect(findAnswerContent(document.querySelector('.cb-dialog-container')!)).toBeNull();
+  });
+});
+
+describe('unmountAnswerOverlay', () => {
+  it('restores the CB nodes WE hid and removes the host (no blanked CB question on teardown)', () => {
+    const ac = cbAnswerContent();
+    mountAnswerOverlay(ac, vm, noop());
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
+    expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('none');
+
+    unmountAnswerOverlay(ac);
+
+    expect(ac.querySelector('.fp-answer-host')).toBeNull();                          // our host gone
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('');  // CB content back
+    expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('');
+    // Our marker is cleared so a later re-mount + re-teardown stays correct.
+    expect(ac.querySelector('[data-fp-hidden]')).toBeNull();
+  });
+
+  it('after unmount the observer is disconnected — a later CB injection is NOT hidden', async () => {
+    const ac = cbAnswerContent();
+    mountAnswerOverlay(ac, vm, noop());
+    unmountAnswerOverlay(ac);
+
+    const late = document.createElement('div');
+    late.className = 'rationale-late';
+    ac.appendChild(late);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(late.style.display).toBe('');   // observer gone → CB's own content is left untouched
   });
 });
 
