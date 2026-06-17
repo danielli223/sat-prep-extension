@@ -231,9 +231,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       onNext: () => onNext(view),
       onToggleCalc: () => toggleGeoGebra(shadow),
       onOpenDesmos: () => openDesmos(),
-      // ✕ minimizes the card into the bottom-right launcher pill (stashes the live node so the
-      // student's selection/verdict/note survive); the pill re-attaches it. A new CB question
-      // discards the stash via showQuestion's launcher.discard().
+      // ✕ minimizes the card into the launcher pill (top-right, beside the Journal pill) — it stashes
+      // the live node so the student's selection/verdict/note survive, and the pill re-attaches it.
+      // A new CB question discards the stash via showQuestion's launcher.discard().
       onClose: () => launcher.minimize(),
     };
     // §2.4: only paint the card when the DOM contract holds; otherwise degrade to the banner.
