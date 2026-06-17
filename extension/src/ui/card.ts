@@ -79,11 +79,13 @@ export function renderCard(shadow: ShadowRoot, vm: CardVM, live: LiveContent, h:
   shadow.querySelector('.fp-overlay-close')!.addEventListener('click', () => h.onClose());
   shadow.querySelector('.fp-check')!.addEventListener('click', () => h.onCheck(pickValue()));
   shadow.querySelector('.fp-reveal')!.addEventListener('click', () => {
-    const text = live.explanationGetter();   // read CB's words LIVE at click time; never stored
+    // Sanitized allowlist HTML (reader.ts) read LIVE at click time; never stored. Injected un-escaped —
+    // the same XSS boundary as the stem; the allowlist, not esc(), is what disarms it.
+    const body = live.explanationHtmlGetter();
     const panel = shadow.querySelector('.fp-explanation') as HTMLElement;
     panel.hidden = false;
-    panel.innerHTML = html(text
-      ? `<div class="fp-explanation-label">College Board's explanation — unaltered</div><div>${esc(text)}</div>`
+    panel.innerHTML = html(body
+      ? `<div class="fp-explanation-label">College Board's explanation — unaltered</div><div class="fp-explanation-body">${body}</div>`
       : `<div class="fp-explanation-label">No explanation available — view it on CB</div>`) as unknown as string;
     h.onReveal();
   });
@@ -105,10 +107,10 @@ export function renderCard(shadow: ShadowRoot, vm: CardVM, live: LiveContent, h:
 export function renderVerdict(shadow: ShadowRoot, v: Verdict, live: LiveContent): void {
   const verdict = shadow.querySelector('.fp-verdict') as HTMLElement;
   if (!v.result.graded) {
-    const text = live.explanationGetter();
-    verdict.innerHTML = html(
-      `<div class="fp-indeterminate">Couldn't grade this one — here is College Board's answer${
-        text ? ` (unaltered):</div><div>${esc(text)}` : '. View it on CB.'}</div>`) as unknown as string;
+    const body = live.explanationHtmlGetter();   // sanitized allowlist HTML; injected un-escaped (see reveal)
+    verdict.innerHTML = html(body
+      ? `<div class="fp-indeterminate">Couldn't grade this one — here is College Board's answer (unaltered):</div><div class="fp-explanation-body">${body}</div>`
+      : `<div class="fp-indeterminate">Couldn't grade this one — here is College Board's answer. View it on CB.</div>`) as unknown as string;
     return;
   }
   shadow.querySelectorAll('.fp-choice').forEach((li) => {

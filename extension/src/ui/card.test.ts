@@ -11,8 +11,9 @@ const mc: QuestionView = {
   stemHtml: 'If 3x + 7 = 22, what is x? [SYNTHETIC]', choices: [
     { letter: 'A', text: '3' }, { letter: 'B', text: '5' }, { letter: 'C', text: '7' }, { letter: 'D', text: '15' },
   ], correctAnswer: 'B', explanation: 'Subtract 7, divide by 3. [SYNTHETIC]',
+  explanationHtml: '<p><strong>Correct Answer: B</strong></p><p>Subtract 7, divide by 3. [SYNTHETIC]</p>',
 };
-const live = (v: QuestionView): LiveContent => ({ stem: v.stem, stemHtml: v.stemHtml, explanationGetter: () => v.explanation });
+const live = (v: QuestionView): LiveContent => ({ stem: v.stem, stemHtml: v.stemHtml, explanationHtmlGetter: () => v.explanationHtml });
 
 beforeEach(() => { document.body.innerHTML = ''; });
 
@@ -105,6 +106,17 @@ describe('explanation reveal (D5 / O6) reads live, labelled unaltered', () => {
     const panel = shadow.querySelector('.fp-explanation')!;
     expect(panel.textContent).toContain('Subtract 7');
     expect(panel.textContent).toContain('unaltered');
+  });
+
+  it('renders CB\'s explanation as formatted HTML — bold answer line + separate paragraphs', () => {
+    const shadow = mountHost(document);
+    renderCard(shadow, toCardVM(mc, 0, 1), live(mc), noop());
+    (shadow.querySelector('.fp-reveal') as HTMLElement).click();
+    const panel = shadow.querySelector('.fp-explanation')!;
+    // The sanitized HTML is injected as real markup (a <strong> element + <p> blocks), not escaped text.
+    expect(panel.querySelector('.fp-explanation-body strong')!.textContent).toBe('Correct Answer: B');
+    expect(panel.querySelectorAll('.fp-explanation-body p')).toHaveLength(2);
+    expect(panel.innerHTML).not.toContain('&lt;p&gt;');   // not double-escaped
   });
 
   it('note field change fires onNote with the typed text', () => {

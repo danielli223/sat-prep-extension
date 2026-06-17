@@ -581,7 +581,7 @@ vi.mock('../resilience/block-detect', () => ({ detectBlock: vi.fn(() => null), B
 const view: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear equations', difficulty: 'Hard',
   stem: 'stem', stemHtml: 'stem', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
-  correctAnswer: 'B', explanation: 'because',
+  correctAnswer: 'B', explanation: 'because', explanationHtml: '<p>because</p>',
 };
 
 describe('content bootstrap gate (§2.5 / §8.3)', () => {

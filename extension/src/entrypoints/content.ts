@@ -99,12 +99,12 @@ function currentCorrectAnswer(doc: Document, id: string): string | null {
   return modal ? (readQuestion(modal)?.correctAnswer ?? null) : null;
 }
 
-// Read the explanation AT REVEAL/CHECK TIME from the live container. Like the answer, CB injects the
-// rationale text into the DOM only after ensureAnswerRevealed clicks the reveal box, so the
-// observe-time view.explanation is null in the real reveal-gated flow — never trust that snapshot.
-function currentExplanation(doc: Document, id: string): string | null {
+// Read the explanation AT REVEAL/CHECK TIME from the live container, as sanitized HTML. Like the
+// answer, CB injects the rationale into the DOM only after ensureAnswerRevealed clicks the reveal box,
+// so the observe-time snapshot is empty in the real reveal-gated flow — never trust that snapshot.
+function currentExplanationHtml(doc: Document, id: string): string {
   const modal = currentModal(doc, id);
-  return modal ? (readQuestion(modal)?.explanation ?? null) : null;
+  return modal ? (readQuestion(modal)?.explanationHtml ?? '') : '';
 }
 
 // CB injects the rationale — and thus the correct answer — into the DOM ASYNCHRONOUSLY after the
@@ -217,7 +217,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     const live: LiveContent = {
       stem: view.stem,
       stemHtml: view.stemHtml,
-      explanationGetter: () => currentExplanation(doc, view.id) ?? view.explanation,
+      explanationHtmlGetter: () => currentExplanationHtml(doc, view.id) || view.explanationHtml,
     };
     const handlers: CardHandlers = {
       onSelect: () => {},
@@ -263,7 +263,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     const live: LiveContent = {
       stem: view.stem,
       stemHtml: view.stemHtml,
-      explanationGetter: () => currentExplanation(doc, view.id) ?? view.explanation,
+      explanationHtmlGetter: () => currentExplanationHtml(doc, view.id) || view.explanationHtml,
     };
     if (result.graded && answer) {
       // mark the correct choice so renderVerdict can light it green even on a wrong pick
