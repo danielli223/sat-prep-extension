@@ -87,6 +87,11 @@ describe('mountAnswerOverlay', () => {
     mountAnswerOverlay(ac, vm, noop());
     expect(ac.querySelectorAll('.fp-answer-host')).toHaveLength(1);
   });
+
+  it('findAnswerContent returns null when CB has no .answer-content (overlay no-ops)', () => {
+    document.body.innerHTML = '<div class="cb-dialog-container"><div class="cb-dialog-header"></div></div>';
+    expect(findAnswerContent(document.querySelector('.cb-dialog-container')!)).toBeNull();
+  });
 });
 
 it('revealRationale un-hides CB\'s native .rationale', () => {
