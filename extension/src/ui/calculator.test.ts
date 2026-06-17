@@ -19,12 +19,14 @@ const sampleView: QuestionView = {
 const live: LiveContent = { stem: sampleView.stem, stemHtml: sampleView.stemHtml, explanationHtmlGetter: () => '' };
 
 describe('toggleGeoGebra', () => {
-  it('mounts a GeoGebra iframe into the shadow root on first toggle', () => {
+  it('mounts the GeoGebra SCIENTIFIC calculator iframe (button keypad, not the graphing grid)', () => {
+    // The graphing app (/calculator) opens to an axes grid with the math keypad hidden; students
+    // wanted a visible Desmos-style keypad. The /scientific app shows that button keypad up front.
     const shadow = mountHost(document);
     const onAfterFirst = toggleGeoGebra(shadow);
     const iframe = shadow.querySelector('.fp-geogebra iframe') as HTMLIFrameElement | null;
     expect(iframe).not.toBeNull();
-    expect(iframe!.src).toBe('https://www.geogebra.org/calculator');
+    expect(iframe!.src).toBe('https://www.geogebra.org/scientific');
     expect(onAfterFirst).toBe(true);   // now visible
   });
 
