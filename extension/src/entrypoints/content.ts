@@ -5,6 +5,7 @@ import { observeQuestions } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
 import { mountHost, cardSlot } from '../ui/host';
+import { mountCardLauncher } from '../ui/launcher';
 import { toCardVM, type LiveContent } from '../ui/view-model';
 import { renderCard, renderVerdict, renderNeedAnswer, renderStaleCard, type CardHandlers } from '../ui/card';
 import { renderStartPanel } from '../ui/start-panel';
@@ -161,6 +162,7 @@ export async function guardedStart(doc: Document, runner: () => Promise<void>): 
 
 export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Promise<ShadowRoot> {
   const shadow = mountHost(doc);
+  const launcher = mountCardLauncher(shadow);
 
   // Probe an already-present question so the start panel can offer Resume when a session exists.
   let probedFilter: string | null = null;
@@ -207,6 +209,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   let checked = false;   // per-question guard: at most one attempt recorded per Check session (reset on show)
   function showQuestion(view: QuestionView): void {
     checked = false;   // new question on screen → re-arm scoring
+    launcher.discard();   // a new/refreshed question takes the slot — drop any minimized card + hide the pill
     // Refresh "Q n of N": the results list may not have been in the DOM at Start (e.g. the student
     // opened a question first), which left N stuck at the fallback 1 ("Q 2 of 1", live 2026-06-16).
     // It is in the DOM behind the modal now. Never let N drop below the current position.
@@ -228,8 +231,10 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       onNext: () => onNext(view),
       onToggleCalc: () => toggleGeoGebra(shadow),
       onOpenDesmos: () => openDesmos(),
-      // ✕ hides the card; the observer stays alive, so opening the next CB question re-paints it.
-      onClose: () => cardSlot(shadow).replaceChildren(),
+      // ✕ minimizes the card into the bottom-right launcher pill (stashes the live node so the
+      // student's selection/verdict/note survive); the pill re-attaches it. A new CB question
+      // discards the stash via showQuestion's launcher.discard().
+      onClose: () => launcher.minimize(),
     };
     // §2.4: only paint the card when the DOM contract holds; otherwise degrade to the banner.
     void handleQuestion(shadow, view, () =>
@@ -287,7 +292,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     }
     // Advance: actuate CB's own Next so it loads the next question; observeQuestions then re-renders the
     // card for it (no spurious "the card just closed"). Only dismiss the card when CB has no next question
-    // (last item / single-question view), so the student isn't left staring at a stale card.
+    // (last item / single-question view), so the student isn't left staring at a stale card. The
+    // fallback clears (never minimizes) and needs no launcher.discard(): Next is only reachable from an
+    // on-screen card, so the launcher pill is already hidden here. (Keep this invariant if Next moves.)
     if (!clickCbNext(doc)) cardSlot(shadow).replaceChildren();
   }
 

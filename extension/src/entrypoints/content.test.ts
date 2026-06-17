@@ -660,3 +660,52 @@ describe('§8.5 graceful degradation — IndexedDB write failure leaves the sess
     await expect(safeWrite(Promise.resolve())).resolves.toBeUndefined();
   });
 });
+
+// --- Focus-card minimize/restore launcher (design 2026-06-16) ---
+describe('focus-card minimize/restore launcher', () => {
+  it('✕ minimizes the card (card hidden, launcher shown); the pill restores it with graded state intact', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+
+    // grade it so there is real state to preserve across minimize/restore
+    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    // the verdict paints after an await in onCheck (recordAttempt) — wait for it before minimizing
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true));
+
+    // ✕ → minimize: card gone, pill visible
+    (shadow.querySelector('.fp-overlay-close') as HTMLElement).click();
+    expect(shadow.querySelector('.fp-card')).toBeNull();
+    const pill = shadow.querySelector('.fp-card-launcher') as HTMLButtonElement;
+    expect(pill).not.toBeNull();
+    expect(pill.hidden).toBe(false);
+
+    // pill → restore: the SAME graded card returns (node identity preserves .fp-correct), pill hides
+    pill.click();
+    expect(shadow.querySelector('.fp-card')).not.toBeNull();
+    expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+    expect(pill.hidden).toBe(true);
+  });
+
+  it('navigating to a new CB question while minimized discards the stash and hides the launcher', async () => {
+    const db = await freshDb();
+    const gridIn = readFileSync(join(here, '..', 'cb', '__fixtures__', 'grid-in.html'), 'utf8');
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += mc;                          // question 1 (ab12cd34)
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    (shadow.querySelector('.fp-overlay-close') as HTMLElement).click();   // minimize
+    expect((shadow.querySelector('.fp-card-launcher') as HTMLButtonElement).hidden).toBe(false);
+
+    // CB closes Q1's modal and opens Q2 (different id) — observer (dedups by id) fires showQuestion → discard + repaint
+    document.querySelector('.cb-modal-container')!.remove();
+    document.body.innerHTML += gridIn;                      // question 2 (ef56ab78)
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    expect((shadow.querySelector('.fp-card-launcher') as HTMLButtonElement).hidden).toBe(true);
+  });
+});
