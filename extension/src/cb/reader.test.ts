@@ -144,63 +144,10 @@ describe('readQuestion', () => {
     expect(v.stem).not.toContain('Math');
   });
 
-  // explanationHtml renders CB's rationale with the SAME sanitized allowlist as the stem, so the
-  // explanation panel mirrors CB's layout (bold answer line, paragraphs, tables) instead of one flat
-  // escaped run. Like stemHtml, the allowlist IS the XSS boundary — these tests double as that contract.
-  it('renders the rationale as sanitized HTML, bolding the Correct Answer line', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="answer-content"><div class="rationale">' +
-      '<p class="cb-margin-bottom-16 cb-font-weight-bold">Correct Answer: B</p>' +
-      '<div>Subtract 7 from both sides to get 3x = 15. [SYNTHETIC]</div>' +
-      '<div>Choice A is incorrect because it adds instead. [SYNTHETIC]</div>' +
-      '</div></div></div>';
-    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
-    // CB bolds the answer line with a CSS class the allowlist strips; we re-bold it with <strong>.
-    expect(v.explanationHtml).toContain('<strong>Correct Answer: B</strong>');
-    expect(v.explanationHtml).toContain('Subtract 7 from both sides');
-    expect(v.explanationHtml).toContain('Choice A is incorrect');
-    expect(v.explanationHtml).not.toContain('class=');
-  });
-
-  it('preserves a rationale table as real <table> markup in the explanation HTML', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="answer-content"><div class="rationale">' +
-      '<p class="cb-font-weight-bold">Correct Answer: C</p>' +
-      '<figure class="table"><table><tbody><tr><td>x</td><td>3</td></tr></tbody></table></figure>' +
-      '</div></div></div>';
-    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
-    expect(v.explanationHtml).toContain('<table>');
-    expect(v.explanationHtml).toContain('<td>3</td>');
-    expect(v.explanationHtml).not.toContain('<figure');
-  });
-
-  it('strips scripts, event handlers, and all attributes from explanation HTML (XSS contract)', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="answer-content"><div class="rationale">' +
-      '<p class="cb-font-weight-bold">Correct Answer: B</p>' +
-      '<script>steal()</script><img src="x" onerror="steal()">' +
-      '<p onclick="steal()" style="color:red" class="x">Because <b>13</b>.</p>' +
-      '<a href="javascript:steal()">link</a>' +
-      '</div></div></div>';
-    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
-    expect(v.explanationHtml).not.toContain('steal');
-    expect(v.explanationHtml).not.toContain('onerror');
-    expect(v.explanationHtml).not.toContain('onclick');
-    expect(v.explanationHtml).not.toContain('javascript:');
-    expect(v.explanationHtml).not.toContain('style=');
-    expect(v.explanationHtml).not.toContain('class=');
-    expect(v.explanationHtml).not.toContain('<script');
-    expect(v.explanationHtml).not.toContain('<img');
-    expect(v.explanationHtml).toContain('<p>Because <b>13</b>.</p>');
-  });
-
-  it('returns empty explanation HTML before the rationale is revealed', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="answer-content"><div class="answer-choices"><ul><li>3</li><li>5</li></ul></div></div></div>';
-    expect(readQuestion(document.querySelector('.cb-dialog-container')!)!.explanationHtml).toBe('');
+  it('no longer exposes explanation fields (CB renders its rationale natively)', () => {
+    const v = readQuestion(load('multiple-choice.html'))! as unknown as Record<string, unknown>;
+    expect(v.explanation).toBeUndefined();
+    expect(v.explanationHtml).toBeUndefined();
+    expect(v.correctAnswer).toBe('B');   // still read for scoring
   });
 });
