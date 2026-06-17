@@ -73,7 +73,7 @@ in-place overlay.
 | Content script (DOM reader) | Student's browser, injected only on `*://*.collegeboard.org/*` | reads rendered question/choices/answer/rationale into local RAM | No |
 | Scoring engine | Student's browser (local JS) | compares pick → right/wrong | No |
 | Overlay UI (answer flow, next) | Student's browser, via **Shadow DOM + TrustedHTML** | renders locally; **discards question content after each item** | No |
-| Desmos calculator | Student's browser | none of CB's content | No |
+| Calculator: GeoGebra embed + "Open real Desmos" link | Student's browser | none of CB's content | No |
 | Mistake journal + progress/weak-areas | Local-first (IndexedDB), optional sync | **only** `{questionID, student answer, correct/incorrect, timestamp, student's own notes}` | **Yes — IDs + student data only** |
 | Your backend | Your infra | stores those reference rows; **never** receives question text/answer/explanation | **Yes — zero CB content ever lands here** |
 
@@ -191,7 +191,8 @@ disk, never sent to your servers, never shown to a second user, never fed to any
    figures.)* If the answer key ever isn't in the rendered DOM on a surface, the scoring loop
    assumption breaks — find that out before building anything else.
 2. **Build the local-only core, no backend.** Content script → scoring → answer UI →
-   user-gesture-gated next → Desmos → IndexedDB mistake journal. Nothing leaves the browser.
+   user-gesture-gated next → calculator (embedded GeoGebra + "Open real Desmos" link) → IndexedDB
+   mistake journal. Nothing leaves the browser.
 3. **Add the minimal backend last:** sync of `{ID, answer, correct/incorrect, timestamp,
    notes}` only. **Add a CI guard that fails the build if any code path (a) calls
    `collegeboard.org`/`qbank-api`, or (b) persists/transmits question text.** Make the

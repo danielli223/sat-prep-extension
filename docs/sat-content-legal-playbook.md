@@ -10,6 +10,8 @@
 
 Do **not** redistribute, modify, or feed College Board's actual SAT questions into an AI. Instead, **author original questions aligned to the publicly published SAT spec** — the same method mainstream prep companies (Kaplan, Princeton Review, Barron's) have always used. That path is legally defensible; everything that touches their real items is not.
 
+> **Scope note.** "Touches their real items" here means **reproducing, hosting, modifying, or feeding them to AI** — the content paths this playbook governs. A purely client-side overlay that *reads CB's already-rendered question in the student's own browser and discards it* (persisting only Question IDs + the student's own data) copies, hosts, and AI-feeds nothing; that is the project's chosen path, and its separate legal basis is in `sat-app-legal-architecture.md`. This playbook governs the **authored-content** path (Strategy D) and the AI guardrails both paths share.
+
 ---
 
 ## The three legal layers

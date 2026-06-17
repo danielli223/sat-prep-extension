@@ -1,115 +1,104 @@
 # Legal Ways to Deliver the Loved UX with Real College Board Questions
 
-*Last updated: 2026-06-14 · Companion to `sat-content-legal-playbook.md` and the OnePrep evaluation*
+*Last updated: 2026-06-16 · Companion to `sat-content-legal-playbook.md` (content/copyright/AI rules) and `sat-app-legal-architecture.md` (the chosen build, "R1"). Reads alongside the OnePrep customer-voice docs.*
 
 > **Not legal advice** — a strategy brainstorm, updated with hands-on findings from the official Question Bank. Validate the chosen approach with an IP attorney before building.
+>
+> **What changed:** an earlier draft of this doc concluded a *scored* loop on real CB questions was impossible — the QB is preview-only, so "no answer event to read." Live testing then found CB renders the **correct answer + per-choice rationale in the page DOM**, so an overlay can supply its own answer UI and score locally — no native answer event needed. That scored overlay (**Strategy A**) became the shipped product; `sat-app-legal-architecture.md` is its authoritative spec. Strategies B–F below remain valid alternatives/complements.
 
 ---
 
 ## The reframe that makes this solvable
 
-The real College Board questions are **already free to anyone**. The official **Educator Question Bank** opens with **no login at all** — you can browse, filter, preview, and even PDF-export thousands of real items. The **Student Question Bank** (free College Board account) is the interactive version. Both already let you filter by assessment, section, domain, skill, and difficulty.
+The real College Board questions are **already free to anyone**. The official **Educator Question Bank** opens with **no login at all** — browse, filter, preview, and PDF-export thousands of real items. The **Student Question Bank** (free CB account) is the same browse-and-export tool, not an answering environment.
 
-So what OnePrep's users lost was **never the questions** — it's the **UX layer**: completion/progress tracking, right-vs-wrong history, a mistake journal, spaced review, resume, Desmos pinned alongside, and a motivating interface.
+So what OnePrep's users lost was **never the questions** — it's the **UX layer**: completion/progress tracking, right-vs-wrong history, a mistake journal, spaced review, resume, Desmos pinned alongside, and a motivating interface. **That layer is your own original software and copies zero CB content.** The strategy in one line: *be the UX layer; let College Board keep delivering the questions.*
 
-**That layer is your own original software and requires copying zero CB content.** The entire strategy: *be the UX layer; let College Board keep delivering the questions.*
+## What we confirmed on the official Question Bank (hands-on, June 14 2026)
 
-## What we confirmed on the official Question Bank (hands-on, June 14, 2026)
+The make-or-break technical facts — no login; stable Question IDs (e.g. `ac472881`) but **no per-question URLs** (previews open in a modal; URL stays `/digital/results`); CB (not you) calls the private `qbank-api` backend behind **Akamai bot detection**; and the full question + all choices + **correct answer (`Correct Answer: B`) + per-choice rationale all render as DOM text** — are documented in detail in `sat-app-legal-architecture.md`. The implications specific to this strategy menu:
 
-Browsed and inspected `satsuiteeducatorquestionbank.collegeboard.org` directly:
-
-- **Open access, no login** to browse/filter/preview/PDF-export. (CB's no-redistribution terms still bind regardless of the missing gate.)
-- **Rich official filtering already exists:** Assessment → Section → Domain → Skill → Difficulty, plus "exclude questions already on full-length practice tests" and state-standard alignment.
-- **Stable Question IDs (e.g., `ac472881`), but NO per-question URLs.** Previews open in a **modal** while the URL stays `/digital/results`; routing/history reflect the open question **nowhere**, and there's no share/copy-link control. There is nothing to link to.
-- **The only per-question handle is a private internal API** (`qbank-api.collegeboard.org/.../questionbank/digital/get-question`). Pulling questions from it = **"scrape / data-mine"** (banned by CB's terms) **and** reproduction of copyrighted content. It's how the clone sites (satquestionbank.org, 1600.lol) work, and a big reason they get DMCA'd. The site also runs **Akamai bot detection**, so the API is actively defended. **This path is off-limits.**
-- **No inline Desmos** in the web QB (it's a static preview / PDF-worksheet builder). You must **supply your own calculator** — easy and fully legal, because **Desmos is a separate company** with a free embeddable calculator API; zero College Board involvement.
-- **Answers + explanations are available** per item.
-- **Tested the Student QB too (signed in):** it is the **same browse-and-export tool** as the educator side — **not** an interactive answering environment. Same modal previews, same Question IDs, URL pinned at `/questionbank/results`, **no per-question links, no Desmos.** You *preview, select, and PDF-export* questions; you do **not** answer them and get scored inside it.
-- **Key implication:** the part of OnePrep users loved most — *answering real questions with instant right/wrong tracking* — is exactly what CB's free tools don't expose in a wrappable form. Interactive answering + Desmos lives only in **Bluebook** (a native app you can't overlay) or in full practice tests. OnePrep bridged that gap by putting CB's real questions into its **own** interactive UI — which is the copyright violation. So interactive answering must run on **your own questions** (Strategy D) or be handed off to Bluebook; an overlay can enhance *browsing/curation* of real questions but can't turn the Question Bank into a scored practice tool.
+- **Rich official filtering already exists** to wrap: Assessment → Section → Domain → Skill → Difficulty, plus "exclude questions already on full-length practice tests" and state-standard alignment.
+- **No inline calculator** in the web QB (it's a static preview / PDF-worksheet builder). You **supply your own** — easy and fully legal, since it's a third party with zero CB involvement. (The build embeds **GeoGebra**, which permits embedding, and offers a one-click link to the real **Desmos** test-day tool rather than iframing it.)
+- **Student QB = Educator QB, functionally.** Tested signed-in: same modal previews, same Question IDs, URL pinned at `/questionbank/results`, no per-question links, no inline Desmos. You *preview, select, and PDF-export* — you do **not** answer-and-get-scored *inside CB's UI*.
+- **The key correction:** "no native answering inside CB" is **not** "can't score." Because the **correct answer renders in the DOM**, an overlay supplies its own answer UI and scores locally against the answer CB already painted — turning the QB into a real scored practice tool (Strategy A / R1). Interactive answering does **not** have to run on your own questions or be exiled to Bluebook, as the earlier draft assumed.
 
 ## The one rule that keeps it all legal
 
-- **Never copy, host, cache, scrape, or feed CB question text/passages into anything** — and **never call the `qbank-api` backend.**
-- **Store only Question IDs + the user's own performance data** ("got `ac472881` wrong, skill = linear equations"). IDs and a user's own results are facts, not CB's protected expression.
+- **Never copy, host, cache, scrape, or feed CB question text/passages into anything — and never call the `qbank-api` backend.** Read only the rendered DOM, in the user's own session, and discard it.
+- **Store only Question IDs + the user's own performance data** ("got `ac472881` wrong, skill = linear equations"). IDs and a user's own results are facts, not CB's protected expression — **the Question ID is your legal primitive.**
 - **Let College Board deliver the questions** — via the student's own authorized session, or by linking to their official site.
-- **The Question ID is your legal primitive.** It's a stable fact you can key tracking, analytics, and review scheduling to — without ever holding the content.
 
-If the questions live on College Board's servers and only your *user's own data* lives on yours, there is nothing of theirs to infringe.
+If the questions live on CB's servers and only your *user's own data* lives on yours, there is nothing of theirs to infringe. (Full legal basis, bright-line guardrails, and residual risks: `sat-app-legal-architecture.md`.)
 
 ---
 
-## The strategies (updated with what we now know)
+## The strategies
 
-### A. Browser-extension overlay on the official Question Bank — enhances *browsing/curation* (not scoring)
-Augment CB's QB page in the browser with: a pinned **Desmos** panel (your own embed), a **manual mistake journal**, flagging/tracking of which Question IDs you've reviewed or struggled with, spaced-repetition scheduling by ID, and nicer styling. The questions never leave CB's site.
-- **What it can't do (corrected after testing):** auto-capture right/wrong — the QB is **preview-only**, so there's no answer event to read. Tracking is by the user's own input, keyed to the visible **Question ID**.
-- **Legality:** strong *if* you don't scrape or store question text and don't touch the backend API — render only your own UI, supply your own Desmos. Read-only augmentation, no caching.
-- **UX match:** good for the *browse/curate/review* half of the loved bundle; not the interactive-answering half.
-- **Solo feasibility:** desktop-browser first; mobile extensions are limited; Bluebook (native app) can't be overlaid — only the web QB.
-- **Main risk:** the ToS gray zone around "interfering with" their service. Keep it purely additive and user-side; get this one lawyer-reviewed.
+### A. Browser-extension overlay on the official Question Bank — the full scored loop ★ shipped (R1)
+Augment CB's **live** question in the browser with your own answer UI (select, cross-off choices, explicit **Check**), **instant right/wrong scored against the correct answer read from the rendered DOM**, CB's own rationale revealed in place, a local mistake journal + weak-area tracking + re-surface badging, and a pinned **GeoGebra** calculator (your own embed) plus a one-click **Open real Desmos** link (the free test-day tool). The question never leaves CB's page.
+- **Legality:** strong *if* you read the rendered DOM only, never scrape or store question text, and never touch the backend API. This is the chosen architecture — see `sat-app-legal-architecture.md` for the legal basis (browser-is-yours / PayPal Honey precedent / transient-copy doctrine), bright-line guardrails, and residual risks (C&D, Web Store delisting, mobile gap).
+- **UX match:** delivers the **whole** loved bundle on real questions — browse/curate *and* answer-with-instant-tracking.
+- **Solo feasibility:** desktop-browser first; mobile extensions are limited; only the web QB is overlayable (Bluebook is a native app you can't overlay).
+- **Correction from the prior draft:** A was previously scoped to *browsing/curation only* because auto-scoring was thought impossible (preview-only, "no answer event"). Live testing showed the correct answer is in the DOM, so A is the full scored loop.
 
-### B. Filtered hand-off launcher + planner/tracker (revised — no per-question deep-links)
+### B. Filtered hand-off launcher + planner/tracker
 Your app owns the study plan, analytics, mistake journal, and spaced-repetition queue. When it's time to practice, it **sends the student to the official QB filtered to the right skill/difficulty** (not to an individual item — those aren't linkable) and the student logs results back by **Question ID**.
 - **Legality:** very clean — linking is *expressly permitted* by CB, and you store only IDs + user data.
-- **UX match:** good on tracking/planning; the hand-off is to a filtered list rather than a single question, so slightly less seamless than hoped.
-- **Solo feasibility:** excellent — no question hosting, cheap, cross-platform (covers mobile where overlays can't).
-- **Changed from the prior draft:** the original "deep-link to the exact question" idea is **not possible** (confirmed). Hand off at the filter level instead.
+- **UX match:** good on tracking/planning; the hand-off is to a filtered list rather than a single question, so slightly less seamless than the overlay.
+- **Solo feasibility:** excellent — no question hosting, cheap, cross-platform (**covers mobile, where overlays can't run**).
+- **Note:** deep-linking to an exact question is **not possible** (confirmed — no per-question URL); hand off at the filter level.
 
-### C. Content-agnostic "study cockpit" / mistake journal — bulletproof, fastest v1
-Your app holds **zero** CB content. The student practices anywhere (official QB, Bluebook, a book) and logs results; you provide weak-area dashboards, spaced repetition, a timer, **your own Desmos**, and a structured mistake journal (a behavior power users already do by hand).
+### C. Content-agnostic "study cockpit" / mistake journal — bulletproof fallback
+Your app holds **zero** CB content. The student practices anywhere (official QB, Bluebook, a book) and logs results; you provide weak-area dashboards, spaced repetition, a timer, **your own calculator**, and a structured mistake journal (a behavior power users already do by hand).
 - **Legality:** airtight — nothing of CB's ever touches your app.
-- **UX match:** delivers the analytics/tracking/Desmos half of the loved bundle; not "questions in-app."
-- **Solo feasibility:** excellent; ships fastest. A strong, safe v1 you can launch immediately.
+- **UX match:** the analytics/tracking/calculator half of the bundle; not "questions in-app."
+- **Solo feasibility:** excellent; ships fastest. The safe baseline the overlay (A) builds on, and the natural fallback when the student isn't on the QB page.
 
-### D. Hybrid — your own original questions native + official questions via links
-Native in-app content is **your own original questions** (the playbook's clean path), giving the seamless tracked experience. Layer B on top for students who want *official* items.
-- **Legality:** strong (your content + linking).
-- **UX match:** high and fully native for your content; official practice stays a hand-off away.
-- **Solo feasibility:** medium — writing good original items is the work, but it's the only fully-owned asset and removes dependence on CB's delivery. More important now that you can't lean on seamless CB delivery.
+### D. Hybrid — your own original questions native + official questions via the overlay/links
+Add **your own original questions** (the playbook's clean authored path) for a fully-owned, in-app interactive bank, layered on top of A/B for official items.
+- **Legality:** strong (your content + reading-not-copying + linking).
+- **UX match:** high and fully native for your content; an owned asset that removes dependence on CB's delivery.
+- **Solo feasibility:** medium — writing good original items is the work. **Optional expansion, not required:** with A delivering the scored loop on *real* questions, own-content is no longer the *only* way to get "answer + instant feedback" (as the earlier draft assumed). See `sat-content-legal-playbook.md` for the clean authoring path.
 
 ### E. Official permission / partnership (parallel long shot)
 Apply via CB's Permission form, but pitch a **tools/UX partnership** (you never take their content; you improve practice around it) or an education/nonprofit framing — not a content license.
 - **Legality:** gold standard if granted. **Reality:** low odds for a commercial solo project, slow — but free to ask and the only route to *natively bundling* real questions. Run it in the background; don't block on it.
 
 ### F. Community explanations keyed to Question IDs
-Attack the "bad/AI explanations" pain directly: students and tutors write and upvote explanations **attached to official Question IDs** (confirmed stable) while the user has the question open on CB. Fixes a top complaint without you authoring questions.
+Students and tutors write and upvote explanations **attached to official Question IDs** (confirmed stable) while the user has the question open on CB. Attacks the "bad/AI explanations" pain directly (OnePrep's failure mode) without you authoring questions.
 - **Legality:** workable if you reference questions by ID/skill and keep any quoting short and sparse.
 - **UX match:** a differentiator CB doesn't offer (and that OnePrep's AI got wrong).
-- **Solo feasibility:** medium (needs a community to seed), high moat if it catches.
+- **Solo feasibility:** medium (needs a community to seed); high moat if it catches.
 
 ### Dead ends (and why)
-- **Reverse-engineering / scraping the `qbank-api` to pull per-question content** → "scrape / data-mine" (prohibited) + reproduction; bot-defended; the clone-site path that gets taken down. **Off-limits.**
+- **Reverse-engineering / scraping `qbank-api` to pull per-question content** → "scrape / data-mine" (prohibited) + reproduction; bot-defended; the clone-site path (satquestionbank.org, 1600.lol) that gets DMCA'd. **Off-limits.**
 - **Hosting / caching / iframing the Question Bank** → reproduction + ToS breach.
-- **Feeding real questions into AI, or "spiraling" / AI-rewriting them** → derivative-work risk + the exact move the market is punishing OnePrep for (see playbook).
-- **The noncommercial "administer a practice test" carve-out** → requires noncommercial use and forbids incorporating into your own product; a monetized app fails both.
+- **Feeding real questions into AI, or "spiraling" / AI-rewriting them** → derivative-work risk + the exact move the market is punishing OnePrep for (see `sat-content-legal-playbook.md`).
+- **The noncommercial "administer a practice test" carve-out** → requires noncommercial use and forbids incorporating into your own product; a monetized/loss-leader app fails both.
 
 ---
 
-## Recommended blend for a solo builder (re-sequenced after testing the Student QB)
+## Recommended blend for a solo builder
 
-The loved bundle has **two halves**: (1) browse/select real questions, and (2) answer them with instant tracking + Desmos. You can legally wrap **half 1**; **half 2 can't be wrapped on real questions** — there's no interactive surface to attach to, and hosting their questions is infringement — so it must run on your own content or in Bluebook.
+1. **Ship A (the R1 scored overlay) as the product** — the only legal way to deliver the loved "answer + instant feedback" loop on *real* official questions. See `sat-app-legal-architecture.md` for the build sequence (DOM-contract spike → local-only core → minimal IDs-only backend → multi-browser packaging + kill-switch).
+2. **Keep C as the safe baseline/fallback** — content-agnostic tracking that works no matter where the student practices (and when not on the QB page).
+3. **Add B for reach** — filtered hand-off + Bluebook routing where overlays can't run (notably mobile).
+4. **Treat D as optional upside** — your own original interactive bank if/when you want a fully-owned asset.
+5. **Pursue E and F in parallel** — partnership as long-shot upside; community explanations (keyed to Question IDs) as a differentiator and moat.
 
-1. **Ship C first** — the content-agnostic study cockpit + mistake journal. Safe, fast, immediately useful; it's the tracking/analytics value-add and works no matter where the student practices.
-2. **Make D the core** — your own original, interactive, auto-scored questions with tracking + your Desmos. This is the **only legal way to deliver the "answer + instant feedback" loop** users loved, and it's your only owned asset.
-3. **Add A / B as the official-content layer** — an overlay (A) to enhance *browsing/curation* of the real QB with your Desmos and a mistake journal, and a filtered hand-off (B) that points students to the official QB to view and to Bluebook for real scored practice — all tracked by Question ID.
-4. **Pursue E and F in parallel** — partnership as long-shot upside; community explanations (keyed to Question IDs) as a differentiator and moat.
+Net: users get organized access to real official questions **plus** an interactive scored practice loop — while you never copy a question or call CB's backend.
 
-Net: users get organized access to real official questions **plus** an interactive practice loop — while you never copy a question or call CB's backend.
+## Legal guardrails (this doc's additions)
 
-## Legal guardrails checklist
+The authoritative bright-line guardrails (read-DOM-only, IDs-only persistence, no AI on CB content, nominative-use-only, kill-switch, MV3 scoping) live in `sat-app-legal-architecture.md`. Specific to this strategy menu:
 
-- [ ] No CB question text/passages stored, cached, or served by you — **Question IDs + user performance only**.
-- [ ] **Never call the `qbank-api` backend**; no scraping or data-mining; overlays are read-only, user-side, additive.
-- [ ] Real questions are delivered by College Board (the student's own session / links), never reproduced.
-- [ ] **Supply your own Desmos** via Desmos's embeddable calculator (third party — no CB involvement).
-- [ ] No CB content fed into any AI; AI only generates *your own* original content from public specs.
-- [ ] "SAT" used nominatively only, with a clear **"not affiliated with or endorsed by College Board"** disclaimer; **no acorn logo**.
+- [ ] **Supply your own calculator** (the build embeds GeoGebra; the real Desmos is offered as an external link, not iframed) — third party, no CB involvement.
+- [ ] If you author content (D), generate it **only** from public specs — never feed CB content into any AI (`sat-content-legal-playbook.md`).
+- [ ] Real questions stay delivered by College Board (the student's own session / links), never reproduced.
 - [ ] Attorney review before launch, especially for the overlay (A) and any quoting (F).
 
-## Still to verify before building
+## Open questions
 
-- Browser-extension feasibility and ToS posture against the QB page specifically (overlays must stay read-only / additive).
-- Mobile coverage: overlays are desktop-first — companion app vs. mobile-web launcher.
-- Exactly what an overlay may attach to the QB without "interfering" (lawyer + a small prototype).
-- Whether to route real *scored* practice to **Bluebook** (native) and how to track that back by Question ID.
-- Low-risk legal gut-check: storing a large **index of Question IDs + your own tags** (generate your own tags; IDs are facts, not CB's expression).
+- **Resolved by the build:** browser-extension feasibility and the read-only/additive ToS posture against the QB page — built and live-validated (see `project-brief.md`). Scored practice no longer needs routing to Bluebook; the overlay scores on the QB directly (Bluebook routing is now an optional, B-style complement).
+- **Still open:** mobile coverage (overlays are desktop-first — a Safari Web Extension container vs. a mobile-web launcher); the precise line of what an overlay may attach without "interfering" with CB's service (confirm with the IP attorney + the live prototype); and a low-risk gut-check on storing a large **index of Question IDs + your own tags** (IDs are facts; generate your own tags).
