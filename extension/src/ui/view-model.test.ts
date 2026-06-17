@@ -8,6 +8,7 @@ const mc: QuestionView = {
   stemHtml: '<div>STEM HTML — must not leak</div>', choices: [
     { letter: 'A', text: '3' }, { letter: 'B', text: '5' }, { letter: 'C', text: '7' }, { letter: 'D', text: '15' },
   ], correctAnswer: 'B', explanation: 'EXPLANATION TEXT — must not leak',
+  explanationHtml: '<div>EXPLANATION HTML — must not leak</div>',
 };
 
 describe('toCardVM', () => {
@@ -28,9 +29,11 @@ describe('toCardVM', () => {
     expect(json).not.toContain('STEM TEXT');
     expect(json).not.toContain('STEM HTML');
     expect(json).not.toContain('EXPLANATION TEXT');
+    expect(json).not.toContain('EXPLANATION HTML');
     expect((vm as Record<string, unknown>).stem).toBeUndefined();
     expect((vm as Record<string, unknown>).stemHtml).toBeUndefined();
     expect((vm as Record<string, unknown>).explanation).toBeUndefined();
+    expect((vm as Record<string, unknown>).explanationHtml).toBeUndefined();
   });
 
   it('marks a grid-in question (no choices) with kind "grid"', () => {

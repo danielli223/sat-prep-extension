@@ -85,6 +85,16 @@ const BASE_CSS = `
 .fp-explanation{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:10px;font-size:13px;color:#4b5563;line-height:1.45;}
 .fp-explanation[hidden]{display:none;}
 .fp-explanation-label{font-size:10px;color:#16a34a;font-weight:700;text-transform:uppercase;margin-bottom:4px;}
+/* CB's rationale, rendered from sanitized allowlist markup (reader.ts) so it mirrors CB's layout.
+   weight:400 because the non-graded verdict path nests this inside .fp-verdict (font-weight:700). */
+.fp-explanation-body{font-weight:400;font-size:13px;line-height:1.45;color:#4b5563;}
+.fp-explanation-body p,.fp-explanation-body div{margin:0 0 8px;}
+.fp-explanation-body p:last-child,.fp-explanation-body div:last-child{margin-bottom:0;}
+.fp-explanation-body strong{font-weight:700;color:#111827;}
+.fp-explanation-body ul,.fp-explanation-body ol{margin:0 0 8px;padding-left:20px;}
+.fp-explanation-body table{border-collapse:collapse;margin:8px 0;}
+.fp-explanation-body th,.fp-explanation-body td{border:1px solid #cbd5e1;padding:3px 8px;text-align:center;}
+.fp-explanation-body th{background:#f1f5f9;font-weight:700;}
 .fp-note-label{display:block;font-size:11px;color:#92400e;margin-bottom:12px;}
 .fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
   padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}
