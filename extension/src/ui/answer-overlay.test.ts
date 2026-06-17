@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer } from './answer-overlay';
+import { mountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard } from './answer-overlay';
 import { score } from '../scoring';
 import type { CardVM } from './view-model';
 
@@ -130,6 +130,15 @@ it('renderNeedAnswer prompts to select (mc) or enter (grid)', () => {
   expect(shadow.querySelector('.fp-need-answer')!.textContent).toContain('Select');
   renderNeedAnswer(shadow, 'grid');
   expect(shadow.querySelector('.fp-need-answer')!.textContent).toContain('Enter');
+});
+
+it('renderStaleCard shows the out-of-sync message in the verdict slot', () => {
+  const ac = cbAnswerContent();
+  const shadow = mountAnswerOverlay(ac, vm, noop());
+  renderStaleCard(shadow);
+  const stale = shadow.querySelector('.fp-stale')!;
+  expect(stale).not.toBeNull();
+  expect(stale.textContent).toContain('out of sync with College Board');
 });
 
 it('revealRationale returns false when CB has not injected a .rationale', () => {
