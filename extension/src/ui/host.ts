@@ -42,9 +42,11 @@ const BASE_CSS = `
 .${CARD_SLOT_CLASS}:empty{display:none;}
 .${EXTRAS_SLOT_CLASS}{position:fixed;inset:0;z-index:3;pointer-events:none;}
 .${EXTRAS_SLOT_CLASS}>*{pointer-events:auto;}
-/* Minimize launcher: a bottom-right pill that re-opens a minimized focus card. In the extras slot
-   (above the card/panel) so it floats over the dimmed page; hidden until the card is minimized. */
-.${CARD_LAUNCHER_CLASS}{position:fixed;right:16px;bottom:16px;z-index:4;background:#3b82f6;color:#fff;border:none;
+/* Minimize launcher: a pill that re-opens a minimized focus card, parked beside the Journal launcher
+   in the top-right (matching padding/font, so top:12px lines them up). In the extras slot (above the
+   card/panel) so it floats over the dimmed page; hidden until the card is minimized. The right offset
+   clears the Journal pill (its right:12 + ~93px width + an ~8px gap). */
+.${CARD_LAUNCHER_CLASS}{position:fixed;top:12px;right:113px;z-index:4;background:#3b82f6;color:#fff;border:none;
   border-radius:9px;padding:8px 14px;font:700 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);}
 .${CARD_LAUNCHER_CLASS}[hidden]{display:none;}
