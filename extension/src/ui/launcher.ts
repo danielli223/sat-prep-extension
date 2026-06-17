@@ -29,7 +29,7 @@ export function mountCardLauncher(shadow: ShadowRoot): CardLauncher {
   pill.hidden = true;
   extras.appendChild(pill);
 
-  let stash: Element[] = [];
+  let stash: ChildNode[] = [];
 
   function restore(): void {
     if (stash.length === 0) return;        // nothing minimized (e.g. discarded by a repaint)
@@ -42,8 +42,8 @@ export function mountCardLauncher(shadow: ShadowRoot): CardLauncher {
   const controller: CardLauncher = {
     minimize(): void {
       const slot = cardSlot(shadow);
-      if (slot.children.length === 0) return;
-      stash = [...slot.children];
+      if (slot.childNodes.length === 0) return;
+      stash = [...slot.childNodes];
       slot.replaceChildren();              // empty the slot (CSS :empty hides the dimmed backdrop)
       pill.hidden = false;
     },
