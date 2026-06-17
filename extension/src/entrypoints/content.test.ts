@@ -9,6 +9,7 @@ import { openStore, getAttempts, getNotes, getSession } from '../store';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mc = readFileSync(join(here, '..', 'cb', '__fixtures__', 'multiple-choice.html'), 'utf8');
+const gridIn = readFileSync(join(here, '..', 'cb', '__fixtures__', 'grid-in.html'), 'utf8');
 
 async function freshDb() {
   await new Promise<void>((res) => { const r = indexedDB.deleteDatabase('sat-overlay'); r.onsuccess = () => res(); r.onerror = () => res(); });
@@ -243,6 +244,54 @@ describe('content loop wiring', () => {
     expect(inOverlay('.fp-indeterminate')).toBeNull();
     expect(await getAttempts(db)).toHaveLength(0);                                      // nothing recorded
   });
+
+  it('grid-in Check→grade: typing the correct answer grades Correct; wrong answer grades Not quite', async () => {
+    // End-to-end grid-in flow using the grid-in.html fixture (ef56ab78, Correct Answer: 5).
+    // The fixture has a .rationale already present (no reveal box) and no .answer-choices.
+    // The overlay must show a .fp-gridin input, read the typed value at Check, and grade correctly.
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // --- Correct answer (5) ---
+    document.body.innerHTML += gridIn;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    // Grid-in: no choices, just the text input.
+    expect(inOverlay('.fp-gridin')).not.toBeNull();
+    expect(inOverlay('.fp-choice')).toBeNull();
+
+    (inOverlay('.fp-gridin') as HTMLInputElement).value = '5';
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    expect(inOverlay('.fp-verdict')!.textContent).toContain('Correct');
+    expect(inOverlay('.fp-ok')).not.toBeNull();
+    expect(inOverlay('.fp-indeterminate')).toBeNull();   // stale-card guard NOT tripped on a valid grid-in
+    expect(inOverlay('.fp-stale')).toBeNull();
+    const attempts = await getAttempts(db);
+    expect(attempts[0]!.questionId).toBe('ef56ab78');
+    expect(attempts[0]!.pick).toBe('5');
+    expect(attempts[0]!.correct).toBe(true);
+  });
+
+  it('grid-in Check→grade: wrong answer shows Not quite', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += gridIn;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    (inOverlay('.fp-gridin') as HTMLInputElement).value = '7';
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    expect(inOverlay('.fp-verdict')!.textContent).toContain('Not quite');
+    expect(inOverlay('.fp-no')).not.toBeNull();
+    expect(inOverlay('.fp-stale')).toBeNull();   // stale guard not wrongly tripped for a genuine grid-in wrong answer
+    const attempts = await getAttempts(db);
+    expect(attempts[0]!.correct).toBe(false);
+  });
 });
 
 // Spike addendum (2026-06-15): CB injects the correct answer into the DOM ONLY once its
@@ -382,7 +431,9 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
 
     // A dedicated unrevealed modal with NO .rationale-slot, so a stale setTimeout queued by an earlier
     // test (which injects into '.rationale-slot') can't pollute this modal — this test owns its DOM.
-    document.body.innerHTML += `
+    // Use a fresh DOM (= not +=) so a stale .rationale from any prior test's setTimeout cannot
+    // short-circuit ensureAnswerRevealed before our reveal box fires (test-hygiene fix).
+    document.body.innerHTML = `
       <div role="dialog" class="cb-modal-container">
         <div class="cb-dialog-container">
           <div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>
@@ -766,7 +817,6 @@ describe('overlay close ✕ and cross-question navigation', () => {
 
   it('navigating to a new CB question re-mounts the overlay into the new question\'s .answer-content', async () => {
     const db = await freshDb();
-    const gridIn = readFileSync(join(here, '..', 'cb', '__fixtures__', 'grid-in.html'), 'utf8');
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
 

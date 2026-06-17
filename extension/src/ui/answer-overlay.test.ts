@@ -137,7 +137,7 @@ describe('unmountAnswerOverlay', () => {
     unmountAnswerOverlay(ac);
 
     const late = document.createElement('div');
-    late.className = 'rationale-late';
+    late.className = 'rationale';   // real class CB uses — a connected observer would hide this
     ac.appendChild(late);
     await new Promise((r) => setTimeout(r, 0));
     expect(late.style.display).toBe('');   // observer gone → CB's own content is left untouched
@@ -194,4 +194,42 @@ it('renderStaleCard shows the out-of-sync message in the verdict slot', () => {
 it('revealRationale returns false when CB has not injected a .rationale', () => {
   const bare = document.createElement('div');
   expect(revealRationale(bare)).toBe(false);
+});
+
+it('escapes hostile choice text / taxonomy — no live <img>/<script> reaches the shadow (esc is the XSS boundary)', () => {
+  const ac = cbAnswerContent();
+  const hostileVm = { ...vm,
+    skill: '<script>steal()</script>',
+    choices: [
+      { letter: 'A', text: '<img src=x onerror=steal()>' },
+      { letter: 'B', text: '<b>ok</b> & <i>stuff</i>' },
+    ],
+  };
+  const shadow = mountAnswerOverlay(ac, hostileVm, noop());
+  // No executable/markup nodes from the hostile strings:
+  expect(shadow.querySelector('img')).toBeNull();
+  expect(shadow.querySelector('script')).toBeNull();
+  // No raw HTML elements from the injected markup (b/i inside the choice text):
+  expect(shadow.querySelector('.fp-choice b')).toBeNull();
+  expect(shadow.querySelector('.fp-choice i')).toBeNull();
+  // The hostile text survives as TEXT (escaped), so it's visible/inert, not dropped:
+  expect(shadow.querySelector('.fp-progress')!.textContent).toContain('<script>steal()</script>');
+  expect(shadow.querySelector('.fp-choice[data-letter="A"]')!.textContent).toContain('<img src=x onerror=steal()>');
+});
+
+it('renderVerdict writes "Correct" for a correct result and "Not quite" for a wrong result', () => {
+  const ac = cbAnswerContent();
+  const shadow = mountAnswerOverlay(ac, vm, noop());
+  shadow.querySelector('.fp-choice[data-letter="B"]')!.setAttribute('data-correct', 'true');
+
+  renderVerdict(shadow, { pick: 'B', result: score('B', 'B') });
+  expect(shadow.querySelector('.fp-verdict')!.textContent).toContain('Correct');
+  expect(shadow.querySelector('.fp-verdict .fp-ok')).not.toBeNull();
+
+  // Re-mount to reset verdict state, then test wrong answer.
+  const shadow2 = mountAnswerOverlay(ac, vm, noop());
+  shadow2.querySelector('.fp-choice[data-letter="B"]')!.setAttribute('data-correct', 'true');
+  renderVerdict(shadow2, { pick: 'A', result: score('A', 'B') });
+  expect(shadow2.querySelector('.fp-verdict')!.textContent).toContain('Not quite');
+  expect(shadow2.querySelector('.fp-verdict .fp-no')).not.toBeNull();
 });
