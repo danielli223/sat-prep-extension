@@ -1,10 +1,10 @@
-import { cardSlot, extrasSlot } from './host';
+import { cardSlot, extrasSlot, CARD_LAUNCHER_CLASS } from './host';
+export { CARD_LAUNCHER_CLASS };
 
 // Minimize/restore launcher (design 2026-06-16). The focus card renders into the single
 // .fp-card-slot; its ✕ "minimizes" by stashing the slot's LIVE child nodes (not re-rendering),
 // so the restored card keeps its selection, verdict, and typed note. A floating pill in the
 // persistent extras slot re-attaches those same nodes.
-export const CARD_LAUNCHER_CLASS = 'fp-card-launcher';
 
 export interface CardLauncher {
   /** Stash the card slot's children and reveal the pill. No-op when the slot is already empty. */

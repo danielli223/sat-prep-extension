@@ -8,6 +8,7 @@ export const TT_POLICY = 'focused-practice';
 
 export const CARD_SLOT_CLASS = 'fp-card-slot';
 export const EXTRAS_SLOT_CLASS = 'fp-extras-slot';
+export const CARD_LAUNCHER_CLASS = 'fp-card-launcher';
 
 interface TTPolicy { createHTML(s: string): unknown; }
 let policy: TTPolicy | null = null;
@@ -41,6 +42,12 @@ const BASE_CSS = `
 .${CARD_SLOT_CLASS}:empty{display:none;}
 .${EXTRAS_SLOT_CLASS}{position:fixed;inset:0;z-index:3;pointer-events:none;}
 .${EXTRAS_SLOT_CLASS}>*{pointer-events:auto;}
+/* Minimize launcher: a bottom-right pill that re-opens a minimized focus card. In the extras slot
+   (above the card/panel) so it floats over the dimmed page; hidden until the card is minimized. */
+.${CARD_LAUNCHER_CLASS}{position:fixed;right:16px;bottom:16px;z-index:4;background:#3b82f6;color:#fff;border:none;
+  border-radius:9px;padding:8px 14px;font:700 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);}
+.${CARD_LAUNCHER_CLASS}[hidden]{display:none;}
 .fp-card,.fp-start{width:100%;max-width:460px;max-height:88vh;overflow:auto;background:#fff;color:#1f2937;
   border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:20px;box-sizing:border-box;}
 .fp-card-head{display:flex;justify-content:space-between;align-items:center;gap:12px;}
