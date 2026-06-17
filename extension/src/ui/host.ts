@@ -165,6 +165,15 @@ export function mountHost(doc: Document): ShadowRoot {
   // Full-viewport, top of the stack, click-through by default (the visible slots re-enable pointer
   // events). z-index near the 32-bit max so the overlay sits above CB's own modal.
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;';
+  // CB closes its question modal on an outside pointer-down. Our overlay sits ON TOP of that modal, so a
+  // real click on the focus card would bubble to the document and trip CB's close — the modal (and its
+  // answer) would be gone by Check time → a spurious "couldn't grade" (live 2026-06-16; only real mouse
+  // events reproduce this, not programmatic .click()). Stop our overlay's pointer events at the host so
+  // they never reach CB's document-level listeners. Our own in-shadow handlers fire first, so the card
+  // still works; stopPropagation (not preventDefault) leaves focus/typing/native button behaviour intact.
+  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+    host.addEventListener(t, (e) => e.stopPropagation());
+  }
   doc.body.appendChild(host);
   return host.attachShadow({ mode: 'open' });
 }
