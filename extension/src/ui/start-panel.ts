@@ -9,8 +9,8 @@ export interface StartPanelHandlers {
 }
 
 export function renderStartPanel(shadow: ShadowRoot, state: StartPanelState, h: StartPanelHandlers): void {
-  // Render into the card slot so a later renderCard repaint (or the calculator in the extras slot)
-  // can't be clobbered, and vice versa.
+  // Render into the card slot so the calculator (in the extras slot) can't be clobbered, and
+  // vice versa. The overlay (answer-overlay.ts) mounts directly into CB's .answer-content, not here.
   cardSlot(shadow).innerHTML = html(`
     <div class="fp-start">
       <div class="fp-start-head"><button class="fp-overlay-close" aria-label="Close">✕</button></div>

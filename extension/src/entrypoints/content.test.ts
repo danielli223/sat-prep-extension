@@ -784,7 +784,7 @@ describe('per-question degraded path (§2.4)', () => {
 
     await handleQuestion(shadow, view, renderQuestion);
 
-    expect(renderQuestion).toHaveBeenCalledTimes(1);  // Plan 2's existing renderCard(shadow, vm, live, handlers) call
+    expect(renderQuestion).toHaveBeenCalledTimes(1);  // the renderQuestion callback (mountAnswerOverlay in practice)
     expect(banner).not.toHaveBeenCalled();
   });
 });

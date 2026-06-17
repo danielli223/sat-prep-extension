@@ -1,7 +1,8 @@
 import type { QuestionView } from '../cb/reader';
 
-// CardVM is what the renderer consumes. It DELIBERATELY excludes stem: that field is RAM-only,
-// passed to the renderer separately and discarded, never modelled into anything that could reach the store.
+// CardVM is what the overlay renderer (answer-overlay.ts renderBody) consumes. It DELIBERATELY
+// excludes stem: that field is RAM-only, used for observer dedup and discarded — never modelled
+// into anything that could reach the store.
 export interface ChoiceVM { letter: string; text: string; }
 export interface CardVM {
   id: string;

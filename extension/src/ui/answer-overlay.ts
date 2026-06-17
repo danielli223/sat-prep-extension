@@ -136,6 +136,7 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
   const observer = new MutationObserver((records) => {
     for (const rec of records) {
       for (const node of Array.from(rec.addedNodes)) {
+        // childList (non-subtree) only reports direct children; guard is belt-and-suspenders — do NOT add subtree:true (would hide CB's nested nodes)
         if (node.nodeType === 1 && (node as Element).parentElement === answerContent) {
           hideCbNode(node as HTMLElement);
         }
