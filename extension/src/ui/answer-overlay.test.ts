@@ -9,7 +9,7 @@ const vm: CardVM = {
 };
 const noop = () => ({
   onSelect(){}, onEliminate(){}, onCheck(){}, onReveal(){}, onNext(){},
-  onToggleCalc(){}, onOpenDesmos(){}, onClose(){},
+  onToggleCalc(){}, onOpenDesmos(){}, onClose(){}, onNote(){},
 });
 
 beforeEach(() => { document.body.innerHTML = ''; });
@@ -22,6 +22,54 @@ function cbAnswerContent(): HTMLElement {
     '</div></div>';
   return findAnswerContent(document.querySelector('.cb-dialog-container')!)!;
 }
+
+describe('renders interactive UI', () => {
+  it('renders the trust badge, A–D choices, controls, and fires handlers', () => {
+    const ac = cbAnswerContent();
+    let picked = ''; let checked = '';
+    const shadow = mountAnswerOverlay(ac, vm, { ...noop(),
+      onSelect: (l) => { picked = l; }, onCheck: (p) => { checked = p; } });
+    expect(shadow.querySelector('.fp-trust')!.textContent).toContain('unaltered');
+    expect(shadow.querySelectorAll('.fp-choice')).toHaveLength(2);
+    expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 10');
+    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    expect(picked).toBe('B');
+    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    expect(checked).toBe('B');
+  });
+
+  it('renders a grid-in input for kind "grid" and Check reads the typed value', () => {
+    const ac = cbAnswerContent();
+    const gridVm = { ...vm, kind: 'grid' as const, choices: [] };
+    let checked = '';
+    const shadow = mountAnswerOverlay(ac, gridVm, { ...noop(), onCheck: (p) => { checked = p; } });
+    expect(shadow.querySelector('.fp-gridin-label')).not.toBeNull();
+    expect(shadow.querySelectorAll('.fp-choice')).toHaveLength(0);
+    (shadow.querySelector('.fp-gridin') as HTMLInputElement).value = '42';
+    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    expect(checked).toBe('42');
+  });
+
+  it('wires the remaining controls to their handlers', () => {
+    const ac = cbAnswerContent();
+    const calls: string[] = [];
+    const shadow = mountAnswerOverlay(ac, vm, { ...noop(),
+      onEliminate: () => calls.push('eliminate'), onReveal: () => calls.push('reveal'),
+      onNext: () => calls.push('next'), onClose: () => calls.push('close'),
+      onToggleCalc: () => calls.push('calc'), onOpenDesmos: () => calls.push('desmos'),
+      onNote: (t) => calls.push('note:' + t) });
+    (shadow.querySelector('.fp-choice[data-letter="A"] .fp-eliminate') as HTMLElement).click();
+    (shadow.querySelector('.fp-reveal') as HTMLElement).click();
+    (shadow.querySelector('.fp-next') as HTMLElement).click();
+    (shadow.querySelector('.fp-overlay-close') as HTMLElement).click();
+    (shadow.querySelector('.fp-calc-pin') as HTMLElement).click();
+    (shadow.querySelector('.fp-desmos') as HTMLElement).click();
+    const note = shadow.querySelector('.fp-note') as HTMLTextAreaElement;
+    note.value = '  forgot to distribute  ';
+    note.dispatchEvent(new Event('change'));
+    expect(calls).toEqual(['eliminate','reveal','next','close','calc','desmos','note:forgot to distribute']);
+  });
+});
 
 describe('mountAnswerOverlay', () => {
   it('mounts a shadow host inside .answer-content and hides CB\'s native choices', () => {
