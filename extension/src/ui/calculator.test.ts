@@ -13,10 +13,10 @@ const noop = () => ({
 });
 const sampleView: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear', difficulty: 'Hard',
-  stem: 'stem [SYNTHETIC]', choices: [{ letter: 'A', text: '1' }, { letter: 'B', text: '2' }],
+  stem: 'stem [SYNTHETIC]', stemHtml: 'stem [SYNTHETIC]', choices: [{ letter: 'A', text: '1' }, { letter: 'B', text: '2' }],
   correctAnswer: 'B', explanation: null,
 };
-const live: LiveContent = { stem: sampleView.stem, explanationGetter: () => null };
+const live: LiveContent = { stem: sampleView.stem, stemHtml: sampleView.stemHtml, explanationGetter: () => null };
 
 describe('toggleGeoGebra', () => {
   it('mounts a GeoGebra iframe into the shadow root on first toggle', () => {

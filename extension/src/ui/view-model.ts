@@ -19,7 +19,7 @@ export interface CardVM {
 // LiveContent is the RAM-only twin handed to the renderer alongside the VM. It is never returned
 // from a store getter, never persisted, never passed to model factories. Type lives here so call
 // sites can name it without importing reader internals.
-export interface LiveContent { stem: string; explanationGetter: () => string | null; }
+export interface LiveContent { stem: string; stemHtml: string; explanationGetter: () => string | null; }
 
 export function toCardVM(view: QuestionView, index0: number, total: number): CardVM {
   return {

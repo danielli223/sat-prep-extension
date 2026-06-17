@@ -580,7 +580,7 @@ vi.mock('../resilience/block-detect', () => ({ detectBlock: vi.fn(() => null), B
 // not a shared `view` const, so we declare a well-formed view here — INPUT DATA only, no assertion).
 const view: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear equations', difficulty: 'Hard',
-  stem: 'stem', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
+  stem: 'stem', stemHtml: 'stem', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
   correctAnswer: 'B', explanation: 'because',
 };
 

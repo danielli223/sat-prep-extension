@@ -38,7 +38,7 @@ export function renderCard(shadow: ShadowRoot, vm: CardVM, live: LiveContent, h:
         <button class="fp-overlay-close" aria-label="Close">✕</button>
       </div>
       <div class="fp-progress">${esc(vm.skill)} › ${esc(vm.difficulty)} · Q ${vm.position.index} of ${vm.position.total}</div>
-      <div class="fp-stem">${esc(live.stem)}</div>
+      <div class="fp-stem">${live.stemHtml}</div>
       ${answerBody}
       <div class="fp-actions">
         <button class="fp-check">Check</button>

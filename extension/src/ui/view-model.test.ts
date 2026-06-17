@@ -4,7 +4,8 @@ import type { QuestionView } from '../cb/reader';
 
 const mc: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear equations in one variable',
-  difficulty: 'Hard', stem: 'STEM TEXT — must not leak', choices: [
+  difficulty: 'Hard', stem: 'STEM TEXT — must not leak',
+  stemHtml: '<div>STEM HTML — must not leak</div>', choices: [
     { letter: 'A', text: '3' }, { letter: 'B', text: '5' }, { letter: 'C', text: '7' }, { letter: 'D', text: '15' },
   ], correctAnswer: 'B', explanation: 'EXPLANATION TEXT — must not leak',
 };
@@ -25,8 +26,10 @@ describe('toCardVM', () => {
     const vm = toCardVM(mc, 0, 1);
     const json = JSON.stringify(vm);
     expect(json).not.toContain('STEM TEXT');
+    expect(json).not.toContain('STEM HTML');
     expect(json).not.toContain('EXPLANATION TEXT');
     expect((vm as Record<string, unknown>).stem).toBeUndefined();
+    expect((vm as Record<string, unknown>).stemHtml).toBeUndefined();
     expect((vm as Record<string, unknown>).explanation).toBeUndefined();
   });
 
