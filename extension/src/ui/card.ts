@@ -119,3 +119,21 @@ export function renderVerdict(shadow: ShadowRoot, v: Verdict, live: LiveContent)
   verdict.innerHTML = html(
     v.result.correct ? `<span class="fp-ok">Correct</span>` : `<span class="fp-no">Not quite</span>`) as unknown as string;
 }
+
+// Empty-answer prompt: shown when Check is pressed with nothing selected/typed. A gentle nudge, NOT the
+// "couldn't grade" message — there's simply nothing to grade yet, and the loop leaves the question
+// re-checkable so the student can answer and press Check again.
+export function renderNeedAnswer(shadow: ShadowRoot, kind: 'mc' | 'grid'): void {
+  const verdict = shadow.querySelector('.fp-verdict') as HTMLElement;
+  verdict.innerHTML = html(
+    `<div class="fp-need-answer">${kind === 'grid' ? 'Enter your answer first.' : 'Select an answer first.'}</div>`) as unknown as string;
+}
+
+// Stale-card guard: shown when the card the student answered no longer matches CB's live question (CB
+// swapped questions in place and left the previous question's choices). We refuse to grade rather than
+// score the pick against the wrong question; reopening the question re-renders a fresh, consistent card.
+export function renderStaleCard(shadow: ShadowRoot): void {
+  const verdict = shadow.querySelector('.fp-verdict') as HTMLElement;
+  verdict.innerHTML = html(
+    `<div class="fp-stale">This question is out of sync with College Board — reopen it from the list to grade.</div>`) as unknown as string;
+}

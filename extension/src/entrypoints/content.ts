@@ -6,7 +6,7 @@ import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
 import { mountHost, cardSlot } from '../ui/host';
 import { toCardVM, type LiveContent } from '../ui/view-model';
-import { renderCard, renderVerdict, type CardHandlers } from '../ui/card';
+import { renderCard, renderVerdict, renderNeedAnswer, renderStaleCard, type CardHandlers } from '../ui/card';
 import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
 import { toggleGeoGebra, openDesmos } from '../ui/calculator';
@@ -57,7 +57,18 @@ function countLoadedResults(doc: Document): number {
 // verdict/explanation step. Selector observed live in the spike (.hide-rationale-checkbox).
 function ensureAnswerRevealed(doc: Document): void {
   const box = doc.querySelector<HTMLInputElement>('.hide-rationale-checkbox input[type="checkbox"]');
-  if (box && !box.checked) box.click();
+  if (!box) return;
+  if (doc.querySelector('.rationale')) return;   // goal already met — rationale is in the DOM, nothing to do
+  // No rationale yet. Drive CB's reveal with real CLICKS ONLY — never by assigning `box.checked`. From
+  // the content script's isolated world, `box.checked = …` writes through the native setter and does NOT
+  // update React's internal value-tracker (which lives in the page's main world), so CB's onChange sees
+  // "no change" on the following click and never injects the rationale — a permanent "couldn't grade"
+  // even with the box reading checked (live 2026-06-16; confirmed by tracing the reveal poll in the real
+  // extension). A genuine click performs the native toggle AND dispatches the change React processes, keeping its tracker in
+  // sync. Gate on the GOAL (rationale present), not the checkbox state: click once to flip; if that left
+  // it unchecked, click again to land it checked → CB injects.
+  box.click();
+  if (!box.checked) box.click();
 }
 
 // Find CB's live dialog container for a given question id. The QuestionView captured when the modal
@@ -214,6 +225,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   async function onCheck(view: QuestionView, pick: string): Promise<void> {
     if (checked) return;   // ignore repeat Check clicks: makeAttempt mints a fresh id, so re-recording
                            // would write duplicate attempts and corrupt Plan 3's deriveStats.
+    // Empty answer: there's nothing to grade — prompt the student rather than show the alarming
+    // "couldn't grade". Do NOT consume the per-question guard, so they can answer and press Check again.
+    if (pick.trim() === '') { renderNeedAnswer(shadow, view.choices.length ? 'mc' : 'grid'); return; }
     checked = true;
     // Read the answer at CHECK TIME from the live DOM (spike) — the QuestionView captured on show
     // predates CB's reveal. Usually it's already present (synchronous fast path); only if it isn't —
@@ -221,6 +235,15 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // gradeable question never shows a spurious "couldn't grade" (live 2026-06-16).
     let answer = currentCorrectAnswer(doc, view.id);
     if (answer === null) answer = await awaitCorrectAnswer(doc, view.id);
+    // Stale-card guard: if the card's kind (MC vs grid-in) disagrees with CB's answer format — an MC card
+    // whose answer is a grid-in value, or vice versa — the card is out of sync with the live question. CB
+    // swaps questions IN PLACE and can leave the previous question's choices behind (live 2026-06-16), so
+    // grading the pick would score it against the WRONG question. Refuse rather than emit a bogus verdict;
+    // reopening the question re-renders a fresh, consistent card.
+    if (answer && (view.choices.length > 0) !== /^[A-D]$/i.test(answer.trim())) {
+      renderStaleCard(shadow);
+      return;
+    }
     const result = score(pick, answer ?? '');
     const live: LiveContent = {
       stem: view.stem,
