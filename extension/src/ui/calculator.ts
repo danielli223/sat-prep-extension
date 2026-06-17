@@ -39,9 +39,10 @@ export function toggleGeoGebra(root: ShadowRoot): boolean {
 }
 
 export function openDesmos(): void {
-  // Separate pinned window — the real test-day tool, on its own free site. Not an iframe. Null the
-  // opener link explicitly: the non-standard `noopener` windowFeatures token is honored by Chrome
-  // but ignored by some engines, so harden it in code rather than rely on the string token.
-  const win = window.open(DESMOS_URL, 'fp-desmos', 'width=420,height=640');
-  if (win) win.opener = null;
+  // The real test-day tool on its own free site — a new window, never an iframe. Open with `_blank`
+  // and the standard `noopener` token, NOT a reusable named target. A named target ('fp-desmos') plus
+  // a nulled opener meant a second click re-navigated the now-cross-origin (desmos.com) named window
+  // without being its opener — which Chrome blocks as "Unsafe attempt to initiate navigation" (live
+  // 2026-06-16). `noopener` also makes window.open return null, so we hold no handle to disown.
+  window.open(DESMOS_URL, '_blank', 'noopener,noreferrer');
 }
