@@ -7,6 +7,10 @@
     "build": "node scripts/build.mjs chrome",
     "build:firefox": "node scripts/build.mjs firefox",
     "build:edge": "node scripts/build.mjs edge",
+    "dev:chrome": "node scripts/dev-chrome.mjs",
+    "reload": "node scripts/reload-ext.mjs",
+    "reload:build": "node scripts/build.mjs chrome && node scripts/reload-ext.mjs",
+    "cdp": "node scripts/cdp-eval.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
