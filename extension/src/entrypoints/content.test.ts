@@ -118,14 +118,35 @@ describe('content loop wiring', () => {
     expect(shadow.querySelector('.fp-card')).toBeNull();        // no question opened yet
   });
 
-  it('Next clears the card so the student can navigate CB to the next question', async () => {
+  it('Next dismisses the card when CB has no next question (no CB Next control present)', async () => {
+    // Fallback path: with no CB "Next" in the DOM (last item / single-question view), Next clears the card.
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;   // no CB "Next" button in this fixture
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    (shadow.querySelector('.fp-next') as HTMLElement).click();
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).toBeNull());
+  });
+
+  it('Next advances by actuating CB\'s own Next (does not just close the card)', async () => {
+    // The card's Next should move to the next question, not vanish. It clicks CB's own "Next" control;
+    // observeQuestions then re-renders the card for the question CB loads.
     const db = await freshDb();
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
     document.body.innerHTML += mc;
+    const cbNext = document.createElement('button');   // CB's own in-modal Next (light DOM, outside our shadow)
+    cbNext.textContent = 'Next';
+    const cbNextClicked = vi.fn();
+    cbNext.addEventListener('click', cbNextClicked);
+    document.body.appendChild(cbNext);
     await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
-    (shadow.querySelector('.fp-next') as HTMLElement).click();
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).toBeNull());
+
+    (shadow.querySelector('.fp-next') as HTMLElement).click();   // our Next
+
+    await vi.waitFor(() => expect(cbNextClicked).toHaveBeenCalledTimes(1));   // advanced via CB's Next
+    expect(shadow.querySelector('.fp-card')).not.toBeNull();                 // NOT cleared — it follows CB
   });
 
   it('headers "Q n of N" from the live cb-table-react results list', async () => {

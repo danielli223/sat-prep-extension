@@ -71,6 +71,20 @@ function ensureAnswerRevealed(doc: Document): void {
   if (!box.checked) box.click();
 }
 
+// CB's question modal carries its own "Next" control that advances to the next question IN PLACE. On the
+// student's Next we actuate it — same posture as ensureAnswerRevealed: actuate CB's own control on the
+// current user-chosen question, no API call / no enumeration / no prefetch — and observeQuestions then
+// re-renders our card for the question CB loads. Returns false when there's no enabled Next (the last
+// item / a single-question view) so the caller can fall back to dismissing the card. Our own .fp-next
+// lives inside the shadow root, so this light-DOM query never matches it.
+function clickCbNext(doc: Document): boolean {
+  const btn = [...doc.querySelectorAll<HTMLButtonElement>('button')]
+    .find((b) => (b.textContent ?? '').trim() === 'Next' && !b.disabled);
+  if (!btn) return false;
+  btn.click();
+  return true;
+}
+
 // Find CB's live dialog container for a given question id. The QuestionView captured when the modal
 // first appeared predates the reveal, so check-time/reveal-time reads must go back to the live DOM.
 function currentModal(doc: Document, id: string): Element | null {
@@ -263,14 +277,16 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
 
   async function onNext(view: QuestionView): Promise<void> {
     index++;
-    cardSlot(shadow).replaceChildren();   // clear our card so the student can navigate CB to the next question
     if (session) {
       session.lastQuestionId = view.id;
       session.updatedAt = nowIso();
       session.dirty = true;
       await safeWrite(saveSession(db, session));
     }
-    // No auto-advance / prefetch: the next question appears only when the student navigates CB.
+    // Advance: actuate CB's own Next so it loads the next question; observeQuestions then re-renders the
+    // card for it (no spurious "the card just closed"). Only dismiss the card when CB has no next question
+    // (last item / single-question view), so the student isn't left staring at a stale card.
+    if (!clickCbNext(doc)) cardSlot(shadow).replaceChildren();
   }
 
   return shadow;
