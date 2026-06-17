@@ -146,6 +146,14 @@ export function renderNeedAnswer(shadow: ShadowRoot, kind: 'mc' | 'grid'): void 
     `<div class="fp-need-answer">${kind === 'grid' ? 'Enter your answer first.' : 'Select an answer first.'}</div>`) as unknown as string;
 }
 
+// Stale-card guard message (carried over from the deleted card.ts). Shown when the overlay's kind
+// (MC vs grid-in) disagrees with CB's revealed answer format — an out-of-sync question after CB's
+// in-place swap. Refuse to grade rather than score against the wrong question.
+export function renderStaleCard(shadow: ShadowRoot): void {
+  (shadow.querySelector('.fp-verdict') as HTMLElement).innerHTML = html(
+    `<div class="fp-stale">This question is out of sync with College Board — reopen it from the list to grade.</div>`) as unknown as string;
+}
+
 const ANSWER_CSS = `
 .fp-answer{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;}
 .fp-answer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;}
@@ -179,6 +187,7 @@ const ANSWER_CSS = `
 .fp-verdict .fp-no{color:#dc2626;}
 .fp-indeterminate{color:#92400e;font-weight:600;font-size:13px;}
 .fp-need-answer{color:#1d4ed8;font-weight:600;font-size:13px;}
+.fp-stale{color:#b45309;font-weight:600;font-size:13px;line-height:1.4;}
 .fp-note-label{display:block;font-size:11px;color:#92400e;margin-bottom:12px;}
 .fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
   padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}
