@@ -11,14 +11,30 @@ export function toggleGeoGebra(root: ShadowRoot): boolean {
   // Mount into the persistent extras slot — NOT the card slot — so advancing to the next question
   // (which repaints the card via renderCard) doesn't wipe an open calculator.
   const slot = extrasSlot(root);
-  const existing = slot.querySelector('iframe.fp-geogebra');
+  const existing = slot.querySelector('.fp-geogebra');
   if (existing) { existing.remove(); return false; }
-  const iframe = root.ownerDocument!.createElement('iframe');
-  iframe.className = 'fp-geogebra';
+  const doc = root.ownerDocument!;
+  // The calculator is a floating PANEL (.fp-geogebra) with a header bar carrying a ✕, so it can be
+  // dismissed directly — matching the focus card / start panel — without re-toggling the card button.
+  const panel = doc.createElement('div');
+  panel.className = 'fp-geogebra';
+  const head = doc.createElement('div');
+  head.className = 'fp-geogebra-head';
+  const label = doc.createElement('span');
+  label.textContent = 'Calculator';
+  const close = doc.createElement('button');
+  close.className = 'fp-geogebra-close';
+  close.setAttribute('aria-label', 'Close calculator');
+  close.textContent = '✕';
+  close.addEventListener('click', () => panel.remove());
+  head.append(label, close);
+  const iframe = doc.createElement('iframe');
+  iframe.className = 'fp-geogebra-frame';
   iframe.src = GEOGEBRA_URL;
   iframe.title = 'GeoGebra calculator';
   iframe.setAttribute('allow', 'fullscreen');
-  slot.appendChild(iframe);
+  panel.append(head, iframe);
+  slot.appendChild(panel);
   return true;
 }
 
