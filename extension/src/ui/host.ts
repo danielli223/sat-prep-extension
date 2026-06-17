@@ -52,6 +52,11 @@ const BASE_CSS = `
   border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:12px;}
 .fp-stem{font-weight:600;line-height:1.5;margin-bottom:14px;}
 .fp-stem svg,.fp-stem img{max-width:100%;}
+/* Stems can carry a real data table (sanitized allowlist markup from reader.ts). Render it as a
+   readable grid instead of a run-on text blob; weight:400 so cell data isn't bolded like the prompt. */
+.fp-stem table{border-collapse:collapse;margin:10px 0;font-weight:400;}
+.fp-stem th,.fp-stem td{border:1px solid #cbd5e1;padding:4px 10px;text-align:center;}
+.fp-stem th{background:#f1f5f9;font-weight:700;}
 .fp-choices{list-style:none;margin:0 0 12px;padding:0;}
 .fp-choice{display:flex;align-items:center;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:7px;}
 .fp-choice .fp-eliminate{border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:14px;padding:8px 4px 8px 10px;}

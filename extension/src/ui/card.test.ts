@@ -7,11 +7,12 @@ import type { QuestionView } from '../cb/reader';
 
 const mc: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear equations in one variable',
-  difficulty: 'Hard', stem: 'If 3x + 7 = 22, what is x? [SYNTHETIC]', choices: [
+  difficulty: 'Hard', stem: 'If 3x + 7 = 22, what is x? [SYNTHETIC]',
+  stemHtml: 'If 3x + 7 = 22, what is x? [SYNTHETIC]', choices: [
     { letter: 'A', text: '3' }, { letter: 'B', text: '5' }, { letter: 'C', text: '7' }, { letter: 'D', text: '15' },
   ], correctAnswer: 'B', explanation: 'Subtract 7, divide by 3. [SYNTHETIC]',
 };
-const live = (v: QuestionView): LiveContent => ({ stem: v.stem, explanationGetter: () => v.explanation });
+const live = (v: QuestionView): LiveContent => ({ stem: v.stem, stemHtml: v.stemHtml, explanationGetter: () => v.explanation });
 
 beforeEach(() => { document.body.innerHTML = ''; });
 

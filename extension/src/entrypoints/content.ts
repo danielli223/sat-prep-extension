@@ -216,6 +216,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // null before CB injects the rationale). Falls back to the snapshot only if the live read fails.
     const live: LiveContent = {
       stem: view.stem,
+      stemHtml: view.stemHtml,
       explanationGetter: () => currentExplanation(doc, view.id) ?? view.explanation,
     };
     const handlers: CardHandlers = {
@@ -261,6 +262,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     const result = score(pick, answer ?? '');
     const live: LiveContent = {
       stem: view.stem,
+      stemHtml: view.stemHtml,
       explanationGetter: () => currentExplanation(doc, view.id) ?? view.explanation,
     };
     if (result.graded && answer) {

@@ -17,7 +17,7 @@ function stubChrome() {
 
 const ok: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear equations', difficulty: 'Hard',
-  stem: 'stem', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
+  stem: 'stem', stemHtml: 'stem', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
   correctAnswer: 'B', explanation: 'because',
 };
 
