@@ -371,6 +371,69 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
   });
 
+  it('keeps CB\'s ASYNC-injected rationale HIDDEN until Reveal (no inline answer leak)', async () => {
+    // Live regression (M1): showQuestion triggers CB's reveal, which injects .rationale ASYNCHRONOUSLY
+    // (~150ms later) as a fresh sibling of our host. The old mount hid only the children present AT
+    // mount time, so the late .rationale arrived VISIBLE → "Correct Answer: B" showed inline below our
+    // choices before the student picked/checked. A MutationObserver on .answer-content must hide it.
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // A dedicated unrevealed modal with NO .rationale-slot, so a stale setTimeout queued by an earlier
+    // test (which injects into '.rationale-slot') can't pollute this modal — this test owns its DOM.
+    document.body.innerHTML += `
+      <div role="dialog" class="cb-modal-container">
+        <div class="cb-dialog-container">
+          <div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>
+          <div class="cb-dialog-content">
+            <table class="cb-table"><tbody>
+              <tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>
+              <tr><td>SAT</td><td>Math</td><td>Algebra</td><td>Linear equations</td><td>Hard</td></tr>
+            </tbody></table>
+            <div class="question-content"><div class="question">If 3x + 7 = 22, x = ? [SYNTHETIC]</div></div>
+            <div class="answer-content">
+              <div class="answer-choices"><ul><li>3</li><li>5</li><li>7</li><li>15</li></ul></div>
+              <label class="hide-rationale-checkbox"><input type="checkbox" /> Show correct answer and explanation</label>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    const box = document.querySelector('.hide-rationale-checkbox input') as HTMLInputElement;
+    const answerContent = document.querySelector('.answer-content') as HTMLElement;
+    box.addEventListener('change', () => {
+      if (box.checked && !answerContent.querySelector('.rationale')) {
+        setTimeout(() => {   // CB injects the rationale ~150ms after the box is checked (the live delay)
+          // CB injects .rationale as a DIRECT CHILD of .answer-content (this is the contract both
+          // revealRationale and the mount hide loop assume — a child-list insertion the observer sees).
+          if (!answerContent.querySelector('.rationale')) {
+            const r = document.createElement('div');
+            r.className = 'rationale';
+            r.innerHTML = '<p>Correct Answer: B</p><div>because.</div>';
+            answerContent.appendChild(r);
+          }
+        }, 150);
+      }
+    });
+
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    // Wait for the delayed .rationale to land AND be hidden by the observer (the leak is closed). Assert
+    // both in one waitFor: the observer fires async after the injection, so there's a brief window where
+    // the node exists but display hasn't been set yet — poll until it settles to display:none.
+    await vi.waitFor(() => {
+      const r = document.querySelector('.answer-content .rationale') as HTMLElement | null;
+      expect(r).not.toBeNull();
+      expect(r!.style.display).toBe('none');   // HIDDEN, not leaked inline
+    }, { timeout: 2500 });
+    const rationale = document.querySelector('.answer-content .rationale') as HTMLElement;
+
+    // Our Reveal button is the SOLE un-hider — only then does CB's answer become visible.
+    (inOverlay('.fp-reveal') as HTMLElement).click();
+    expect(rationale.style.display).toBe('');
+    expect(rationale.textContent).toContain('Correct Answer: B');
+  });
+
   it('RECOVERS when the reveal box reads "checked" but CB never injected the rationale (Q1 desync)', async () => {
     // Live 2026-06-16, "Q 1 of 10": on the first question the modal renders progressively, so the reveal
     // click can land BEFORE CB wires its handler — leaving the box `checked` with NO rationale. The old

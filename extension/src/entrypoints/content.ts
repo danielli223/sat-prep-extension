@@ -7,8 +7,8 @@ import { score } from '../scoring';
 import { mountHost, cardSlot } from '../ui/host';
 import { toCardVM } from '../ui/view-model';
 import {
-  findAnswerContent, mountAnswerOverlay, renderVerdict, renderNeedAnswer, renderStaleCard,
-  revealRationale, type AnswerHandlers,
+  findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, renderVerdict, renderNeedAnswer,
+  renderStaleCard, revealRationale, type AnswerHandlers,
 } from '../ui/answer-overlay';
 import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
@@ -92,8 +92,16 @@ function clickCbNext(doc: Document): boolean {
 // first appeared predates the reveal, so check-time/reveal-time reads (and the overlay mount) must go
 // back to the live DOM.
 function currentModal(doc: Document, id: string): Element | null {
+  // Defense-in-depth: CB question ids are exactly 8 hex. VALIDATE the id to that shape before
+  // interpolating it into a RegExp, so a malformed/hostile id can't inject regex metacharacters or
+  // broaden the match — anything that isn't 8 hex never reaches the pattern. (A trailing
+  // `(?![0-9a-f])` lookahead is NOT usable here: in textContent the id abuts CB's own markup with no
+  // separator — e.g. "…dead9999Assessment" — so a following hex-range letter would false-reject the
+  // real match. The 8-hex validation is the load-bearing guard.)
+  if (!/^[0-9a-f]{8}$/i.test(id)) return null;
+  const re = new RegExp(`Question ID:\\s*${id}`, 'i');
   return [...doc.querySelectorAll('.cb-dialog-container')]
-    .find((el) => new RegExp(`Question ID:\\s*${id}`, 'i').test(el.textContent ?? '')) ?? null;
+    .find((el) => re.test(el.textContent ?? '')) ?? null;
 }
 
 // The overlay's shadow root for a given question id, or null if its host isn't mounted (the modal is
@@ -218,7 +226,6 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // opened a question first), which left N stuck at the fallback 1 ("Q 2 of 1", live 2026-06-16).
     // It is in the DOM behind the modal now. Never let N drop below the current position.
     total = Math.max(total, countLoadedResults(doc), index + 1);
-    ensureAnswerRevealed(doc);   // trigger CB's reveal so the answer is in the DOM by Check time (spike)
 
     // Locate CB's live modal + its .answer-content. We render ONLY our interaction INSIDE that region;
     // CB renders the question stem + rationale natively. No card fallback — if the answerable region
@@ -231,8 +238,8 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       onSelect: () => {},
       onEliminate: () => {},
       onCheck: (pick) => onCheck(view, pick),
-      // Reveal: un-hide CB's OWN rationale (the overlay hid it on mount) — CB renders the explanation
-      // natively now, so there's nothing for us to render.
+      // Reveal: un-hide CB's OWN rationale (the overlay hid it on mount/observer) — CB renders the
+      // explanation natively now, so there's nothing for us to render. Sole un-hider.
       onReveal: () => { revealRationale(answerContent); },
       onNote: (text) => { if (text) void safeWrite(saveNote(db, makeNote({ deviceId: dev, questionId: view.id, text }))); },
       onNext: () => onNext(view),
@@ -240,15 +247,21 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       // survives across questions and lives in the persistent extras slot.
       onToggleCalc: () => toggleGeoGebra(shadow),
       onOpenDesmos: () => openDesmos(),
-      // ✕ removes our overlay host from .answer-content, leaving CB's own (now re-shown) question intact.
-      onClose: () => { answerContent.querySelector('.fp-answer-host')?.remove(); },
+      // ✕ tears down our overlay AND restores CB's masked native nodes, so closing never leaves CB's
+      // own question blanked at display:none.
+      onClose: () => { unmountAnswerOverlay(answerContent); },
     };
 
     // §2.4: only mount the overlay when the DOM contract holds; otherwise degrade to the banner in the
     // body host. The renderQuestion thunk mounts the overlay into CB's .answer-content ("Q n of N").
-    void handleQuestion(shadow, view, () =>
-      mountAnswerOverlay(answerContent, toCardVM(view, index, total), handlers),
-    );
+    void handleQuestion(shadow, view, () => {
+      mountAnswerOverlay(answerContent, toCardVM(view, index, total), handlers);
+      // Trigger CB's reveal ONLY after the overlay is mounted (S1): so (a) a failed contract never
+      // reveals CB's answer un-masked, and (b) the hide-observer installed by mount is live BEFORE CB
+      // injects .rationale (~150ms later) → the late node gets hidden, not leaked inline. Scoring
+      // still reads the (hidden) rationale at Check time (awaitCorrectAnswer / currentCorrectAnswer).
+      ensureAnswerRevealed(doc);
+    });
   }
 
   async function onCheck(view: QuestionView, pick: string): Promise<void> {
@@ -281,7 +294,11 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       // mark the correct choice on the OVERLAY shadow so renderVerdict can light it green even on a
       // wrong pick
       const correctLetter = answer.trim().toUpperCase();
-      if (overlay) overlay.querySelector(`.fp-choice[data-letter="${correctLetter}"]`)?.setAttribute('data-correct', 'true');
+      // Defense-in-depth: only interpolate a known A–D letter into the selector (grid-in answers were
+      // already turned away by the stale-card guard above). Anything else → don't build a selector.
+      if (overlay && /^[A-D]$/.test(correctLetter)) {
+        overlay.querySelector(`.fp-choice[data-letter="${correctLetter}"]`)?.setAttribute('data-correct', 'true');
+      }
       await safeWrite(recordAttempt(db, makeAttempt({
         deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
@@ -301,11 +318,11 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // Advance: actuate CB's own Next so it loads the next question; observeQuestions then re-mounts the
     // overlay for it (no spurious "the card just closed"). Only dismiss the overlay when CB has no next
     // question (last item / single-question view), so the student isn't left staring at a stale overlay.
-    // The fallback removes our overlay host from CB's .answer-content; CB's own question stays put.
+    // The fallback tears down our overlay AND restores CB's masked native nodes; CB's question stays put.
     if (!clickCbNext(doc)) {
       const modal = currentModal(doc, view.id);
       const ac = modal ? findAnswerContent(modal) : null;
-      ac?.querySelector('.fp-answer-host')?.remove();
+      if (ac) unmountAnswerOverlay(ac);
     }
   }
 
