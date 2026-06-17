@@ -75,6 +75,8 @@ const BASE_CSS = `
 .fp-verdict .fp-ok{color:#16a34a;}
 .fp-verdict .fp-no{color:#dc2626;}
 .fp-indeterminate{color:#92400e;font-weight:600;font-size:13px;}
+.fp-need-answer{color:#1d4ed8;font-weight:600;font-size:13px;}
+.fp-stale{color:#b45309;font-weight:600;font-size:13px;line-height:1.4;}
 .fp-explanation{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:10px;font-size:13px;color:#4b5563;line-height:1.45;}
 .fp-explanation[hidden]{display:none;}
 .fp-explanation-label{font-size:10px;color:#16a34a;font-weight:700;text-transform:uppercase;margin-bottom:4px;}

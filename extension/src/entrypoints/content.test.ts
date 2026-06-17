@@ -153,6 +153,55 @@ describe('content loop wiring', () => {
     await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
     expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 7');   // not "Q 1 of 1"
   });
+
+  it('Check with no answer prompts to answer (NOT "couldn\'t grade"), records nothing, and stays re-checkable', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+
+    (shadow.querySelector('.fp-check') as HTMLElement).click();              // Check WITHOUT selecting a choice
+    expect(shadow.querySelector('.fp-need-answer')).not.toBeNull();          // gentle prompt…
+    expect(shadow.querySelector('.fp-indeterminate')).toBeNull();            // …not the alarming "couldn't grade"
+    expect(await getAttempts(db)).toHaveLength(0);
+
+    // The empty Check did NOT consume the question — answering + re-checking still grades.
+    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+  });
+
+  it('refuses to grade a card whose kind disagrees with CB\'s answer (stale card after an in-place swap)', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    // CB swapped a grid-in question in place but left the previous MC question's choices: the card shows
+    // MC options while CB's correct answer is a grid-in VALUE (33). Grading the pick would score it
+    // against the WRONG question — the loop must refuse, not produce a verdict.
+    document.body.innerHTML +=
+      '<div role="dialog" class="cb-modal-container"><div class="cb-dialog-container">' +
+      '<div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
+      '<div class="cb-dialog-content">' +
+      '<table class="cb-table"><tbody>' +
+      '<tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>' +
+      '<tr><td>SAT</td><td>Math</td><td>Algebra</td><td>S</td><td>Hard</td></tr></tbody></table>' +
+      '<div class="question-content"><div class="question">stem [SYNTHETIC]</div></div>' +
+      '<div class="answer-content"><div class="answer-choices"><ul><li>2</li><li>4</li><li>5</li><li>6</li></ul></div>' +
+      '<div class="rationale"><p>Correct Answer: 33</p></div></div>' +
+      '</div></div></div>';
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+
+    (shadow.querySelector('.fp-choice[data-letter="C"] .fp-pick') as HTMLElement).click();
+    (shadow.querySelector('.fp-check') as HTMLElement).click();
+
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-stale')).not.toBeNull());   // refused as out-of-sync
+    expect(shadow.querySelector('.fp-ok')).toBeNull();                                  // no wrong "Correct"…
+    expect(shadow.querySelector('.fp-no')).toBeNull();                                  // …or "Not quite"
+    expect(shadow.querySelector('.fp-indeterminate')).toBeNull();
+    expect(await getAttempts(db)).toHaveLength(0);                                      // nothing recorded
+  });
 });
 
 // Spike addendum (2026-06-15): CB injects the correct answer into the DOM ONLY once its
@@ -255,8 +304,13 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     box.addEventListener('change', () => {
       if (box.checked && !document.querySelector('.rationale')) {
         setTimeout(() => {   // CB injects the answer ~150ms after the box is checked
-          (document.querySelector('.rationale-slot') as HTMLElement).innerHTML =
-            '<div class="rationale"><p>Correct Answer: B</p><div>because.</div></div>';
+          // Idempotent + teardown-safe: a delayed CB injection that fires after the modal is gone (DOM
+          // cleared) or after the rationale already landed must no-op, not throw — the loop's recovery
+          // re-fires the reveal, so several of these can be queued.
+          const slot = document.querySelector('.rationale-slot');
+          if (slot && !document.querySelector('.rationale')) {
+            slot.innerHTML = '<div class="rationale"><p>Correct Answer: B</p><div>because.</div></div>';
+          }
         }, 150);
       }
     });
@@ -269,6 +323,68 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     // The loop polls until the answer lands, then grades — never the indeterminate "couldn't grade".
     await vi.waitFor(async () => { expect(await getAttempts(db)).toHaveLength(1); }, { timeout: 2500 });
     expect(shadow.querySelector('.fp-indeterminate')).toBeNull();
+    expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+  });
+
+  it('RECOVERS when the reveal box reads "checked" but CB never injected the rationale (Q1 desync)', async () => {
+    // Live 2026-06-16, "Q 1 of 10": on the first question the modal renders progressively, so the reveal
+    // click can land BEFORE CB wires its handler — leaving the box `checked` with NO rationale. The old
+    // `if (!box.checked) box.click()` guard then refused to re-trigger (it's already checked), so the
+    // answer stayed unreadable forever and a perfectly gradeable question showed a permanent
+    // "couldn't grade" + "no explanation". The loop must drive toward the GOAL state (rationale present),
+    // not the checkbox state, and un-stick the reveal.
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // Modal whose reveal box ALREADY reads `checked` but carries no rationale (the desync end-state).
+    // CB injects ONLY on a fresh change→checked, so a box sitting `checked` yields nothing on its own —
+    // exactly the live stuck state. The loop must re-toggle it to recover.
+    document.body.innerHTML += `
+      <div role="dialog" class="cb-modal-container">
+        <div class="cb-dialog-container">
+          <div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>
+          <div class="cb-dialog-content">
+            <table class="cb-table"><tbody>
+              <tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>
+              <tr><td>SAT</td><td>Math</td><td>Algebra</td><td>Linear equations</td><td>Hard</td></tr>
+            </tbody></table>
+            <div class="question-content"><div class="question">If 3x + 7 = 22, x = ? [SYNTHETIC]</div></div>
+            <div class="answer-content">
+              <div class="answer-choices"><ul><li>3</li><li>5</li><li>7</li><li>15</li></ul></div>
+              <label class="hide-rationale-checkbox"><input type="checkbox" checked /> Show correct answer and explanation</label>
+              <div class="rationale-slot"></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    const box = document.querySelector('.hide-rationale-checkbox input') as HTMLInputElement;
+    // Model CB's React value-tracker, which is what made this bug invisible to a naive mock: React only
+    // fires onChange when the value differs from what it last TRACKED, and assigning `box.checked = …`
+    // (the native setter, which is all the content script's isolated world can reach) does NOT update
+    // that tracker. So the reveal must be driven by real CLICKS (which toggle AND emit a tracked change),
+    // never by assigning `.checked` — assigning leaves the tracker stale so the next click reads as
+    // "no change" and CB never injects. This mock fails the old `.checked = false; click()` approach and
+    // passes the click-only fix — exactly the real isolated-world behavior (live 2026-06-16).
+    let tracked = box.checked;
+    box.addEventListener('change', () => {
+      if (box.checked === tracked) return;   // React: value unchanged from tracker → onChange does NOT fire
+      tracked = box.checked;
+      if (box.checked && !document.querySelector('.rationale')) {
+        (document.querySelector('.rationale-slot') as HTMLElement).innerHTML =
+          '<div class="rationale"><p>Correct Answer: B</p><div>Subtract 7, divide by 3. [SYNTHETIC]</div></div>';
+      }
+    });
+
+    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+
+    // Pick B (correct) and Check. The loop must un-stick the reveal and grade — never "couldn't grade".
+    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (shadow.querySelector('.fp-check') as HTMLElement).click();
+
+    await vi.waitFor(async () => { expect(await getAttempts(db)).toHaveLength(1); }, { timeout: 2500 });
+    expect(shadow.querySelector('.fp-indeterminate')).toBeNull();                                   // NOT "couldn't grade"
+    expect((await getAttempts(db))[0]!.correct).toBe(true);
     expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
   });
 });
