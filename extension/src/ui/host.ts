@@ -89,9 +89,16 @@ const BASE_CSS = `
 .fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
   padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}
 .fp-note::placeholder{color:#b45309;}
-/* Bottom-LEFT so the floating calculator never collides with the right-docked .fp-panel journal. */
+/* Bottom-LEFT so the floating calculator never collides with the right-docked .fp-panel journal.
+   A flex column: a slim header bar (label + ✕) over the iframe, which fills the rest. overflow:hidden
+   so the iframe's corners clip to the panel's rounded border. */
 .fp-geogebra{position:fixed;left:16px;bottom:16px;width:440px;max-width:92vw;height:660px;max-height:86vh;
-  border:1px solid #cbd5e1;border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.4);background:#fff;}
+  border:1px solid #cbd5e1;border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.4);background:#fff;
+  display:flex;flex-direction:column;overflow:hidden;}
+.fp-geogebra-head{display:flex;justify-content:space-between;align-items:center;flex:none;padding:6px 6px 6px 12px;
+  border-bottom:1px solid #e5e7eb;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#475569;}
+.fp-geogebra-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:26px;height:26px;cursor:pointer;font-size:12px;line-height:1;}
+.fp-geogebra-frame{flex:1;width:100%;border:0;}
 .fp-calc{display:flex;gap:8px;}
 .fp-calc-pin,.fp-desmos{background:#f1f5f9;color:#334155;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;}
 .fp-onboarding{font-size:12px;color:#0c4a6e;line-height:1.5;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px;margin-bottom:14px;}
