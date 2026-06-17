@@ -53,4 +53,12 @@ describe('mountHost', () => {
     document.removeEventListener('mousedown', onDocMousedown);
     document.removeEventListener('click', onDocClick);
   });
+
+  it('BASE_CSS styles the .fp-card-launcher pill (fixed, bottom-right, hidden by default)', () => {
+    const shadow = mountHost(document);
+    cardSlot(shadow);   // triggers ensureSlots → injects the <style> with BASE_CSS
+    const css = shadow.querySelector('style')!.textContent!;
+    expect(css).toContain('.fp-card-launcher');
+    expect(css).toContain('.fp-card-launcher[hidden]');
+  });
 });
