@@ -74,4 +74,24 @@ describe('mountCardLauncher', () => {
     launcher.minimize();
     expect(pillOf(shadow).hidden).toBe(true);
   });
+
+  it('preserves non-element child nodes (text nodes) across minimize/restore', () => {
+    const shadow = mountHost(document);
+    const launcher = mountCardLauncher(shadow);
+    const slot = cardSlot(shadow);
+    // a card element flanked by whitespace text nodes, exactly like innerHTML-rendered content
+    slot.append(document.createTextNode('\n  '));
+    const card = document.createElement('div');
+    card.className = 'fp-card';
+    slot.append(card);
+    slot.append(document.createTextNode('\n'));
+
+    launcher.minimize();
+    expect(slot.childNodes).toHaveLength(0);   // fully emptied (CSS :empty hides the backdrop)
+
+    (shadow.querySelector(`.${CARD_LAUNCHER_CLASS}`) as HTMLButtonElement).click();   // restore
+    expect(slot.childNodes).toHaveLength(3);    // both text nodes + the card returned
+    expect(slot.firstChild!.nodeType).toBe(Node.TEXT_NODE);
+    expect(slot.querySelector('.fp-card')).toBe(card);
+  });
 });
