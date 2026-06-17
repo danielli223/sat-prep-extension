@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mountAnswerOverlay, findAnswerContent } from './answer-overlay';
+import { mountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer } from './answer-overlay';
+import { score } from '../scoring';
 import type { CardVM } from './view-model';
 
 const vm: CardVM = {
@@ -86,4 +87,47 @@ describe('mountAnswerOverlay', () => {
     mountAnswerOverlay(ac, vm, noop());
     expect(ac.querySelectorAll('.fp-answer-host')).toHaveLength(1);
   });
+});
+
+it('revealRationale un-hides CB\'s native .rationale', () => {
+  const ac = cbAnswerContent();
+  mountAnswerOverlay(ac, vm, noop());
+  expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('none');
+  const ok = revealRationale(ac);
+  expect(ok).toBe(true);
+  expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('');
+});
+
+it('renderVerdict lights the correct choice green and the wrong pick red', () => {
+  const ac = cbAnswerContent();
+  const shadow = mountAnswerOverlay(ac, vm, noop());
+  shadow.querySelector('.fp-choice[data-letter="B"]')!.setAttribute('data-correct', 'true');
+  renderVerdict(shadow, { pick: 'A', result: score('A', 'B') });
+  expect(shadow.querySelector('.fp-choice[data-letter="A"]')!.classList.contains('fp-wrong')).toBe(true);
+  expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+});
+
+it('renderVerdict shows the indeterminate message and colors no choice when ungraded', () => {
+  const ac = cbAnswerContent();
+  const shadow = mountAnswerOverlay(ac, vm, noop());
+  shadow.querySelector('.fp-choice[data-letter="B"]')!.setAttribute('data-correct', 'true');
+  const ungraded = score('A', '');   // empty correct-answer → not graded; if score() doesn't yield graded:false here, read src/scoring.ts and construct an ungraded ScoreResult literal instead
+  renderVerdict(shadow, { pick: 'A', result: ungraded });
+  expect(shadow.querySelector('.fp-verdict .fp-indeterminate')).not.toBeNull();
+  expect(shadow.querySelector('.fp-choice.fp-correct')).toBeNull();
+  expect(shadow.querySelector('.fp-choice.fp-wrong')).toBeNull();
+});
+
+it('renderNeedAnswer prompts to select (mc) or enter (grid)', () => {
+  const ac = cbAnswerContent();
+  const shadow = mountAnswerOverlay(ac, vm, noop());
+  renderNeedAnswer(shadow, 'mc');
+  expect(shadow.querySelector('.fp-need-answer')!.textContent).toContain('Select');
+  renderNeedAnswer(shadow, 'grid');
+  expect(shadow.querySelector('.fp-need-answer')!.textContent).toContain('Enter');
+});
+
+it('revealRationale returns false when CB has not injected a .rationale', () => {
+  const bare = document.createElement('div');
+  expect(revealRationale(bare)).toBe(false);
 });

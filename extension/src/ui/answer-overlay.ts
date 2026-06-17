@@ -1,5 +1,6 @@
 import { html } from './host';
 import type { CardVM } from './view-model';
+import type { ScoreResult } from '../scoring';
 
 export interface AnswerHandlers {
   onSelect(letter: string): void; onEliminate(letter: string): void;
@@ -110,6 +111,39 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
   shadow.innerHTML = html(`<style>${ANSWER_CSS}</style>` + renderBody(vm)) as unknown as string;
   wire(shadow, vm, h);
   return shadow;
+}
+
+export interface Verdict { pick: string; result: ScoreResult; }
+
+// Un-hide CB's own rationale (hidden on mount). Returns false if CB hasn't injected it.
+// NOTE: use a direct-children scan, NOT querySelector(':scope > .rationale') — happy-dom does not
+// support :scope > (the hide-loop in mountAnswerOverlay uses the same .children pattern).
+export function revealRationale(answerContent: HTMLElement): boolean {
+  const r = Array.from(answerContent.children)
+    .find((c) => c.classList.contains('rationale')) as HTMLElement | undefined;
+  if (!r) return false;
+  r.style.display = '';
+  return true;
+}
+
+export function renderVerdict(shadow: ShadowRoot, v: Verdict): void {
+  const verdict = shadow.querySelector('.fp-verdict') as HTMLElement;
+  if (!v.result.graded) {
+    verdict.innerHTML = html(`<div class="fp-indeterminate">Couldn't grade this one — see College Board's answer below.</div>`) as unknown as string;
+    return;
+  }
+  shadow.querySelectorAll('.fp-choice').forEach((li) => {
+    const letter = (li as HTMLElement).dataset.letter!;
+    if (letter === v.pick && !v.result.correct) li.classList.add('fp-wrong');
+    if ((li as HTMLElement).dataset.correct === 'true') li.classList.add('fp-correct');
+  });
+  verdict.innerHTML = html(v.result.correct
+    ? `<span class="fp-ok">Correct</span>` : `<span class="fp-no">Not quite</span>`) as unknown as string;
+}
+
+export function renderNeedAnswer(shadow: ShadowRoot, kind: 'mc' | 'grid'): void {
+  (shadow.querySelector('.fp-verdict') as HTMLElement).innerHTML = html(
+    `<div class="fp-need-answer">${kind === 'grid' ? 'Enter your answer first.' : 'Select an answer first.'}</div>`) as unknown as string;
 }
 
 const ANSWER_CSS = `
