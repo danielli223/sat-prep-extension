@@ -4,7 +4,10 @@
 
 import { extrasSlot } from './host';
 
-const GEOGEBRA_URL = 'https://www.geogebra.org/calculator';
+// The SCIENTIFIC app, not the graphing one (/calculator): it opens straight to a button keypad
+// (digits, operators, √, π, fractions, exponents) — the visible calculator students expect, close to
+// the Desmos SAT keypad — instead of an axes grid with the math keyboard tucked away.
+const GEOGEBRA_URL = 'https://www.geogebra.org/scientific';
 const DESMOS_URL = 'https://www.desmos.com/calculator';
 
 export function toggleGeoGebra(root: ShadowRoot): boolean {
