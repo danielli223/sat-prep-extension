@@ -8,7 +8,6 @@ export const TT_POLICY = 'focused-practice';
 
 export const CARD_SLOT_CLASS = 'fp-card-slot';
 export const EXTRAS_SLOT_CLASS = 'fp-extras-slot';
-export const CARD_LAUNCHER_CLASS = 'fp-card-launcher';
 
 interface TTPolicy { createHTML(s: string): unknown; }
 let policy: TTPolicy | null = null;
@@ -42,30 +41,14 @@ const BASE_CSS = `
 .${CARD_SLOT_CLASS}:empty{display:none;}
 .${EXTRAS_SLOT_CLASS}{position:fixed;inset:0;z-index:3;pointer-events:none;}
 .${EXTRAS_SLOT_CLASS}>*{pointer-events:auto;}
-/* Minimize launcher: a pill that re-opens a minimized focus card, parked beside the Journal launcher
-   in the top-right (matching padding/font, so top:12px lines them up). In the extras slot (above the
-   card/panel) so it floats over the dimmed page; hidden until the card is minimized. The right offset
-   clears the Journal pill (its right:12 + ~93px width + an ~8px gap). */
-.${CARD_LAUNCHER_CLASS}{position:fixed;top:12px;right:113px;z-index:4;background:#3b82f6;color:#fff;border:none;
-  border-radius:9px;padding:8px 14px;font:700 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);}
-.${CARD_LAUNCHER_CLASS}[hidden]{display:none;}
-.fp-card,.fp-start{width:100%;max-width:460px;max-height:88vh;overflow:auto;background:#fff;color:#1f2937;
+.fp-start{width:100%;max-width:460px;max-height:88vh;overflow:auto;background:#fff;color:#1f2937;
   border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:20px;box-sizing:border-box;}
-.fp-card-head{display:flex;justify-content:space-between;align-items:center;gap:12px;}
 .fp-start-head{display:flex;justify-content:flex-end;margin-bottom:10px;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
 .fp-trust{font-size:10px;letter-spacing:.04em;color:#16a34a;font-weight:700;text-transform:uppercase;margin-bottom:10px;}
 .fp-trust::before{content:"\\25CF  ";}
 .fp-progress{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#6b7280;
   border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:12px;}
-.fp-stem{font-weight:600;line-height:1.5;margin-bottom:14px;}
-.fp-stem svg,.fp-stem img{max-width:100%;}
-/* Stems can carry a real data table (sanitized allowlist markup from reader.ts). Render it as a
-   readable grid instead of a run-on text blob; weight:400 so cell data isn't bolded like the prompt. */
-.fp-stem table{border-collapse:collapse;margin:10px 0;font-weight:400;}
-.fp-stem th,.fp-stem td{border:1px solid #cbd5e1;padding:4px 10px;text-align:center;}
-.fp-stem th{background:#f1f5f9;font-weight:700;}
 .fp-choices{list-style:none;margin:0 0 12px;padding:0;}
 .fp-choice{display:flex;align-items:center;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:7px;}
 .fp-choice .fp-eliminate{border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:14px;padding:8px 4px 8px 10px;}
@@ -91,19 +74,6 @@ const BASE_CSS = `
 .fp-indeterminate{color:#92400e;font-weight:600;font-size:13px;}
 .fp-need-answer{color:#1d4ed8;font-weight:600;font-size:13px;}
 .fp-stale{color:#b45309;font-weight:600;font-size:13px;line-height:1.4;}
-.fp-explanation{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:10px;font-size:13px;color:#4b5563;line-height:1.45;}
-.fp-explanation[hidden]{display:none;}
-.fp-explanation-label{font-size:10px;color:#16a34a;font-weight:700;text-transform:uppercase;margin-bottom:4px;}
-/* CB's rationale, rendered from sanitized allowlist markup (reader.ts) so it mirrors CB's layout.
-   weight:400 because the non-graded verdict path nests this inside .fp-verdict (font-weight:700). */
-.fp-explanation-body{font-weight:400;font-size:13px;line-height:1.45;color:#4b5563;}
-.fp-explanation-body p,.fp-explanation-body div{margin:0 0 8px;}
-.fp-explanation-body p:last-child,.fp-explanation-body div:last-child{margin-bottom:0;}
-.fp-explanation-body strong{font-weight:700;color:#111827;}
-.fp-explanation-body ul,.fp-explanation-body ol{margin:0 0 8px;padding-left:20px;}
-.fp-explanation-body table{border-collapse:collapse;margin:8px 0;}
-.fp-explanation-body th,.fp-explanation-body td{border:1px solid #cbd5e1;padding:3px 8px;text-align:center;}
-.fp-explanation-body th{background:#f1f5f9;font-weight:700;}
 .fp-note-label{display:block;font-size:11px;color:#92400e;margin-bottom:12px;}
 .fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
   padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}

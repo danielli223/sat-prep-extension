@@ -165,8 +165,8 @@ export async function guardedStart(doc: Document, runner: () => Promise<void>): 
 
 export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Promise<ShadowRoot> {
   // The BODY host (single shadow root) still owns the start panel and the floating calculator. The
-  // QUESTION overlay now mounts inside CB's live .answer-content (not this host), so the focus-card
-  // minimize/restore launcher no longer applies — onClose removes the overlay host directly.
+  // QUESTION overlay mounts inside CB's live .answer-content (not this host) — onClose removes the
+  // overlay host from .answer-content directly, leaving CB's own question intact.
   const shadow = mountHost(doc);
 
   // Probe an already-present question so the start panel can offer Resume when a session exists.
@@ -256,10 +256,10 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
                            // would write duplicate attempts and corrupt Plan 3's deriveStats.
     // Everything we render now lands in the OVERLAY shadow (mounted in CB's .answer-content), not the
     // body host. Re-resolve it each time: CB can swap .answer-content on its in-place Next.
-    const shadow = overlayShadow(doc, view.id);
+    const overlay = overlayShadow(doc, view.id);
     // Empty answer: there's nothing to grade — prompt the student rather than show the alarming
     // "couldn't grade". Do NOT consume the per-question guard, so they can answer and press Check again.
-    if (pick.trim() === '') { if (shadow) renderNeedAnswer(shadow, view.choices.length ? 'mc' : 'grid'); return; }
+    if (pick.trim() === '') { if (overlay) renderNeedAnswer(overlay, view.choices.length ? 'mc' : 'grid'); return; }
     checked = true;
     // Read the answer at CHECK TIME from the live DOM (spike) — the QuestionView captured on show
     // predates CB's reveal. Usually it's already present (synchronous fast path); only if it isn't —
@@ -273,7 +273,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // 2026-06-16), so grading the pick would score it against the WRONG question. Refuse rather than emit
     // a bogus verdict; reopening the question re-mounts a fresh, consistent overlay.
     if (answer && (view.choices.length > 0) !== /^[A-D]$/i.test(answer.trim())) {
-      if (shadow) renderStaleCard(shadow);
+      if (overlay) renderStaleCard(overlay);
       return;
     }
     const result = score(pick, answer ?? '');
@@ -281,13 +281,13 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       // mark the correct choice on the OVERLAY shadow so renderVerdict can light it green even on a
       // wrong pick
       const correctLetter = answer.trim().toUpperCase();
-      if (shadow) shadow.querySelector(`.fp-choice[data-letter="${correctLetter}"]`)?.setAttribute('data-correct', 'true');
+      if (overlay) overlay.querySelector(`.fp-choice[data-letter="${correctLetter}"]`)?.setAttribute('data-correct', 'true');
       await safeWrite(recordAttempt(db, makeAttempt({
         deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
       })));
     }
-    if (shadow) renderVerdict(shadow, { pick, result });   // graded===false → non-verdict state (contract §2.4)
+    if (overlay) renderVerdict(overlay, { pick, result });   // graded===false → non-verdict state (contract §2.4)
   }
 
   async function onNext(view: QuestionView): Promise<void> {
