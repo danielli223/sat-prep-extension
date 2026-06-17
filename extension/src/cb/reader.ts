@@ -9,8 +9,6 @@ export interface QuestionView {
   stemHtml: string;                    // RAM-only; sanitized stem markup for rendering (tables etc.)
   choices: Choice[];                   // MC only; empty for grid-in (student-produced response)
   correctAnswer: string | null;        // present only once CB's rationale is revealed
-  explanation: string | null;          // RAM-only; never persisted
-  explanationHtml: string;             // RAM-only; sanitized rationale markup for rendering (CB's layout)
 }
 
 // CB question IDs are 8 hex chars. Bounding the capture to exactly 8 stops adjacent text (e.g. a
@@ -91,26 +89,6 @@ function readStemHtml(root: Element): string {
   return out.innerHTML.trim();
 }
 
-// Renders CB's rationale with the SAME sanitized allowlist as the stem, so the explanation panel
-// mirrors CB's layout (paragraphs, tables, per-choice breakdown) instead of one flat escaped run.
-// CB bolds its "Correct Answer: X" line with a CSS class, which the allowlist strips with every other
-// attribute — so re-bold the smallest element carrying that line with an allowlisted <strong> (built
-// here, on our already-sanitized DOM) so the answer still reads as a heading like CB shows it. RAM-only.
-function readExplanationHtml(rationale: Element): string {
-  const doc = rationale.ownerDocument!;
-  const out = doc.createElement('div');
-  sanitizeInto(rationale, out, doc);
-  const answerEl = [...out.querySelectorAll('*')]
-    .filter((el) => /^\s*Correct Answer:/i.test(el.textContent ?? ''))
-    .sort((a, b) => (a.textContent?.length ?? 0) - (b.textContent?.length ?? 0))[0];
-  if (answerEl && !answerEl.querySelector('strong')) {
-    const strong = doc.createElement('strong');
-    while (answerEl.firstChild) strong.appendChild(answerEl.firstChild);
-    answerEl.appendChild(strong);
-  }
-  return out.innerHTML.trim();
-}
-
 // `root` is CB's div.cb-dialog-container (see observer.ts) — the element that actually holds the
 // question. The [role="dialog"] node itself does NOT contain the question content.
 export function readQuestion(root: Element): QuestionView | null {
@@ -153,7 +131,5 @@ export function readQuestion(root: Element): QuestionView | null {
     stemHtml: readStemHtml(root),
     choices,
     correctAnswer,
-    explanation: (rationale?.textContent ?? '').trim() || null,
-    explanationHtml: rationale ? readExplanationHtml(rationale) : '',
   };
 }
