@@ -53,4 +53,34 @@ describe('observeQuestions', () => {
     expect(onShown).not.toHaveBeenCalled();
     stop();
   });
+
+  it('after CB\'s in-place "Next" swap, emits the SETTLED view — never a stem-less/choiceless partial', async () => {
+    // Live 2026-06-16: CB's in-modal "Next" swaps the question IN PLACE and progressively — the new id
+    // lands while the body is momentarily cleared, then the stem + choices paint a beat later. Reading on
+    // that first mutation captured a blank card (no stem, no choices → a grid-in for an MC question), and
+    // id-only dedup locked it in. The final emit must carry the complete content.
+    history.replaceState({}, '', '/digital/results');
+    document.body.innerHTML = '';
+    const onShown = vi.fn();
+    const stop = observeQuestions(document, onShown);
+
+    document.body.innerHTML = mc;                                   // question A: id ab12cd34, full content
+    await vi.waitFor(() => expect(onShown).toHaveBeenCalledTimes(1));
+
+    const c = document.querySelector('.cb-dialog-container')!;
+    c.querySelector('h4')!.textContent = 'Question ID: ef56ab78';   // B's id lands…
+    c.querySelector('.question-content .question')!.textContent = '';   // …body momentarily cleared
+    c.querySelector('.answer-choices ul')!.innerHTML = '';
+    await new Promise((r) => setTimeout(r, 230));                   // a settle fires HERE on the empty body
+    c.querySelector('.question-content .question')!.textContent = 'B stem [SYNTHETIC]';  // …then it fills
+    c.querySelector('.answer-choices ul')!.innerHTML = '<li>B-one</li><li>B-two</li>';
+
+    await vi.waitFor(() => {
+      const last = onShown.mock.calls.at(-1)![0];
+      expect(last.id).toBe('ef56ab78');
+      expect(last.stem).toContain('B stem');                                              // not a blank stem
+      expect(last.choices.map((x: { text: string }) => x.text)).toEqual(['B-one', 'B-two']);  // not empty/grid
+    });
+    stop();
+  });
 });
