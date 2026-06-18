@@ -9,9 +9,7 @@ import { installTelemetryListeners } from './background';
 import { ingestTelemetryEvent } from '../telemetry/ingest';
 import { deleteMyData } from '../telemetry/delete';
 import { flush } from '../telemetry/queue';
-
-const TELEMETRY_EVENT = 'telemetry-event';
-const TELEMETRY_DELETE = 'telemetry-delete';
+import { TELEMETRY_EVENT, TELEMETRY_DELETE } from '../messages';
 
 describe('installTelemetryListeners', () => {
   beforeEach(() => {
@@ -46,6 +44,9 @@ describe('installTelemetryListeners', () => {
       fakeEvent,
       expect.objectContaining({ appVersion: '0.0.1' }),
     );
+    // Opportunistic flush fires after each ingest (Firefox fallback — no persistent alarms).
+    await Promise.resolve();
+    expect(flush).toHaveBeenCalledTimes(1);
 
     // Exercise the TELEMETRY_DELETE branch.
     vi.clearAllMocks();
