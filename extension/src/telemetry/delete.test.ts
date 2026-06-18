@@ -23,8 +23,9 @@ describe('deleteMyData', () => {
     await enqueue({ event: 'e', timestamp: 't', properties: { distinct_id: id } });
     const f = vi.fn(async () => new Response('{}', { status: 200 }));
     await deleteMyData(f as unknown as typeof fetch);
-    expect(f.mock.calls[0]![0]).toBe(TELEMETRY_DELETE_URL);
-    expect(JSON.parse((f.mock.calls[0]![1] as RequestInit).body as string)).toEqual({ install_id: id });
+    const call0 = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(call0[0]).toBe(TELEMETRY_DELETE_URL);
+    expect(JSON.parse(call0[1].body as string)).toEqual({ install_id: id });
     expect(await getInstallId()).toBeNull();
     expect(await readQueue()).toEqual([]);
   });
