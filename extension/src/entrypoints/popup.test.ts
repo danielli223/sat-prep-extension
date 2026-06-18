@@ -22,3 +22,17 @@ describe('renderPopup', () => {
     expect(document.body.textContent).toContain('Not affiliated');
   });
 });
+
+import { renderPopup } from './popup';
+
+it('renders an opt-in analytics toggle gated by a 13+ attestation', () => {
+  const root = document.createElement('div');
+  renderPopup(root);
+  expect(root.querySelector('.fp-telemetry-age')).toBeTruthy();
+  const toggle = root.querySelector<HTMLInputElement>('.fp-telemetry-toggle');
+  expect(toggle).toBeTruthy();
+  expect(toggle!.disabled).toBe(true); // disabled until 13+ is checked
+  expect(root.querySelector('.fp-telemetry-delete')).toBeTruthy();
+  expect(root.textContent).toMatch(/PostHog/);
+  expect(root.textContent).toMatch(/never the questions|nothing that identifies you/i);
+});
