@@ -62,6 +62,35 @@ describe('content loop wiring', () => {
     expect(session!.shuffleSeed).toBe(0);
   });
 
+  it('Check repaints the underlying results-list chip live (no page refresh needed)', async () => {
+    const db = await freshDb();
+    // The live CB results list (rows ab12cd34 + ef56ab78) is on the page behind the modal. ab12cd34 is
+    // the question the student is about to answer; ef56ab78 stays unseen. No chips yet (the list-load
+    // badger isn't wired in this unit harness — only onCheck's live repaint is under test).
+    document.body.innerHTML += `<table class="cb-table-react"><tbody>
+      <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ab12cd34</button></td></tr>
+      <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ef56ab78</button></td></tr>
+    </tbody></table>`;
+
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += mc;                                        // CB renders question ab12cd34
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    // Once the attempt is recorded, the row's chip flips to "done" WITHOUT a reload — the whole gap this
+    // fixes. The repaint is store-driven, so the still-unseen ef56ab78 row reads "new".
+    await vi.waitFor(() => {
+      const chip = document.querySelector('table.cb-table-react tbody tr:nth-child(1) .id-column .fp-badge');
+      expect(chip?.getAttribute('data-state')).toBe('done');
+    });
+    const ef = document.querySelector('table.cb-table-react tbody tr:nth-child(2) .id-column .fp-badge');
+    expect(ef?.getAttribute('data-state')).toBe('new');
+  });
+
   it('NEVER-GUESS: when the answer is unreadable, no attempt is recorded and no verdict shows', async () => {
     const db = await freshDb();
     const shadow = await runLoop(document, db, 'dev-1');

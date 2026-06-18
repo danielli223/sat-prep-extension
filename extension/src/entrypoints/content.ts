@@ -303,6 +303,16 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
       })));
+      // Reflect the just-recorded result on the underlying results list NOW, so its done/missed chip
+      // updates without a manual page refresh. The list sits behind the modal; watchResultsList only
+      // repaints when the row-ID set changes, not when the student's own data does — so this answer-
+      // driven change has no other repaint path. Safe re-entrancy: readListQuestionIds ignores chip
+      // text, so this chip mutation leaves the ID signature stable and never re-triggers that observer.
+      // Fire-and-forget (same posture as the coachmark re-badge): the chip lives behind the modal, so a
+      // background repaint must never delay the verdict the student is waiting on, and we already
+      // awaited recordAttempt above, so getSeen reads the just-recorded result.
+      const list = findResultsList(doc);
+      if (list) void refreshBadges(db, list);
     }
     if (overlay) renderVerdict(overlay, { pick, result });   // graded===false → non-verdict state (contract §2.4)
   }
