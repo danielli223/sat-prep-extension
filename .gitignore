@@ -12,5 +12,6 @@ extension/.dev-chrome-profile/
 extension/.env
 deletion-worker/node_modules/
 deletion-worker/.dev.vars*
+!deletion-worker/.dev.vars.example
 deletion-worker/.env*
 deletion-worker/.wrangler/
