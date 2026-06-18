@@ -46,4 +46,24 @@ describe('queue', () => {
     await flush(f as unknown as typeof fetch);
     expect(f).not.toHaveBeenCalled();
   });
+
+  it('does NOT lose an event enqueued DURING an in-flight POST (drops only the sent slice)', async () => {
+    stubChrome();
+    await enqueue(ev('a'));   // the only item in flight when flush starts
+    // The send enqueues a SECOND event mid-flight (an emit landed while the POST was outstanding), then
+    // succeeds. flush must remove ONLY the item it sent ('a'), not purge the whole key — so 'b' survives.
+    const f = vi.fn(async () => { await enqueue(ev('b')); return new Response('{}', { status: 200 }); });
+    await flush(f as unknown as typeof fetch);
+    const remaining = await readQueue();
+    expect(remaining.map((e) => e.properties.distinct_id)).toEqual(['b']);   // 'a' dropped, 'b' kept
+  });
+
+  it('on a 4xx drop, removes only the sent slice (a mid-flight enqueue still survives)', async () => {
+    stubChrome();
+    await enqueue(ev('a'));
+    const f = vi.fn(async () => { await enqueue(ev('b')); return new Response('', { status: 400 }); });
+    await flush(f as unknown as typeof fetch);
+    const remaining = await readQueue();
+    expect(remaining.map((e) => e.properties.distinct_id)).toEqual(['b']);   // 4xx drops 'a' only, keeps 'b'
+  });
 });
