@@ -12,7 +12,7 @@ const LABEL: Record<State, string> = { done: '✓ done', missed: '⚠ missed', n
 // The chips live in CB's LIGHT DOM (not our shadow root), so the shadow stylesheet can't reach them.
 // Style them inline as small pills, colored per state to match the approved journal mockup
 // (done=green, missed=red, new=gray). Inline-only — no <style> injected into CB's page.
-const PILL = 'display:inline-block;margin-left:8px;padding:1px 7px;border-radius:9px;' +
+const PILL = 'display:inline-block;margin-left:8px;padding:1px 7px;border-radius:9px;white-space:nowrap;' +
   'font:700 10px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;vertical-align:middle;';
 const STYLE: Record<State, string> = {
   done: PILL + 'background:#dcfce7;color:#16a34a;',

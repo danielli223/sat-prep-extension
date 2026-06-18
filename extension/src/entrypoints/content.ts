@@ -5,9 +5,11 @@ import { observeQuestions } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
 import { mountHost, cardSlot } from '../ui/host';
-import { mountCardLauncher } from '../ui/launcher';
-import { toCardVM, type LiveContent } from '../ui/view-model';
-import { renderCard, renderVerdict, renderNeedAnswer, renderStaleCard, type CardHandlers } from '../ui/card';
+import { toCardVM } from '../ui/view-model';
+import {
+  findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, renderVerdict, renderNeedAnswer,
+  renderStaleCard, revealRationale, type AnswerHandlers,
+} from '../ui/answer-overlay';
 import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
 import { toggleGeoGebra, openDesmos } from '../ui/calculator';
@@ -87,10 +89,27 @@ function clickCbNext(doc: Document): boolean {
 }
 
 // Find CB's live dialog container for a given question id. The QuestionView captured when the modal
-// first appeared predates the reveal, so check-time/reveal-time reads must go back to the live DOM.
+// first appeared predates the reveal, so check-time/reveal-time reads (and the overlay mount) must go
+// back to the live DOM.
 function currentModal(doc: Document, id: string): Element | null {
+  // Defense-in-depth: CB question ids are exactly 8 hex. VALIDATE the id to that shape before
+  // interpolating it into a RegExp, so a malformed/hostile id can't inject regex metacharacters or
+  // broaden the match — anything that isn't 8 hex never reaches the pattern. (A trailing
+  // `(?![0-9a-f])` lookahead is NOT usable here: in textContent the id abuts CB's own markup with no
+  // separator — e.g. "…dead9999Assessment" — so a following hex-range letter would false-reject the
+  // real match. The 8-hex validation is the load-bearing guard.)
+  if (!/^[0-9a-f]{8}$/i.test(id)) return null;
+  const re = new RegExp(`Question ID:\\s*${id}`, 'i');
   return [...doc.querySelectorAll('.cb-dialog-container')]
-    .find((el) => (el.textContent ?? '').includes(`Question ID: ${id}`)) ?? null;
+    .find((el) => re.test(el.textContent ?? '')) ?? null;
+}
+
+// The overlay's shadow root for a given question id, or null if its host isn't mounted (the modal is
+// gone, or CB has no .answer-content). Check-time helpers retarget the verdict/state to THIS shadow.
+function overlayShadow(doc: Document, id: string): ShadowRoot | null {
+  const modal = currentModal(doc, id);
+  const ac = modal ? findAnswerContent(modal) : null;
+  return ac?.querySelector('.fp-answer-host')?.shadowRoot ?? null;
 }
 
 // Read the correct answer AT CHECK TIME from the live container (correctAnswer === null at observe
@@ -98,14 +117,6 @@ function currentModal(doc: Document, id: string): Element | null {
 function currentCorrectAnswer(doc: Document, id: string): string | null {
   const modal = currentModal(doc, id);
   return modal ? (readQuestion(modal)?.correctAnswer ?? null) : null;
-}
-
-// Read the explanation AT REVEAL/CHECK TIME from the live container, as sanitized HTML. Like the
-// answer, CB injects the rationale into the DOM only after ensureAnswerRevealed clicks the reveal box,
-// so the observe-time snapshot is empty in the real reveal-gated flow — never trust that snapshot.
-function currentExplanationHtml(doc: Document, id: string): string {
-  const modal = currentModal(doc, id);
-  return modal ? (readQuestion(modal)?.explanationHtml ?? '') : '';
 }
 
 // CB injects the rationale — and thus the correct answer — into the DOM ASYNCHRONOUSLY after the
@@ -129,10 +140,10 @@ export async function safeWrite(write: Promise<unknown>): Promise<void> {
   try { await write; } catch { /* §8.5: session works, this datum is just untracked */ }
 }
 
-// §2.4 degraded path, extracted from Plan 2's showQuestion so it is unit-testable. On a failed
-// contract check we show the non-verdict banner + bump the failure counter and DO NOT render the card.
-// `renderQuestion` is Plan 2's existing renderCard(shadow, toCardVM(view), live, handlers) closure —
-// Plan 4 never re-calls renderCard with a different signature.
+// §2.4 degraded path, extracted from showQuestion so it is unit-testable. On a failed contract check
+// we show the non-verdict banner in the BODY host + bump the failure counter and DO NOT mount the
+// overlay. `renderQuestion` is showQuestion's overlay-mount thunk (mountAnswerOverlay into CB's
+// .answer-content); the gate's shape is unchanged — only what the thunk does is now the overlay mount.
 export async function handleQuestion(
   shadow: ShadowRoot,
   view: QuestionView | null,
@@ -143,7 +154,7 @@ export async function handleQuestion(
     await bumpFailureCounter();
     return;
   }
-  renderQuestion(); // contract passed → run Plan 2's existing 4-arg renderCard call site unchanged
+  renderQuestion(); // contract passed → mount the answer overlay into CB's live .answer-content
 }
 
 // §2.5 + §8.3 gate that wraps Plan 2/3's start. `runner` is the post-Plan-3 startup body (runLoop +
@@ -161,8 +172,10 @@ export async function guardedStart(doc: Document, runner: () => Promise<void>): 
 }
 
 export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Promise<ShadowRoot> {
+  // The BODY host (single shadow root) still owns the start panel and the floating calculator. The
+  // QUESTION overlay mounts inside CB's live .answer-content (not this host) — onClose removes the
+  // overlay host from .answer-content directly, leaving CB's own question intact.
   const shadow = mountHost(doc);
-  const launcher = mountCardLauncher(shadow);
 
   // Probe an already-present question so the start panel can offer Resume when a session exists.
   let probedFilter: string | null = null;
@@ -209,45 +222,57 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   let checked = false;   // per-question guard: at most one attempt recorded per Check session (reset on show)
   function showQuestion(view: QuestionView): void {
     checked = false;   // new question on screen → re-arm scoring
-    launcher.discard();   // a new/refreshed question takes the slot — drop any minimized card + hide the pill
     // Refresh "Q n of N": the results list may not have been in the DOM at Start (e.g. the student
     // opened a question first), which left N stuck at the fallback 1 ("Q 2 of 1", live 2026-06-16).
     // It is in the DOM behind the modal now. Never let N drop below the current position.
     total = Math.max(total, countLoadedResults(doc), index + 1);
-    ensureAnswerRevealed(doc);   // trigger CB's reveal so the answer is in the DOM by Check time (spike)
-    // Read the explanation LIVE from the post-reveal DOM, never the observe-time snapshot (which is
-    // null before CB injects the rationale). Falls back to the snapshot only if the live read fails.
-    const live: LiveContent = {
-      stem: view.stem,
-      stemHtml: view.stemHtml,
-      explanationHtmlGetter: () => currentExplanationHtml(doc, view.id) || view.explanationHtml,
-    };
-    const handlers: CardHandlers = {
+
+    // Locate CB's live modal + its .answer-content. We render ONLY our interaction INSIDE that region;
+    // CB renders the question stem + rationale natively. No card fallback — if the answerable region
+    // isn't there yet, no-op (the observer re-emits when the modal finishes rendering).
+    const modal = currentModal(doc, view.id);
+    const answerContent = modal ? findAnswerContent(modal) : null;
+    if (!answerContent) return;
+
+    const handlers: AnswerHandlers = {
       onSelect: () => {},
       onEliminate: () => {},
       onCheck: (pick) => onCheck(view, pick),
-      onReveal: () => {},
+      // Reveal: un-hide CB's OWN rationale (the overlay hid it on mount/observer) — CB renders the
+      // explanation natively now, so there's nothing for us to render. Sole un-hider.
+      onReveal: () => { revealRationale(answerContent); },
       onNote: (text) => { if (text) void safeWrite(saveNote(db, makeNote({ deviceId: dev, questionId: view.id, text }))); },
       onNext: () => onNext(view),
+      // Calculator toggles in the BODY host (the mountHost shadow), NOT the overlay shadow, so it
+      // survives across questions and lives in the persistent extras slot.
       onToggleCalc: () => toggleGeoGebra(shadow),
       onOpenDesmos: () => openDesmos(),
-      // ✕ minimizes the card into the launcher pill (top-right, beside the Journal pill) — it stashes
-      // the live node so the student's selection/verdict/note survive, and the pill re-attaches it.
-      // A new CB question discards the stash via showQuestion's launcher.discard().
-      onClose: () => launcher.minimize(),
+      // ✕ tears down our overlay AND restores CB's masked native nodes, so closing never leaves CB's
+      // own question blanked at display:none.
+      onClose: () => { unmountAnswerOverlay(answerContent); },
     };
-    // §2.4: only paint the card when the DOM contract holds; otherwise degrade to the banner.
-    void handleQuestion(shadow, view, () =>
-      renderCard(shadow, toCardVM(view, index, total), live, handlers),   // "Q n of N", never "Q n of n"
-    );
+
+    // §2.4: only mount the overlay when the DOM contract holds; otherwise degrade to the banner in the
+    // body host. The renderQuestion thunk mounts the overlay into CB's .answer-content ("Q n of N").
+    void handleQuestion(shadow, view, () => {
+      mountAnswerOverlay(answerContent, toCardVM(view, index, total), handlers);
+      // Trigger CB's reveal ONLY after the overlay is mounted (S1): so (a) a failed contract never
+      // reveals CB's answer un-masked, and (b) the hide-observer installed by mount is live BEFORE CB
+      // injects .rationale (~150ms later) → the late node gets hidden, not leaked inline. Scoring
+      // still reads the (hidden) rationale at Check time (awaitCorrectAnswer / currentCorrectAnswer).
+      ensureAnswerRevealed(doc);
+    });
   }
 
   async function onCheck(view: QuestionView, pick: string): Promise<void> {
     if (checked) return;   // ignore repeat Check clicks: makeAttempt mints a fresh id, so re-recording
                            // would write duplicate attempts and corrupt Plan 3's deriveStats.
+    // Everything we render now lands in the OVERLAY shadow (mounted in CB's .answer-content), not the
+    // body host. Re-resolve it each time: CB can swap .answer-content on its in-place Next.
+    const overlay = overlayShadow(doc, view.id);
     // Empty answer: there's nothing to grade — prompt the student rather than show the alarming
     // "couldn't grade". Do NOT consume the per-question guard, so they can answer and press Check again.
-    if (pick.trim() === '') { renderNeedAnswer(shadow, view.choices.length ? 'mc' : 'grid'); return; }
+    if (pick.trim() === '') { if (overlay) renderNeedAnswer(overlay, view.choices.length ? 'mc' : 'grid'); return; }
     checked = true;
     // Read the answer at CHECK TIME from the live DOM (spike) — the QuestionView captured on show
     // predates CB's reveal. Usually it's already present (synchronous fast path); only if it isn't —
@@ -255,31 +280,31 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // gradeable question never shows a spurious "couldn't grade" (live 2026-06-16).
     let answer = currentCorrectAnswer(doc, view.id);
     if (answer === null) answer = await awaitCorrectAnswer(doc, view.id);
-    // Stale-card guard: if the card's kind (MC vs grid-in) disagrees with CB's answer format — an MC card
-    // whose answer is a grid-in value, or vice versa — the card is out of sync with the live question. CB
-    // swaps questions IN PLACE and can leave the previous question's choices behind (live 2026-06-16), so
-    // grading the pick would score it against the WRONG question. Refuse rather than emit a bogus verdict;
-    // reopening the question re-renders a fresh, consistent card.
+    // Stale-card guard: if the overlay's kind (MC vs grid-in) disagrees with CB's answer format — an MC
+    // overlay whose answer is a grid-in value, or vice versa — the overlay is out of sync with the live
+    // question. CB swaps questions IN PLACE and can leave the previous question's choices behind (live
+    // 2026-06-16), so grading the pick would score it against the WRONG question. Refuse rather than emit
+    // a bogus verdict; reopening the question re-mounts a fresh, consistent overlay.
     if (answer && (view.choices.length > 0) !== /^[A-D]$/i.test(answer.trim())) {
-      renderStaleCard(shadow);
+      if (overlay) renderStaleCard(overlay);
       return;
     }
     const result = score(pick, answer ?? '');
-    const live: LiveContent = {
-      stem: view.stem,
-      stemHtml: view.stemHtml,
-      explanationHtmlGetter: () => currentExplanationHtml(doc, view.id) || view.explanationHtml,
-    };
     if (result.graded && answer) {
-      // mark the correct choice so renderVerdict can light it green even on a wrong pick
+      // mark the correct choice on the OVERLAY shadow so renderVerdict can light it green even on a
+      // wrong pick
       const correctLetter = answer.trim().toUpperCase();
-      shadow.querySelector(`.fp-choice[data-letter="${correctLetter}"]`)?.setAttribute('data-correct', 'true');
+      // Defense-in-depth: only interpolate a known A–D letter into the selector (grid-in answers were
+      // already turned away by the stale-card guard above). Anything else → don't build a selector.
+      if (overlay && /^[A-D]$/.test(correctLetter)) {
+        overlay.querySelector(`.fp-choice[data-letter="${correctLetter}"]`)?.setAttribute('data-correct', 'true');
+      }
       await safeWrite(recordAttempt(db, makeAttempt({
         deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
       })));
     }
-    renderVerdict(shadow, { pick, result }, live);   // graded===false → non-verdict state (contract §2.4)
+    if (overlay) renderVerdict(overlay, { pick, result });   // graded===false → non-verdict state (contract §2.4)
   }
 
   async function onNext(view: QuestionView): Promise<void> {
@@ -290,12 +315,15 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       session.dirty = true;
       await safeWrite(saveSession(db, session));
     }
-    // Advance: actuate CB's own Next so it loads the next question; observeQuestions then re-renders the
-    // card for it (no spurious "the card just closed"). Only dismiss the card when CB has no next question
-    // (last item / single-question view), so the student isn't left staring at a stale card. The
-    // fallback clears (never minimizes) and needs no launcher.discard(): Next is only reachable from an
-    // on-screen card, so the launcher pill is already hidden here. (Keep this invariant if Next moves.)
-    if (!clickCbNext(doc)) cardSlot(shadow).replaceChildren();
+    // Advance: actuate CB's own Next so it loads the next question; observeQuestions then re-mounts the
+    // overlay for it (no spurious "the card just closed"). Only dismiss the overlay when CB has no next
+    // question (last item / single-question view), so the student isn't left staring at a stale overlay.
+    // The fallback tears down our overlay AND restores CB's masked native nodes; CB's question stays put.
+    if (!clickCbNext(doc)) {
+      const modal = currentModal(doc, view.id);
+      const ac = modal ? findAnswerContent(modal) : null;
+      if (ac) unmountAnswerOverlay(ac);
+    }
   }
 
   return shadow;

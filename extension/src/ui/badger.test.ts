@@ -60,4 +60,11 @@ describe('badge', () => {
     expect(chip.getAttribute('style')).toMatch(/border-radius/);   // it's a pill, not bare text
     expect(chip.style.background).not.toBe('');                    // a per-state colour is applied inline
   });
+
+  it('keeps the icon and label on one line (the longer "⚠ missed" must not wrap)', () => {
+    const root = loadList();
+    badge(root, { ab12cd34: 'missed' });
+    const chip = root.querySelector(`.${BADGE_CLASS}`) as HTMLElement;
+    expect(chip.style.whiteSpace).toBe('nowrap');
+  });
 });

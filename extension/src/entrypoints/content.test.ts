@@ -9,10 +9,21 @@ import { openStore, getAttempts, getNotes, getSession } from '../store';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mc = readFileSync(join(here, '..', 'cb', '__fixtures__', 'multiple-choice.html'), 'utf8');
+const gridIn = readFileSync(join(here, '..', 'cb', '__fixtures__', 'grid-in.html'), 'utf8');
 
 async function freshDb() {
   await new Promise<void>((res) => { const r = indexedDB.deleteDatabase('sat-overlay'); r.onsuccess = () => res(); r.onerror = () => res(); });
   return openStore();
+}
+
+// The overlay now mounts INSIDE CB's live .answer-content (not the body host). These helpers reach the
+// overlay's shadow root in the live document; `null` until the overlay is mounted. We look it up fresh
+// each call because CB can replace .answer-content on its in-place Next.
+function overlay(): ShadowRoot | null {
+  return document.querySelector('.answer-content .fp-answer-host')?.shadowRoot ?? null;
+}
+function inOverlay(sel: string): Element | null {
+  return overlay()?.querySelector(sel) ?? null;
 }
 
 beforeEach(() => { document.body.innerHTML = ''; history.replaceState({}, '', '/digital/results'); });
@@ -28,20 +39,23 @@ describe('content loop wiring', () => {
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();      // user-gated start
 
     document.body.innerHTML += mc;                                        // CB renders a question
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    // The overlay mounts INSIDE CB's .answer-content (not the body host).
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect(inOverlay('.fp-choice')).not.toBeNull();   // our interaction rendered in CB's answer region
 
     // header is "Q n of N" (N = loaded results), NOT "Q n of n".
-    expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 10');
+    expect(inOverlay('.fp-progress')!.textContent).toContain('Q 1 of 10');
 
-    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
-    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
 
     const attempts = await getAttempts(db);
     expect(attempts).toHaveLength(1);
     expect(attempts[0]!.questionId).toBe('ab12cd34');
     expect(attempts[0]!.pick).toBe('B');
     expect(attempts[0]!.correct).toBe(true);
-    expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+    // data-correct stamping integration: the correct choice goes green on the overlay shadow.
+    expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
 
     const session = await getSession(db, 'SAT|Math|Algebra|Hard');
     expect(session!.orderMode).toBe('list');
@@ -55,7 +69,8 @@ describe('content loop wiring', () => {
 
     // A question CB rendered WITHOUT its rationale → the frozen reader returns correctAnswer === null
     // (answer unreadable). DOM shape matches Plan 1's frozen reader/observer contract (.cb-dialog-container
-    // + h4 Question ID + table.cb-table meta + choices) but omits .rationale, so the answer is unreadable.
+    // + h4 Question ID + table.cb-table meta + choices, inside .answer-content) but omits .rationale AND
+    // the reveal box, so the answer is permanently unreadable (poll finds nothing).
     document.body.innerHTML +=
       '<div role="dialog" class="cb-modal-container"><div class="cb-dialog-container">' +
       '<div class="cb-dialog-header"><h4>Question ID: dead9999</h4></div>' +
@@ -64,14 +79,17 @@ describe('content loop wiring', () => {
       '<tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>' +
       '<tr><td>SAT</td><td>Math</td><td>Algebra</td><td>S</td><td>Hard</td></tr></tbody></table>' +
       '<div class="question-content"><div class="question">stem [SYNTHETIC]</div></div>' +
-      '<div class="answer-choices"><ul><li>a</li><li>b</li><li>c</li><li>d</li></ul></div>' +
+      '<div class="answer-content"><div class="answer-choices"><ul><li>a</li><li>b</li><li>c</li><li>d</li></ul></div></div>' +
       '</div></div></div>';   // no .rationale node → correctAnswer unreadable (null)
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
-    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    (inOverlay('.fp-choice[data-letter="A"] .fp-pick') as HTMLElement).click();   // a pick, but the answer is unreadable
+    (inOverlay('.fp-check') as HTMLElement).click();
+    // The loop polls ~1s for a never-arriving rationale, then shows the non-verdict "couldn't grade".
+    await vi.waitFor(() => expect(inOverlay('.fp-indeterminate')).not.toBeNull(), { timeout: 2500 });
     expect(await getAttempts(db)).toHaveLength(0);
-    expect(shadow.querySelector('.fp-correct')).toBeNull();
-    expect(shadow.querySelector('.fp-wrong')).toBeNull();
+    expect(inOverlay('.fp-correct')).toBeNull();
+    expect(inOverlay('.fp-wrong')).toBeNull();
   });
 
   it('records ONE attempt even when Check is clicked repeatedly (no duplicate attempts)', async () => {
@@ -81,16 +99,17 @@ describe('content loop wiring', () => {
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
 
     document.body.innerHTML += mc;
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
-    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
-    const check = shadow.querySelector('.fp-check') as HTMLElement;
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    const check = inOverlay('.fp-check') as HTMLElement;
     check.click();
     check.click();
     check.click();
 
     // makeAttempt mints a fresh attemptId each call; without a per-question guard, three clicks would
     // write three attempts and silently corrupt Plan 3's deriveStats. Exactly one must be recorded.
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
     expect(await getAttempts(db)).toHaveLength(1);
   });
 
@@ -99,12 +118,13 @@ describe('content loop wiring', () => {
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
     document.body.innerHTML += mc;
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
-    const note = shadow.querySelector('.fp-note') as HTMLTextAreaElement;
+    const note = inOverlay('.fp-note') as HTMLTextAreaElement;
     note.value = 'missed the trap'; note.dispatchEvent(new Event('change'));
-    (shadow.querySelector('.fp-next') as HTMLElement).click();
+    (inOverlay('.fp-next') as HTMLElement).click();
 
+    await vi.waitFor(async () => expect((await getNotes(db)).length).toBe(1));
     expect((await getNotes(db))[0]!.text).toBe('missed the trap');
     expect((await getSession(db, 'SAT|Math|Algebra|Hard'))!.lastQuestionId).toBe('ab12cd34');
   });
@@ -112,26 +132,27 @@ describe('content loop wiring', () => {
   it('Start dismisses the start panel so the student can open a CB question', async () => {
     const db = await freshDb();
     const shadow = await runLoop(document, db, 'dev-1');
-    expect(shadow.querySelector('.fp-start')).not.toBeNull();   // panel shown on boot
+    expect(shadow.querySelector('.fp-start')).not.toBeNull();   // panel shown on boot (body host)
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
     expect(shadow.querySelector('.fp-start')).toBeNull();       // cleared so CB is reachable
-    expect(shadow.querySelector('.fp-card')).toBeNull();        // no question opened yet
+    expect(overlay()).toBeNull();                               // no question opened → no overlay yet
   });
 
-  it('Next dismisses the card when CB has no next question (no CB Next control present)', async () => {
-    // Fallback path: with no CB "Next" in the DOM (last item / single-question view), Next clears the card.
+  it('Next dismisses the overlay when CB has no next question (no CB Next control present)', async () => {
+    // Fallback path: with no CB "Next" in the DOM (last item / single-question view), Next removes our
+    // overlay host from CB's .answer-content (CB's own question stays put).
     const db = await freshDb();
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
     document.body.innerHTML += mc;   // no CB "Next" button in this fixture
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
-    (shadow.querySelector('.fp-next') as HTMLElement).click();
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    (inOverlay('.fp-next') as HTMLElement).click();
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).toBeNull());
   });
 
-  it('Next advances by actuating CB\'s own Next (does not just close the card)', async () => {
-    // The card's Next should move to the next question, not vanish. It clicks CB's own "Next" control;
-    // observeQuestions then re-renders the card for the question CB loads.
+  it('Next advances by actuating CB\'s own Next (does not just remove the overlay)', async () => {
+    // Our Next should move to the next question, not vanish. It clicks CB's own "Next" control;
+    // observeQuestions then re-mounts the overlay for the question CB loads.
     const db = await freshDb();
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
@@ -141,12 +162,12 @@ describe('content loop wiring', () => {
     const cbNextClicked = vi.fn();
     cbNext.addEventListener('click', cbNextClicked);
     document.body.appendChild(cbNext);
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
-    (shadow.querySelector('.fp-next') as HTMLElement).click();   // our Next
+    (inOverlay('.fp-next') as HTMLElement).click();   // our Next
 
     await vi.waitFor(() => expect(cbNextClicked).toHaveBeenCalledTimes(1));   // advanced via CB's Next
-    expect(shadow.querySelector('.fp-card')).not.toBeNull();                 // NOT cleared — it follows CB
+    expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull();   // NOT removed — it follows CB
   });
 
   it('headers "Q n of N" from the live cb-table-react results list', async () => {
@@ -157,8 +178,8 @@ describe('content loop wiring', () => {
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
     document.body.innerHTML += mc;
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
-    expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 5');
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect(inOverlay('.fp-progress')!.textContent).toContain('Q 1 of 5');
   });
 
   it('reads N at SHOW time, so "Q n of N" is right even if the list was not in the DOM at Start', async () => {
@@ -171,8 +192,8 @@ describe('content loop wiring', () => {
       '<table class="cb-table-react"><tbody>' +
       Array.from({ length: 7 }, () => '<tr><td>q</td></tr>').join('') + '</tbody></table>';
     document.body.innerHTML += mc;                          // list + question arrive after Start
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
-    expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 7');   // not "Q 1 of 1"
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect(inOverlay('.fp-progress')!.textContent).toContain('Q 1 of 7');   // not "Q 1 of 1"
   });
 
   it('Check with no answer prompts to answer (NOT "couldn\'t grade"), records nothing, and stays re-checkable', async () => {
@@ -180,18 +201,18 @@ describe('content loop wiring', () => {
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
     document.body.innerHTML += mc;
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
-    (shadow.querySelector('.fp-check') as HTMLElement).click();              // Check WITHOUT selecting a choice
-    expect(shadow.querySelector('.fp-need-answer')).not.toBeNull();          // gentle prompt…
-    expect(shadow.querySelector('.fp-indeterminate')).toBeNull();            // …not the alarming "couldn't grade"
+    (inOverlay('.fp-check') as HTMLElement).click();              // Check WITHOUT selecting a choice
+    expect(inOverlay('.fp-need-answer')).not.toBeNull();          // gentle prompt…
+    expect(inOverlay('.fp-indeterminate')).toBeNull();            // …not the alarming "couldn't grade"
     expect(await getAttempts(db)).toHaveLength(0);
 
     // The empty Check did NOT consume the question — answering + re-checking still grades.
-    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
-    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
     await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
-    expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+    expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
   });
 
   it('refuses to grade a card whose kind disagrees with CB\'s answer (stale card after an in-place swap)', async () => {
@@ -212,16 +233,64 @@ describe('content loop wiring', () => {
       '<div class="answer-content"><div class="answer-choices"><ul><li>2</li><li>4</li><li>5</li><li>6</li></ul></div>' +
       '<div class="rationale"><p>Correct Answer: 33</p></div></div>' +
       '</div></div></div>';
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
-    (shadow.querySelector('.fp-choice[data-letter="C"] .fp-pick') as HTMLElement).click();
-    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    (inOverlay('.fp-choice[data-letter="C"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
 
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-stale')).not.toBeNull());   // refused as out-of-sync
-    expect(shadow.querySelector('.fp-ok')).toBeNull();                                  // no wrong "Correct"…
-    expect(shadow.querySelector('.fp-no')).toBeNull();                                  // …or "Not quite"
-    expect(shadow.querySelector('.fp-indeterminate')).toBeNull();
+    await vi.waitFor(() => expect(inOverlay('.fp-stale')).not.toBeNull());   // refused as out-of-sync
+    expect(inOverlay('.fp-ok')).toBeNull();                                  // no wrong "Correct"…
+    expect(inOverlay('.fp-no')).toBeNull();                                  // …or "Not quite"
+    expect(inOverlay('.fp-indeterminate')).toBeNull();
     expect(await getAttempts(db)).toHaveLength(0);                                      // nothing recorded
+  });
+
+  it('grid-in Check→grade: typing the correct answer grades Correct; wrong answer grades Not quite', async () => {
+    // End-to-end grid-in flow using the grid-in.html fixture (ef56ab78, Correct Answer: 5).
+    // The fixture has a .rationale already present (no reveal box) and no .answer-choices.
+    // The overlay must show a .fp-gridin input, read the typed value at Check, and grade correctly.
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // --- Correct answer (5) ---
+    document.body.innerHTML += gridIn;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    // Grid-in: no choices, just the text input.
+    expect(inOverlay('.fp-gridin')).not.toBeNull();
+    expect(inOverlay('.fp-choice')).toBeNull();
+
+    (inOverlay('.fp-gridin') as HTMLInputElement).value = '5';
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    expect(inOverlay('.fp-verdict')!.textContent).toContain('Correct');
+    expect(inOverlay('.fp-ok')).not.toBeNull();
+    expect(inOverlay('.fp-indeterminate')).toBeNull();   // stale-card guard NOT tripped on a valid grid-in
+    expect(inOverlay('.fp-stale')).toBeNull();
+    const attempts = await getAttempts(db);
+    expect(attempts[0]!.questionId).toBe('ef56ab78');
+    expect(attempts[0]!.pick).toBe('5');
+    expect(attempts[0]!.correct).toBe(true);
+  });
+
+  it('grid-in Check→grade: wrong answer shows Not quite', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += gridIn;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    (inOverlay('.fp-gridin') as HTMLInputElement).value = '7';
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    expect(inOverlay('.fp-verdict')!.textContent).toContain('Not quite');
+    expect(inOverlay('.fp-no')).not.toBeNull();
+    expect(inOverlay('.fp-stale')).toBeNull();   // stale guard not wrongly tripped for a genuine grid-in wrong answer
+    const attempts = await getAttempts(db);
+    expect(attempts[0]!.correct).toBe(false);
   });
 });
 
@@ -269,48 +338,52 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
       }
     });
 
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
     // The loop must have actuated the reveal box on show.
     expect(box.checked).toBe(true);
     expect(document.querySelector('.rationale')).not.toBeNull();
 
     // Pick B and Check. Scoring can only succeed if the loop re-read the answer at check time from the
     // live DOM — the QuestionView captured on show carried correctAnswer === null.
-    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
-    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
 
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
     const attempts = await getAttempts(db);
     expect(attempts).toHaveLength(1);
     expect(attempts[0]!.correct).toBe(true);
-    expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+    expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
   });
 
-  it('reveals CB explanation read LIVE from the post-reveal DOM, not the stale observe-time snapshot', async () => {
+  it('Reveal un-hides CB\'s OWN native rationale (CB renders the explanation; we don\'t)', async () => {
+    // New architecture: CB renders the question + rationale natively. The overlay HIDES CB's native
+    // .rationale on mount; our Reveal button un-hides it (revealRationale) so the student reads CB's
+    // actual words in CB's own layout — we never render the explanation ourselves. (Comment-free modal:
+    // happy-dom mis-parses the HTML comments in the .html fixture, which corrupts .answer-content's
+    // direct-children scan that mountAnswerOverlay's hide loop relies on.)
     const db = await freshDb();
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
 
-    // First paint has NO rationale (view.explanation === null at observe time). The reveal box wiring
-    // injects CB's rationale only after ensureAnswerRevealed clicks it — exactly the live reveal-gated
-    // flow. The loop must re-read the explanation at click time, never the null observe-time snapshot.
-    document.body.innerHTML += unrevealedModal;
-    const box = document.querySelector('.hide-rationale-checkbox input') as HTMLInputElement;
-    box.addEventListener('change', () => {
-      if (box.checked && !document.querySelector('.rationale')) {
-        const slot = document.querySelector('.rationale-slot') as HTMLElement;
-        slot.innerHTML =
-          '<div class="rationale"><p>Correct Answer: B</p><div>Subtract 7, divide by 3. [SYNTHETIC]</div></div>';
-      }
-    });
+    document.body.innerHTML +=
+      '<div role="dialog" class="cb-modal-container"><div class="cb-dialog-container">' +
+      '<div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
+      '<div class="cb-dialog-content">' +
+      '<table class="cb-table"><tbody>' +
+      '<tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>' +
+      '<tr><td>SAT</td><td>Math</td><td>Algebra</td><td>S</td><td>Hard</td></tr></tbody></table>' +
+      '<div class="question-content"><div class="question">If 3x + 7 = 22, x = ? [SYNTHETIC]</div></div>' +
+      '<div class="answer-content"><div class="answer-choices"><ul><li>3</li><li>5</li><li>7</li><li>15</li></ul></div>' +
+      '<div class="rationale"><p>Correct Answer: B</p><div>Subtract 7, divide by 3. [SYNTHETIC]</div></div>' +
+      '</div></div></div></div>';
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    const rationale = document.querySelector('.answer-content .rationale') as HTMLElement;
+    expect(rationale.style.display).toBe('none');   // overlay hid CB's native rationale on mount
 
-    // Reveal explanation BEFORE any Check. The explanation was null at observe time but is now live in
-    // the DOM; the card must show CB's actual words, not "No explanation available".
-    (shadow.querySelector('.fp-reveal') as HTMLElement).click();
-    const panel = shadow.querySelector('.fp-explanation')!;
-    expect(panel.textContent).toContain('Subtract 7');
-    expect(panel.textContent).not.toContain('No explanation available');
+    (inOverlay('.fp-reveal') as HTMLElement).click();   // Reveal → un-hide CB's own rationale
+    expect(rationale.style.display).toBe('');           // now visible, in CB's native layout
+    expect(rationale.textContent).toContain('Subtract 7');
   });
 
   it('polls for CB\'s answer when the rationale lands AFTER Check — no spurious "couldn\'t grade"', async () => {
@@ -335,16 +408,81 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
         }, 150);
       }
     });
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
     // Pick B and Check immediately — the answer is NOT in the DOM at this instant.
-    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
-    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
 
     // The loop polls until the answer lands, then grades — never the indeterminate "couldn't grade".
     await vi.waitFor(async () => { expect(await getAttempts(db)).toHaveLength(1); }, { timeout: 2500 });
-    expect(shadow.querySelector('.fp-indeterminate')).toBeNull();
-    expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+    expect(inOverlay('.fp-indeterminate')).toBeNull();
+    expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+  });
+
+  it('keeps CB\'s ASYNC-injected rationale HIDDEN until Reveal (no inline answer leak)', async () => {
+    // Live regression (M1): showQuestion triggers CB's reveal, which injects .rationale ASYNCHRONOUSLY
+    // (~150ms later) as a fresh sibling of our host. The old mount hid only the children present AT
+    // mount time, so the late .rationale arrived VISIBLE → "Correct Answer: B" showed inline below our
+    // choices before the student picked/checked. A MutationObserver on .answer-content must hide it.
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // A dedicated unrevealed modal with NO .rationale-slot, so a stale setTimeout queued by an earlier
+    // test (which injects into '.rationale-slot') can't pollute this modal — this test owns its DOM.
+    // Use a fresh DOM (= not +=) so a stale .rationale from any prior test's setTimeout cannot
+    // short-circuit ensureAnswerRevealed before our reveal box fires (test-hygiene fix).
+    document.body.innerHTML = `
+      <div role="dialog" class="cb-modal-container">
+        <div class="cb-dialog-container">
+          <div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>
+          <div class="cb-dialog-content">
+            <table class="cb-table"><tbody>
+              <tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>
+              <tr><td>SAT</td><td>Math</td><td>Algebra</td><td>Linear equations</td><td>Hard</td></tr>
+            </tbody></table>
+            <div class="question-content"><div class="question">If 3x + 7 = 22, x = ? [SYNTHETIC]</div></div>
+            <div class="answer-content">
+              <div class="answer-choices"><ul><li>3</li><li>5</li><li>7</li><li>15</li></ul></div>
+              <label class="hide-rationale-checkbox"><input type="checkbox" /> Show correct answer and explanation</label>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    const box = document.querySelector('.hide-rationale-checkbox input') as HTMLInputElement;
+    const answerContent = document.querySelector('.answer-content') as HTMLElement;
+    box.addEventListener('change', () => {
+      if (box.checked && !answerContent.querySelector('.rationale')) {
+        setTimeout(() => {   // CB injects the rationale ~150ms after the box is checked (the live delay)
+          // CB injects .rationale as a DIRECT CHILD of .answer-content (this is the contract both
+          // revealRationale and the mount hide loop assume — a child-list insertion the observer sees).
+          if (!answerContent.querySelector('.rationale')) {
+            const r = document.createElement('div');
+            r.className = 'rationale';
+            r.innerHTML = '<p>Correct Answer: B</p><div>because.</div>';
+            answerContent.appendChild(r);
+          }
+        }, 150);
+      }
+    });
+
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    // Wait for the delayed .rationale to land AND be hidden by the observer (the leak is closed). Assert
+    // both in one waitFor: the observer fires async after the injection, so there's a brief window where
+    // the node exists but display hasn't been set yet — poll until it settles to display:none.
+    await vi.waitFor(() => {
+      const r = document.querySelector('.answer-content .rationale') as HTMLElement | null;
+      expect(r).not.toBeNull();
+      expect(r!.style.display).toBe('none');   // HIDDEN, not leaked inline
+    }, { timeout: 2500 });
+    const rationale = document.querySelector('.answer-content .rationale') as HTMLElement;
+
+    // Our Reveal button is the SOLE un-hider — only then does CB's answer become visible.
+    (inOverlay('.fp-reveal') as HTMLElement).click();
+    expect(rationale.style.display).toBe('');
+    expect(rationale.textContent).toContain('Correct Answer: B');
   });
 
   it('RECOVERS when the reveal box reads "checked" but CB never injected the rationale (Q1 desync)', async () => {
@@ -397,16 +535,16 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
       }
     });
 
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
     // Pick B (correct) and Check. The loop must un-stick the reveal and grade — never "couldn't grade".
-    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
-    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
 
     await vi.waitFor(async () => { expect(await getAttempts(db)).toHaveLength(1); }, { timeout: 2500 });
-    expect(shadow.querySelector('.fp-indeterminate')).toBeNull();                                   // NOT "couldn't grade"
+    expect(inOverlay('.fp-indeterminate')).toBeNull();                                   // NOT "couldn't grade"
     expect((await getAttempts(db))[0]!.correct).toBe(true);
-    expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+    expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
   });
 });
 
@@ -580,8 +718,8 @@ vi.mock('../resilience/block-detect', () => ({ detectBlock: vi.fn(() => null), B
 // not a shared `view` const, so we declare a well-formed view here — INPUT DATA only, no assertion).
 const view: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear equations', difficulty: 'Hard',
-  stem: 'stem', stemHtml: 'stem', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
-  correctAnswer: 'B', explanation: 'because', explanationHtml: '<p>because</p>',
+  stem: 'stem', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
+  correctAnswer: 'B',
 };
 
 describe('content bootstrap gate (§2.5 / §8.3)', () => {
@@ -646,7 +784,7 @@ describe('per-question degraded path (§2.4)', () => {
 
     await handleQuestion(shadow, view, renderQuestion);
 
-    expect(renderQuestion).toHaveBeenCalledTimes(1);  // Plan 2's existing renderCard(shadow, vm, live, handlers) call
+    expect(renderQuestion).toHaveBeenCalledTimes(1);  // the renderQuestion callback (mountAnswerOverlay in practice)
     expect(banner).not.toHaveBeenCalled();
   });
 });
@@ -661,51 +799,37 @@ describe('§8.5 graceful degradation — IndexedDB write failure leaves the sess
   });
 });
 
-// --- Focus-card minimize/restore launcher (design 2026-06-16) ---
-describe('focus-card minimize/restore launcher', () => {
-  it('✕ minimizes the card (card hidden, launcher shown); the pill restores it with graded state intact', async () => {
+// --- Overlay close + cross-question navigation (answer-overlay architecture) ---
+describe('overlay close ✕ and cross-question navigation', () => {
+  it('✕ removes our overlay host from CB\'s .answer-content (CB\'s own question stays put)', async () => {
     const db = await freshDb();
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
 
     document.body.innerHTML += mc;
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
-    // grade it so there is real state to preserve across minimize/restore
-    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
-    (shadow.querySelector('.fp-check') as HTMLElement).click();
-    // the verdict paints after an await in onCheck (recordAttempt) — wait for it before minimizing
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true));
-
-    // ✕ → minimize: card gone, pill visible
-    (shadow.querySelector('.fp-overlay-close') as HTMLElement).click();
-    expect(shadow.querySelector('.fp-card')).toBeNull();
-    const pill = shadow.querySelector('.fp-card-launcher') as HTMLButtonElement;
-    expect(pill).not.toBeNull();
-    expect(pill.hidden).toBe(false);
-
-    // pill → restore: the SAME graded card returns (node identity preserves .fp-correct), pill hides
-    pill.click();
-    expect(shadow.querySelector('.fp-card')).not.toBeNull();
-    expect(shadow.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
-    expect(pill.hidden).toBe(true);
+    // ✕ → close: our overlay host is removed; CB's native .answer-content (and question) remains.
+    (inOverlay('.fp-overlay-close') as HTMLElement).click();
+    expect(document.querySelector('.answer-content .fp-answer-host')).toBeNull();
+    expect(document.querySelector('.answer-content')).not.toBeNull();   // CB's own region untouched
   });
 
-  it('navigating to a new CB question while minimized discards the stash and hides the launcher', async () => {
+  it('navigating to a new CB question re-mounts the overlay into the new question\'s .answer-content', async () => {
     const db = await freshDb();
-    const gridIn = readFileSync(join(here, '..', 'cb', '__fixtures__', 'grid-in.html'), 'utf8');
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-list') as HTMLElement).click();
 
-    document.body.innerHTML += mc;                          // question 1 (ab12cd34)
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
-    (shadow.querySelector('.fp-overlay-close') as HTMLElement).click();   // minimize
-    expect((shadow.querySelector('.fp-card-launcher') as HTMLButtonElement).hidden).toBe(false);
+    document.body.innerHTML += mc;                          // question 1 (ab12cd34) — MC
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect(inOverlay('.fp-choice')).not.toBeNull();         // MC overlay (choices present)
 
-    // CB closes Q1's modal and opens Q2 (different id) — observer (dedups by id) fires showQuestion → discard + repaint
+    // CB closes Q1's modal and opens Q2 (different id, grid-in) — observer fires showQuestion → re-mount
     document.querySelector('.cb-modal-container')!.remove();
-    document.body.innerHTML += gridIn;                      // question 2 (ef56ab78)
-    await vi.waitFor(() => expect(shadow.querySelector('.fp-card')).not.toBeNull());
-    expect((shadow.querySelector('.fp-card-launcher') as HTMLButtonElement).hidden).toBe(true);
+    document.body.innerHTML += gridIn;                      // question 2 (ef56ab78) — grid-in
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    // The new overlay is grid-in (no choices, a typed-answer input) — proves it re-mounted for Q2.
+    await vi.waitFor(() => expect(inOverlay('.fp-gridin')).not.toBeNull());
+    expect(inOverlay('.fp-choice')).toBeNull();
   });
 });

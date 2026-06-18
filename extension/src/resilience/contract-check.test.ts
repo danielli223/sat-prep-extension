@@ -17,8 +17,8 @@ function stubChrome() {
 
 const ok: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear equations', difficulty: 'Hard',
-  stem: 'stem', stemHtml: 'stem', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
-  correctAnswer: 'B', explanation: 'because', explanationHtml: '<p>because</p>',
+  stem: 'stem', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
+  correctAnswer: 'B',
 };
 
 beforeEach(() => { vi.unstubAllGlobals(); });
