@@ -7,6 +7,9 @@ export interface Env {
 
 const DELETE_PATH = '/v1/delete';
 
+const INSTALL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidInstallId(v: unknown): v is string { return typeof v === 'string' && INSTALL_ID_RE.test(v); }
+
 function corsHeaders(request: Request): Record<string, string> {
   const origin = request.headers.get('Origin') ?? '';
   // Only reflect a chrome-extension origin; never echo arbitrary web origins for a deletion endpoint.
@@ -36,6 +39,16 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request) });
     if (pathname !== DELETE_PATH) return new Response('Not Found', { status: 404 });
     if (request.method !== 'POST') return withCors(request, new Response('Method Not Allowed', { status: 405 }));
-    return withCors(request, json({ ok: true }, 200)); // placeholder; Task 3+ replace
+
+    if (!request.headers.get('Content-Type')?.includes('application/json'))
+      return withCors(request, json({ error: 'expected application/json' }, 415));
+
+    let body: unknown;
+    try { body = await request.json(); } catch { return withCors(request, json({ error: 'invalid JSON' }, 400)); }
+    const install_id = (body as { install_id?: unknown })?.install_id;
+    if (!isValidInstallId(install_id))
+      return withCors(request, json({ error: 'missing or invalid install_id' }, 400));
+
+    return withCors(request, json({ ok: true }, 202)); // Task 4 replaces with the PostHog call
   },
 } satisfies ExportedHandler<Env>;

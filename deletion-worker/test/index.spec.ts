@@ -37,4 +37,24 @@ describe('deletion worker', () => {
     await waitOnExecutionContext(ctx);
     expect(res.status).toBe(404);
   });
+
+  function postJson(body: unknown, ct = 'application/json'): Request {
+    return req(DELETE_URL, { method: 'POST', headers: { 'Content-Type': ct, Origin: EXT_ORIGIN }, body: JSON.stringify(body) });
+  }
+
+  it('rejects a non-JSON content-type with 415', async () => {
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(req(DELETE_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'x' }), env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(415);
+  });
+
+  it('rejects a missing/invalid install_id with 400', async () => {
+    for (const body of [{}, { install_id: 123 }, { install_id: 'too-short' }, { install_id: 'a'.repeat(64) }]) {
+      const ctx = createExecutionContext();
+      const res = await worker.fetch(postJson(body), env, ctx);
+      await waitOnExecutionContext(ctx);
+      expect(res.status).toBe(400);
+    }
+  });
 });
