@@ -15,7 +15,7 @@ export function installTelemetryListeners(api: typeof chrome): void {
         appVersion: api.runtime.getManifest().version,
         ua: typeof navigator !== 'undefined' ? navigator.userAgent : 'chrome',
         nowMs: Date.now(),
-      }).then(() => flush());
+      });
     } else if (msg?.type === TELEMETRY_DELETE) {
       void deleteMyData();
     }
