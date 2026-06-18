@@ -35,7 +35,6 @@ function executableCode(src: string): string {
     .split('\n')
     .filter((line) => !/^\s*\/\//.test(line)) // drop full-line comments (documentation prose)
     .filter((line) => !/\bnot\.(?:toMatch|toContain)\b/.test(line)) // drop negative assertions
-    .filter((line) => !(/\.startsWith\(/.test(line) && /\.toBe\(false\)/.test(line))) // drop startsWith-negation assertions (e.g. expect(x.startsWith('phx_')).toBe(false))
     .join('\n');
 }
 // Any network transport pointed at collegeboard.org. Broadened beyond fetch/XHR/axios to the other
@@ -83,7 +82,9 @@ describe('legal CI guard', () => {
       }
       // (b) no retry/loop pointed at a CB block (spec §8.3 — disable, never retry)
       expect(code, 'must not retry against collegeboard.org').not.toMatch(RETRY_ON_CB);
-      expect(code, 'must never bundle a PostHog PRIVATE key (phx_)').not.toMatch(/phx_/);
+      // Negative lookbehind: exempt the `.startsWith('phx_')` assertion needle in config.test.ts
+      // (that line proves the key is NOT present); catch any real key assignment or reference.
+      expect(code, 'must never bundle a PostHog PRIVATE key (phx_)').not.toMatch(/(?<!\.startsWith\(')phx_/);
     });
   }
 
