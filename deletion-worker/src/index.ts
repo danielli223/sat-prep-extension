@@ -34,7 +34,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 export default {
-  async fetch(request: Request, _env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request) });
     if (pathname !== DELETE_PATH) return new Response('Not Found', { status: 404 });
@@ -49,6 +49,21 @@ export default {
     if (!isValidInstallId(install_id))
       return withCors(request, json({ error: 'missing or invalid install_id' }, 400));
 
-    return withCors(request, json({ ok: true }, 202)); // Task 4 replaces with the PostHog call
+    const host = env.POSTHOG_API_HOST ?? 'https://us.posthog.com';
+    const url = `${host}/api/projects/${env.POSTHOG_PROJECT_ID}/persons/bulk_delete/`;
+    let phRes: Response;
+    try {
+      phRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.POSTHOG_PERSONAL_API_KEY}` },
+        body: JSON.stringify({ distinct_ids: [install_id], delete_events: true }),
+      });
+    } catch {
+      return withCors(request, json({ ok: false, error: 'upstream_unreachable' }, 502));
+    }
+    if (!phRes.ok) return withCors(request, json({ ok: false, error: 'upstream_failed' }, 502));
+    // 202 = queued; PostHog deletes events asynchronously (off-peak/weekend windows). We never claim completion.
+    const result = (await phRes.json().catch(() => ({}))) as { persons_found?: number };
+    return withCors(request, json({ ok: true, submitted: true, matched: (result.persons_found ?? 0) > 0 }, 202));
   },
 } satisfies ExportedHandler<Env>;
