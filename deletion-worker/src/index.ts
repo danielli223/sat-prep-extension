@@ -5,8 +5,37 @@ export interface Env {
   RATE_LIMITER?: RateLimit;
 }
 
+const DELETE_PATH = '/v1/delete';
+
+function corsHeaders(request: Request): Record<string, string> {
+  const origin = request.headers.get('Origin') ?? '';
+  // Only reflect a chrome-extension origin; never echo arbitrary web origins for a deletion endpoint.
+  const allow = origin.startsWith('chrome-extension://') ? origin : 'null';
+  return {
+    'Access-Control-Allow-Origin': allow,
+    'Vary': 'Origin',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '86400',
+  };
+}
+
+function withCors(request: Request, res: Response): Response {
+  const h = new Headers(res.headers);
+  for (const [k, v] of Object.entries(corsHeaders(request))) h.set(k, v);
+  return new Response(res.body, { status: res.status, headers: h });
+}
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
 export default {
-  async fetch(_request: Request, _env: Env): Promise<Response> {
-    return new Response('Not Found', { status: 404 });
+  async fetch(request: Request, _env: Env): Promise<Response> {
+    const { pathname } = new URL(request.url);
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request) });
+    if (pathname !== DELETE_PATH) return new Response('Not Found', { status: 404 });
+    if (request.method !== 'POST') return withCors(request, new Response('Method Not Allowed', { status: 405 }));
+    return withCors(request, json({ ok: true }, 200)); // placeholder; Task 3+ replace
   },
 } satisfies ExportedHandler<Env>;
