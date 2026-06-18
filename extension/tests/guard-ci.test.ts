@@ -35,6 +35,7 @@ function executableCode(src: string): string {
     .split('\n')
     .filter((line) => !/^\s*\/\//.test(line)) // drop full-line comments (documentation prose)
     .filter((line) => !/\bnot\.(?:toMatch|toContain)\b/.test(line)) // drop negative assertions
+    .filter((line) => !(/\.startsWith\(/.test(line) && /\.toBe\(false\)/.test(line))) // drop startsWith-negation assertions (e.g. expect(x.startsWith('phx_')).toBe(false))
     .join('\n');
 }
 // Any network transport pointed at collegeboard.org. Broadened beyond fetch/XHR/axios to the other
@@ -52,7 +53,9 @@ const QID_METADATA_INDEX =
 // Plan 4 hardening: the kill-switch may fetch OUR host ONLY. Any other fetched http(s) literal that
 // is NOT our config host is a violation. We also forbid any "retry on CB block" shape (spec §8.3:
 // on a block we DISABLE, never retry).
-const OUR_CONFIG_HOST = 'config.focusedpractice.app';
+// Allowed egress hosts (spec 2026-06-17): our config host, PostHog US ingestion, our deletion endpoint.
+// Every fetched http(s) literal must target one of these; CB is forbidden everywhere.
+const ALLOWED_EGRESS_HOSTS = ['config.focusedpractice.app', 'us.i.posthog.com', 'api.focusedpractice.app'];
 const FETCH_LITERAL = /fetch\(\s*[`'"]([^`'"]+)[`'"]/g;           // each fetched string literal
 const RETRY_ON_CB = /(retry|while\s*\([^)]*\)|for\s*\([^)]*\))[^\n;]*collegeboard\.org/i;
 
@@ -74,12 +77,13 @@ describe('legal CI guard', () => {
       for (const m of code.matchAll(FETCH_LITERAL)) {
         const target = m[1]!;
         if (/^https?:\/\//i.test(target)) {
-          expect(target, `fetch target ${target} must be OUR config host`).toContain(OUR_CONFIG_HOST);
+          expect(ALLOWED_EGRESS_HOSTS.some((h) => target.includes(h)), `fetch target ${target} must be an allowed egress host`).toBe(true);
           expect(target, 'must never fetch collegeboard.org').not.toMatch(/collegeboard\.org/i);
         }
       }
       // (b) no retry/loop pointed at a CB block (spec §8.3 — disable, never retry)
       expect(code, 'must not retry against collegeboard.org').not.toMatch(RETRY_ON_CB);
+      expect(code, 'must never bundle a PostHog PRIVATE key (phx_)').not.toMatch(/phx_/);
     });
   }
 
