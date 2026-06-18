@@ -62,6 +62,8 @@ export function renderPopup(root: HTMLElement): void {
   del.addEventListener('click', () => {
     if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) chrome.runtime.sendMessage({ type: TELEMETRY_DELETE });
     toggle.checked = false;
+    age.checked = false;
+    toggle.disabled = true;
   });
 
   // Reflect current state when the popup opens.
