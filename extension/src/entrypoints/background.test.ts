@@ -3,13 +3,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock the telemetry modules before importing the module under test.
 vi.mock('../telemetry/ingest', () => ({ ingestTelemetryEvent: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../telemetry/delete', () => ({ deleteMyData: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('../telemetry/lifecycle', () => ({ optOut: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../telemetry/queue', () => ({ flush: vi.fn().mockResolvedValue(undefined), enqueue: vi.fn() }));
 
 import { installTelemetryListeners } from './background';
 import { ingestTelemetryEvent } from '../telemetry/ingest';
 import { deleteMyData } from '../telemetry/delete';
+import { optOut } from '../telemetry/lifecycle';
 import { flush } from '../telemetry/queue';
-import { TELEMETRY_EVENT, TELEMETRY_DELETE } from '../messages';
+import { TELEMETRY_EVENT, TELEMETRY_DELETE, TELEMETRY_OPTOUT } from '../messages';
 
 describe('installTelemetryListeners', () => {
   beforeEach(() => {
@@ -48,11 +50,22 @@ describe('installTelemetryListeners', () => {
     await Promise.resolve();
     expect(flush).toHaveBeenCalledTimes(1);
 
+    // Exercise the TELEMETRY_OPTOUT branch — opt-out runs in the background with a ctx carrying the
+    // manifest version (so the final telemetry_disabled gets the full super-prop set).
+    vi.clearAllMocks();
+    msgListener({ type: TELEMETRY_OPTOUT });
+    await Promise.resolve();
+    expect(optOut).toHaveBeenCalledTimes(1);
+    expect(optOut).toHaveBeenCalledWith(expect.objectContaining({ appVersion: '0.0.1' }));
+    expect(deleteMyData).not.toHaveBeenCalled();
+    expect(ingestTelemetryEvent).not.toHaveBeenCalled();
+
     // Exercise the TELEMETRY_DELETE branch.
     vi.clearAllMocks();
     msgListener({ type: TELEMETRY_DELETE });
     await Promise.resolve();
     expect(deleteMyData).toHaveBeenCalledTimes(1);
+    expect(optOut).not.toHaveBeenCalled();
     expect(ingestTelemetryEvent).not.toHaveBeenCalled();
 
     // Alarm listener must call flush for the named alarm.

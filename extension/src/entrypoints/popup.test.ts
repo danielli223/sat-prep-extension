@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderPopup, renderTelemetryConsent, CB_SEARCH_URL } from './popup';
 
-// Mock telemetry modules so popup.test.ts runs in happy-dom without chrome.storage
+// Mock telemetry modules so popup.test.ts runs in happy-dom without chrome.storage. Opt-IN stays
+// local (optIn writes storage); opt-OUT is delegated to the background via a TELEMETRY_OPTOUT message,
+// so the popup no longer imports lifecycle.optOut directly.
 vi.mock('../telemetry/consent', () => ({
   optIn: vi.fn().mockResolvedValue('mock-install-id'),
   isOptedIn: vi.fn().mockResolvedValue(false),
-}));
-vi.mock('../telemetry/lifecycle', () => ({
-  optOut: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe('renderPopup', () => {
@@ -95,10 +94,9 @@ describe('telemetry consent UI (renderTelemetryConsent)', () => {
     expect(optInMock).toHaveBeenCalledOnce();
   });
 
-  it('toggling analytics off calls optOut()', async () => {
-    const { optOut } = await import('../telemetry/lifecycle');
-    const optOutMock = vi.mocked(optOut);
-    optOutMock.mockClear();
+  it('toggling analytics off sends TELEMETRY_OPTOUT to the background (egress runs there, not in the popup)', () => {
+    const sendMessageMock = vi.fn();
+    (globalThis as Record<string, unknown>).chrome = { runtime: { id: 'ext', sendMessage: sendMessageMock } };
 
     const root = document.createElement('div');
     renderTelemetryConsent(root);
@@ -111,7 +109,9 @@ describe('telemetry consent UI (renderTelemetryConsent)', () => {
     toggle.checked = false; // simulate toggling off
     toggle.dispatchEvent(new Event('change'));
 
-    expect(optOutMock).toHaveBeenCalledOnce();
+    expect(sendMessageMock).toHaveBeenCalledWith({ type: 'telemetry-optout' });
+
+    delete (globalThis as Record<string, unknown>).chrome;
   });
 
   it('clicking delete button sends TELEMETRY_DELETE message', () => {

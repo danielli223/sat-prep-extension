@@ -1,6 +1,5 @@
-import { OPEN_JOURNAL, TELEMETRY_DELETE } from '../messages';
+import { OPEN_JOURNAL, TELEMETRY_DELETE, TELEMETRY_OPTOUT } from '../messages';
 import { optIn, isOptedIn } from '../telemetry/consent';
-import { optOut } from '../telemetry/lifecycle';
 import { TELEMETRY_UI_ENABLED } from '../config';
 
 // Toolbar popup (spec §9 #9, §4 step 1). A plain link to CB's Question Bank (expressly permitted,
@@ -35,9 +34,22 @@ export function renderTelemetryConsent(root: HTMLElement): void {
   del.className = 'fp-telemetry-delete'; del.textContent = 'Delete my analytics data';
 
   age.addEventListener('change', () => { toggle.disabled = !age.checked; });
-  toggle.addEventListener('change', () => { void (toggle.checked ? optIn() : optOut()); });
+  toggle.addEventListener('change', () => {
+    if (toggle.checked) {
+      // Opt-IN stays local: it only writes chrome.storage, no egress. Keep it off the message path.
+      void optIn();
+    } else {
+      // Opt-OUT must run in the BACKGROUND (the single egress point): it builds + flushes the final
+      // telemetry_disabled with the full super-prop set, then clears local state. Best-effort.
+      try {
+        if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) chrome.runtime.sendMessage({ type: TELEMETRY_OPTOUT });
+      } catch { /* no receiver / context gone — opt-out is best-effort */ }
+    }
+  });
   del.addEventListener('click', () => {
-    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) chrome.runtime.sendMessage({ type: TELEMETRY_DELETE });
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) chrome.runtime.sendMessage({ type: TELEMETRY_DELETE });
+    } catch { /* no receiver / context gone — delete is best-effort */ }
     toggle.checked = false;
     age.checked = false;
     toggle.disabled = true;
