@@ -47,7 +47,6 @@ function renderBody(vm: CardVM): string {
          <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>`;
   return `<div class="fp-answer">
     <div class="fp-answer-head">
-      <div class="fp-trust">Real College Board question · live, unaltered</div>
       <button class="fp-overlay-close" aria-label="Close">✕</button>
     </div>
     <div class="fp-progress">${esc(vm.skill)} › ${esc(vm.difficulty)} · Q ${vm.position.index} of ${vm.position.total}</div>
@@ -215,10 +214,8 @@ export function renderStaleCard(shadow: ShadowRoot): void {
 
 const ANSWER_CSS = `
 .fp-answer{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;}
-.fp-answer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;}
+.fp-answer-head{display:flex;justify-content:flex-end;align-items:center;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
-.fp-trust{font-size:10px;letter-spacing:.04em;color:#16a34a;font-weight:700;text-transform:uppercase;margin-bottom:10px;}
-.fp-trust::before{content:"\\25CF  ";}
 .fp-progress{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#6b7280;
   border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:12px;}
 .fp-choices{list-style:none;margin:0 0 12px;padding:0;}
