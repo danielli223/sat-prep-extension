@@ -29,14 +29,19 @@ Every task's requirements implicitly include these (copied from the spec):
 
 ---
 
-### Task 1: Telemetry egress constants
+### Task 1: Telemetry egress constants + build-time token injection
+
+**Decision (2026-06-17):** the `phc_` project token is **build-time injected from a gitignored `.env`**, not hardcoded. It's a public/write-only key that ships in the bundle regardless — env injection adds no secrecy, only dev/prod separation + rotation. The real token lives in `extension/.env` (gitignored); esbuild injects it via `define`; `config.ts` reads it with an empty fallback (so tests, which have no `define`, see `''`).
+
+**PostHog project (live):** "Focused Practice", US Cloud, Project ID `376909`. The real `phc_` token goes only in `extension/.env`.
 
 **Files:**
-- Modify: `extension/src/config.ts`
+- Modify: `extension/src/config.ts`, `extension/scripts/build.mjs`, root `.gitignore`
+- Create: `extension/.env.example`
 - Test: `extension/src/config.test.ts`
 
 **Interfaces:**
-- Produces: `POSTHOG_INGEST_URL: string`, `POSTHOG_PROJECT_TOKEN: string`, `TELEMETRY_DELETE_URL: string`, `TELEMETRY_FLAG_CACHE_KEY: string`. The `flags.json` URL (`CONFIG_FLAG_URL`) is reused for the remote telemetry kill flag.
+- Produces: `POSTHOG_INGEST_URL: string`, `POSTHOG_PROJECT_TOKEN: string` (build-injected, `''` when absent), `TELEMETRY_DELETE_URL: string`, `TELEMETRY_FLAG_CACHE_KEY: string`. The `flags.json` URL (`CONFIG_FLAG_URL`) is reused for the remote telemetry kill flag.
 
 - [ ] **Step 1: Write the failing test** — append to `extension/src/config.test.ts`:
 
@@ -48,9 +53,10 @@ describe('telemetry egress constants', () => {
     expect(POSTHOG_INGEST_URL).toBe('https://us.i.posthog.com/batch/');
     expect(POSTHOG_INGEST_URL).not.toMatch(/collegeboard\.org/i);
   });
-  it('ships only a public project token (phc_), never a private key', () => {
-    expect(POSTHOG_PROJECT_TOKEN.startsWith('phc_')).toBe(true);
+  it('never falls back to a private key; injected at build, empty under test', () => {
+    // No esbuild `define` under vitest → empty string, NOT a private key.
     expect(POSTHOG_PROJECT_TOKEN.startsWith('phx_')).toBe(false);
+    expect(typeof POSTHOG_PROJECT_TOKEN).toBe('string');
   });
   it('targets our own deletion endpoint host', () => {
     expect(TELEMETRY_DELETE_URL).toBe('https://api.focusedpractice.app/v1/delete');
@@ -67,10 +73,13 @@ Expected: FAIL — `POSTHOG_INGEST_URL` is not exported.
 
 ```ts
 // Telemetry egress (spec 2026-06-17). Opt-in only; the scrubber is the legal boundary.
-// PostHog US Cloud batch ingestion. The project token is PUBLIC/write-only by PostHog's
-// design and is meant to ship in client code; the private key (phx_...) is NEVER bundled.
+// PostHog US Cloud batch ingestion. The project token is PUBLIC/write-only by PostHog's design and
+// ships in the bundle; the private key (phx_...) is NEVER bundled. The token is injected at BUILD time
+// from extension/.env (gitignored) for dev/prod separation — see scripts/build.mjs. Empty under test.
 export const POSTHOG_INGEST_URL = 'https://us.i.posthog.com/batch/';
-export const POSTHOG_PROJECT_TOKEN = 'phc_REPLACE_WITH_REAL_PROJECT_TOKEN';
+declare const __POSTHOG_PROJECT_TOKEN__: string | undefined;
+export const POSTHOG_PROJECT_TOKEN =
+  typeof __POSTHOG_PROJECT_TOKEN__ === 'string' ? __POSTHOG_PROJECT_TOKEN__ : '';
 // Our own deletion-only endpoint (a Cloudflare Worker holding the private key, separate repo).
 export const TELEMETRY_DELETE_URL = 'https://api.focusedpractice.app/v1/delete';
 // Remote telemetry kill flag rides on the existing flags.json (CONFIG_FLAG_URL); cache key:
@@ -82,11 +91,55 @@ export const TELEMETRY_FLAG_CACHE_KEY = 'telemetry.remoteAllowed';
 Run: `cd extension && npx vitest run src/config.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Wire the build-time inject + gitignore the secret**
+
+In `extension/scripts/build.mjs`, load `.env` and pass an esbuild `define`. Near the top, after imports:
+
+```js
+import { readFileSync, existsSync } from 'node:fs';
+// Load extension/.env (KEY=VALUE lines) into process.env without a dependency.
+const envPath = new URL('../.env', import.meta.url);
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  }
+}
+```
+
+In the esbuild build options object, add (alongside `bundle`, `format`, etc.):
+
+```js
+  define: { __POSTHOG_PROJECT_TOKEN__: JSON.stringify(process.env.POSTHOG_PROJECT_TOKEN ?? '') },
+```
+
+Add `extension/.env` to the root `.gitignore`:
+
+```
+extension/.env
+```
+
+Create `extension/.env.example`:
+
+```
+# PostHog project "Focused Practice" (US Cloud, project 376909). Public/write-only phc_ token.
+# Copy to extension/.env (gitignored) and fill in. Used at build time only (scripts/build.mjs).
+POSTHOG_PROJECT_TOKEN=phc_xxx
+```
+
+> The real token (`phc_oxdMeBNN35Xnp…`) goes ONLY in `extension/.env`, never committed. For the
+> spike (Task 19), create `extension/.env` with it before `npm run build`.
+
+- [ ] **Step 6: Verify the inject path builds**
+
+Run: `cd extension && POSTHOG_PROJECT_TOKEN=phc_test npm run build && grep -c 'phc_test' dist/background.js dist/content.js || true`
+Expected: build succeeds; the token literal appears in the bundle (proving injection). `git status` shows `.env` is NOT tracked.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add extension/src/config.ts extension/src/config.test.ts
-git commit -m "feat(telemetry): egress constants (PostHog US, deletion endpoint, public token)"
+git add extension/src/config.ts extension/src/config.test.ts extension/scripts/build.mjs extension/.env.example .gitignore
+git commit -m "feat(telemetry): egress constants + build-time token injection from gitignored .env"
 ```
 
 ---
@@ -1819,6 +1872,6 @@ git add -A && git commit -m "chore(telemetry): typecheck + tri-browser build gre
 - Deletion Worker → **separate plan** (client call covered in Task 11). ✓
 - `onboarding_shown` event: **deliberately not implemented** — under opt-in-OFF-by-default it can never fire before consent exists; the opt-in toggle itself is the signal. Documented deviation.
 
-**2. Placeholder scan:** `POSTHOG_PROJECT_TOKEN = 'phc_REPLACE_WITH_REAL_PROJECT_TOKEN'` is an intentional, clearly-named build-time value set at deploy, not a plan placeholder — every other step has real code/commands.
+**2. Placeholder scan:** the `phc_` token is no longer hardcoded — it's build-time injected from a gitignored `extension/.env` (Task 1), so there is no placeholder string in source. Every step has real code/commands.
 
 **3. Type consistency:** `TelemetryEvent {event, props}` (Task 4) is consumed unchanged by `emit` (9), `ingest` (10), `background` (13). `QueuedEvent {event, timestamp, properties}` (Task 6) is consumed by `queue` (7) and produced by `ingest` (10)/`lifecycle` (12). `isTelemetryEnabled`/`getInstallId`/`clearLocalTelemetry` (Task 5) are consumed by 10/11/12 with matching signatures. Builders' return type matches `emit`'s parameter (incl. the `| null` for empty notes). ✓
