@@ -30,8 +30,8 @@ describe('installTelemetryListeners', () => {
     expect(create).toHaveBeenCalledWith('telemetry-flush', expect.objectContaining({ periodInMinutes: expect.any(Number) }));
 
     // Capture listeners immediately after install, before any mock resets.
-    const msgListener = onMessage.mock.calls[0][0] as (msg: unknown) => void;
-    const alarmListener = onAlarm.mock.calls[0][0] as (alarm: { name: string }) => void;
+    const msgListener = (onMessage.mock.calls[0] as [unknown])[0] as (msg: unknown) => void;
+    const alarmListener = (onAlarm.mock.calls[0] as [unknown])[0] as (alarm: { name: string }) => void;
     expect(typeof msgListener).toBe('function');
     expect(typeof alarmListener).toBe('function');
 
@@ -76,7 +76,7 @@ describe('installTelemetryListeners', () => {
     };
     installTelemetryListeners(api as any);
 
-    const msgListener = onMessage.mock.calls[0][0] as (msg: unknown) => void;
+    const msgListener = (onMessage.mock.calls[0] as [unknown])[0] as (msg: unknown) => void;
     msgListener({ type: 'open-journal' });
     await Promise.resolve();
     expect(ingestTelemetryEvent).not.toHaveBeenCalled();
@@ -91,7 +91,7 @@ describe('installTelemetryListeners', () => {
     };
     installTelemetryListeners(api as any);
 
-    const msgListener = onMessage.mock.calls[0][0] as (msg: unknown) => void;
+    const msgListener = (onMessage.mock.calls[0] as [unknown])[0] as (msg: unknown) => void;
     msgListener({ type: TELEMETRY_EVENT }); // no .event
     await Promise.resolve();
     expect(ingestTelemetryEvent).not.toHaveBeenCalled();

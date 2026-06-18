@@ -27,7 +27,7 @@ describe('transport', () => {
   it('POSTs to the PostHog US batch URL and reports ok on 200', async () => {
     const f = vi.fn(async () => new Response(JSON.stringify({ status: 1 }), { status: 200 }));
     const r = await sendBatch([ev], f as unknown as typeof fetch);
-    expect(f.mock.calls[0]![0]).toBe(POSTHOG_INGEST_URL);
+    expect((f.mock.calls[0] as unknown as [string, ...unknown[]])[0]).toBe(POSTHOG_INGEST_URL);
     expect(r).toEqual({ ok: true, retryable: false });
   });
 

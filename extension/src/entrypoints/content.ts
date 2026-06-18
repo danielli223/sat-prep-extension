@@ -154,10 +154,11 @@ export async function handleQuestion(
   view: QuestionView | null,
   renderQuestion: () => void,
 ): Promise<void> {
-  if (!checkContract(view).ok) {
+  const contract = checkContract(view);
+  if (!contract.ok) {
     renderBanner(shadow);
     await bumpFailureCounter();
-    emit({ event: DOM_CONTRACT_FAILED, props: { failure_reason: checkContract(view).reason ?? 'unreadable', question_id: view?.id ?? null } });
+    emit({ event: DOM_CONTRACT_FAILED, props: { failure_reason: contract.reason ?? 'unreadable', question_id: view?.id ?? null } });
     return;
   }
   renderQuestion(); // contract passed → mount the answer overlay into CB's live .answer-content
