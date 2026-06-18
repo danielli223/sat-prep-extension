@@ -4,7 +4,7 @@ import { POSTHOG_INGEST_URL, POSTHOG_PROJECT_TOKEN } from '../config';
 
 const ev: QueuedEvent = {
   event: 'question_attempted', timestamp: '2026-06-17T12:00:00.000Z',
-  properties: { distinct_id: 'u1', $process_person_profile: false, $ip: null, question_id: 'q', result: 'correct' },
+  properties: { distinct_id: 'u1', $process_person_profile: true, $ip: null, question_id: 'q', result: 'correct' },
 };
 
 describe('transport', () => {
@@ -15,7 +15,7 @@ describe('transport', () => {
     expect(body.batch[0].event).toBe('question_attempted');
     expect(body.batch[0].timestamp).toBe('2026-06-17T12:00:00.000Z');
     expect(body.batch[0].properties.distinct_id).toBe('u1');
-    expect(body.batch[0].properties.$process_person_profile).toBe(false);
+    expect(body.batch[0].properties.$process_person_profile).toBe(true);
     expect(body.batch[0].properties.$ip).toBe(null);
   });
 

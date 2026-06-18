@@ -6,7 +6,7 @@ describe('assertTelemetrySafe (telemetry legal boundary)', () => {
     expect(() => assertTelemetrySafe({
       event: 'question_attempted', install_id: 'u', session_id: 's', app_version: '0.0.1',
       browser: 'chrome', consent_version: '1', days_since_install_bucket: 'day_0',
-      $process_person_profile: false, $ip: null,
+      $process_person_profile: true, $ip: null,
       question_id: 'ac472881', question_type: 'mc', result: 'incorrect', reveal_used: true,
       section: 'Math', domain: 'Algebra', skill: 'Linear equations', difficulty: 'H',
     })).not.toThrow();
@@ -28,7 +28,7 @@ describe('assertTelemetrySafe (telemetry legal boundary)', () => {
 
   it('enforces the PostHog hygiene flags exactly', () => {
     expect(() => assertTelemetrySafe({ event: 'x', $ip: '1.2.3.4' })).toThrow(TelemetryGuardError);
-    expect(() => assertTelemetrySafe({ event: 'x', $process_person_profile: true })).toThrow(TelemetryGuardError);
+    expect(() => assertTelemetrySafe({ event: 'x', $process_person_profile: false })).toThrow(TelemetryGuardError);
   });
 
   it('rejects IP-shaped string values on any allowlisted key (defense-in-depth, spec Resilience)', () => {

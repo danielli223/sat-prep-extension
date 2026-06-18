@@ -34,7 +34,10 @@ HTTP ingestion API with plain `fetch` (no remote SDK, no vendor cookies).
 - **Vendor:** PostHog **US Cloud** (`us.i.posthog.com`). US fits a US SAT audience and
   a US entity; hosting location does not change COPPA/CCPA obligations. IP capture,
   autocapture, and session recording are disabled in the PostHog **project config**
-  (operational, not code-enforced — see Resilience).
+  (operational, not code-enforced — see Resilience). Person profiles are **ON**
+  (`$process_person_profile: true`): PostHog can only delete a user's data by `install_id`
+  when a person profile exists — profiles are required to fulfil the deletion right; no
+  PII is involved (random UUID, no `identify` call, IP capture off).
 - **Boundary:** an allowlist **scrubber** (Appendix A) is the legal boundary — only
   allowlisted, short, non-free-text fields can ever leave the device. Question **text**,
   passages, choices, explanations, note text, CB URLs, stack traces, and PII can never
@@ -62,7 +65,7 @@ Every event carries a fixed set of **super-properties**, injected centrally in t
 background before egress: `install_id` (the PostHog `distinct_id`), `session_id`,
 `app_version`, `browser` (chrome|firefox|edge), `consent_version`,
 `days_since_install_bucket`, plus the PostHog hygiene flags `$process_person_profile:
-false` and `$ip: null`. No event may carry any key outside Appendix A.
+true` and `$ip: null`. No event may carry any key outside Appendix A.
 
 **`session_id`** identifies one practice loop locally (minted when a session is created,
 reset on a new `practice_started`/`practice_resumed`). It groups events within a sitting;
@@ -141,7 +144,7 @@ stack trace, any PII.
 - **Delete my data →** (1) capture the current `install_id`; (2) POST it to the deletion
   endpoint; (3) delete the local id; (4) purge the queue; (5) set `consent = false`. This
   path does **not** emit `telemetry_disabled` (that event would itself be deleted). The UI
-  confirms: "Deleted on this device; server-side removal completes within 24h." A network
+  confirms: "Deleted on this device; your delete request has been submitted — PostHog processes event deletion asynchronously (it can take several days, as PostHog runs deletions during off-peak/weekend windows)." A network
   failure on step 2 queues the delete request for retry so the erasure isn't silently lost.
 - **Effective gate** = `userOptedIn && remoteAllowed`. User opt-in defaults **off**; the
   remote flag defaults **on-when-unreachable** (it is a force-disable only, so a network
@@ -211,7 +214,7 @@ call during the spike**, since field placement is the single most error-prone de
       "timestamp": "2026-06-17T12:00:00.000Z",
       "properties": {
         "distinct_id": "<install_id>",
-        "$process_person_profile": false,
+        "$process_person_profile": true,
         "$ip": null,
         "session_id": "<session_id>",
         "app_version": "0.0.1",
@@ -291,7 +294,7 @@ the existing `guard.test.ts` / `killswitch.test.ts` / `block-detect.test.ts`.
   drop on 4xx; `timestamp` frozen at capture time across flush+retry; `question_attempted`
   dedup on rapid identical emits.
 - **`transport.test.ts`** — inspects the mock-`fetch` POST body: exact batch shape; **every**
-  event carries `distinct_id`, `$process_person_profile:false`, `$ip:null` and the
+  event carries `distinct_id`, `$process_person_profile:true`, `$ip:null` and the
   super-properties; token is `phc_`-prefixed (public).
 - **`events.test.ts`** — each builder returns only allowlisted keys and correct bucket
   constants for boundary inputs (e.g. `days=0/1/7/8/30/90`); `note_added` not emitted when
@@ -320,7 +323,8 @@ Live PostHog verification runs only manually against a **dev** project — never
   shared (text/notes/PII/stack traces); that question IDs let us see *which topics you
   struggle with*, linked to a random install-id, persisting until opt-out; the
   **PostHog-US processor** relationship; opt-in + how to turn off + how to delete (the
-  deletion endpoint erases server-side events within 24h); the **retention period
+  deletion endpoint submits a delete request immediately — PostHog processes event deletion
+  asynchronously and it can take several days); the **retention period
   (12 months)**; HTTPS; and a COPPA-aligned minors note naming the **specific
   internal-operations purposes** (product improvement + service-health) and how the id is
   prevented from being used to contact/profile an individual (as the in-effect 2025 COPPA
@@ -341,7 +345,7 @@ Live PostHog verification runs only manually against a **dev** project — never
   include the **Limited Use** statement; keep `host_permissions` minimal and justify the
   PostHog endpoint as product-improvement analytics.
 - **PostHog project config:** US instance; autocapture, session recording, IP capture **OFF**;
-  person profiles off (`$process_person_profile:false`); retention TTL = the chosen number.
+  person profiles ON (`$process_person_profile:true` — required so PostHog can locate and delete a user's data by `install_id` when the deletion right is exercised); retention TTL = the chosen number.
 
 ## Rollout
 
@@ -383,7 +387,7 @@ bounded; any value that is free-text-shaped, a URL, or over-length is rejected.
 | `browser` | enum | chrome\|firefox\|edge |
 | `consent_version` | string | 16 |
 | `days_since_install_bucket` | enum | bucket constants |
-| `$process_person_profile` | bool | must be `false` |
+| `$process_person_profile` | bool | must be `true` |
 | `$ip` | null | must be `null` |
 | `question_id` | string | 64 |
 | `question_type` | enum | mc\|grid |

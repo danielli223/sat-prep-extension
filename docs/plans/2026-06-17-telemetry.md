@@ -22,7 +22,7 @@ Every task's requirements implicitly include these (copied from the spec):
 - **No PII / no CB content / no free text / no URLs / no stack traces** ever leave the device. The scrubber (Appendix A) is the enforcement; only allowlisted, bounded, non-free-text fields pass.
 - **Allowed egress hosts only:** `config.focusedpractice.app`, `us.i.posthog.com`, `api.focusedpractice.app`. **Never `collegeboard.org`, never `qbank-api`.**
 - **Public PostHog token only** (`phc_…`); the private key (`phx_…`) is never bundled or referenced in the extension.
-- **Every event carries** `$process_person_profile: false` and `$ip: null`; the `timestamp` is ISO-8601 stamped at capture time, never rewritten on retry/flush.
+- **Every event carries** `$process_person_profile: true` and `$ip: null`; the `timestamp` is ISO-8601 stamped at capture time, never rewritten on retry/flush. Person profiles must be ON so PostHog can delete a user's data by `install_id` (deletion right); no PII involved (random UUID, no `identify`, IP off).
 - **`install_id`** is a random `crypto.randomUUID()` in `chrome.storage.local`, distinct from the existing journal `deviceId`; deleted on opt-out.
 - **Telemetry never blocks or throws into the app.** All emits are `void emit(...)`; failures are swallowed/queued.
 - **Legal invariants unchanged:** read rendered DOM only, never call CB endpoints, nominative-use trademark notice intact.
@@ -164,7 +164,7 @@ describe('assertTelemetrySafe (telemetry legal boundary)', () => {
     expect(() => assertTelemetrySafe({
       event: 'question_attempted', install_id: 'u', session_id: 's', app_version: '0.0.1',
       browser: 'chrome', consent_version: '1', days_since_install_bucket: 'day_0',
-      $process_person_profile: false, $ip: null,
+      $process_person_profile: true, $ip: null,
       question_id: 'ac472881', question_type: 'mc', result: 'incorrect', reveal_used: true,
       section: 'Math', domain: 'Algebra', skill: 'Linear equations', difficulty: 'H',
     })).not.toThrow();
@@ -186,7 +186,7 @@ describe('assertTelemetrySafe (telemetry legal boundary)', () => {
 
   it('enforces the PostHog hygiene flags exactly', () => {
     expect(() => assertTelemetrySafe({ event: 'x', $ip: '1.2.3.4' })).toThrow(TelemetryGuardError);
-    expect(() => assertTelemetrySafe({ event: 'x', $process_person_profile: true })).toThrow(TelemetryGuardError);
+    expect(() => assertTelemetrySafe({ event: 'x', $process_person_profile: false })).toThrow(TelemetryGuardError);
   });
 });
 ```
@@ -227,7 +227,7 @@ export function assertTelemetrySafe(payload: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(payload)) {
     // PostHog hygiene flags: fixed values, nothing else.
     if (key === '$process_person_profile') {
-      if (value !== false) throw new TelemetryGuardError('$process_person_profile must be false');
+      if (value !== true) throw new TelemetryGuardError('$process_person_profile must be true');
       continue;
     }
     if (key === '$ip') {
@@ -691,7 +691,7 @@ import { POSTHOG_INGEST_URL, POSTHOG_PROJECT_TOKEN } from '../config';
 
 const ev: QueuedEvent = {
   event: 'question_attempted', timestamp: '2026-06-17T12:00:00.000Z',
-  properties: { distinct_id: 'u1', $process_person_profile: false, $ip: null, question_id: 'q', result: 'correct' },
+  properties: { distinct_id: 'u1', $process_person_profile: true, $ip: null, question_id: 'q', result: 'correct' },
 };
 
 describe('transport', () => {
@@ -702,7 +702,7 @@ describe('transport', () => {
     expect(body.batch[0].event).toBe('question_attempted');
     expect(body.batch[0].timestamp).toBe('2026-06-17T12:00:00.000Z');
     expect(body.batch[0].properties.distinct_id).toBe('u1');
-    expect(body.batch[0].properties.$process_person_profile).toBe(false);
+    expect(body.batch[0].properties.$process_person_profile).toBe(true);
     expect(body.batch[0].properties.$ip).toBe(null);
   });
 
@@ -807,7 +807,7 @@ function stubChrome() {
   return mem;
 }
 const ev = (id: string): QueuedEvent => ({ event: 'e', timestamp: '2026-06-17T00:00:00.000Z',
-  properties: { distinct_id: id, $process_person_profile: false, $ip: null } });
+  properties: { distinct_id: id, $process_person_profile: true, $ip: null } });
 beforeEach(() => vi.unstubAllGlobals());
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -1084,7 +1084,7 @@ describe('background ingest', () => {
     expect(q.length).toBe(1);
     expect(q[0]!.properties.distinct_id).toBe(id);
     expect(q[0]!.properties.$ip).toBe(null);
-    expect(q[0]!.properties.$process_person_profile).toBe(false);
+    expect(q[0]!.properties.$process_person_profile).toBe(true);
     expect(q[0]!.properties.browser).toBe('chrome');
     expect(q[0]!.properties.days_since_install_bucket).toBe('day_0');
     expect(typeof q[0]!.timestamp).toBe('string');
@@ -1136,7 +1136,7 @@ export async function ingestTelemetryEvent(
     const properties = {
       ...built.props,
       distinct_id: installId,
-      $process_person_profile: false,
+      $process_person_profile: true,
       $ip: null,
       app_version: ctx.appVersion,
       browser: detectBrowser(ctx.ua),
@@ -1322,7 +1322,7 @@ export async function optOut(fetchImpl: typeof fetch = fetch): Promise<void> {
   if (id) {
     await enqueue({
       event: TELEMETRY_DISABLED, timestamp: new Date().toISOString(),
-      properties: { distinct_id: id, $process_person_profile: false, $ip: null },
+      properties: { distinct_id: id, $process_person_profile: true, $ip: null },
     });
     await flush(fetchImpl);
   }

@@ -45,7 +45,7 @@ describe('optOut', () => {
     expect(disabled.properties.app_version).toBe('0.0.1');
     expect(disabled.properties.consent_version).toBe(CONSENT_VERSION);
     expect(disabled.properties.days_since_install_bucket).toBe('day_0');
-    expect(disabled.properties.$process_person_profile).toBe(false);
+    expect(disabled.properties.$process_person_profile).toBe(true);
     expect(disabled.properties.$ip).toBe(null);
     // Egress goes to the PostHog ingest URL.
     expect(urls[0]).toBe(POSTHOG_INGEST_URL);

@@ -24,7 +24,7 @@ export async function injectSuperProps(
   return {
     ...props,
     distinct_id: installId,
-    $process_person_profile: false,
+    $process_person_profile: true,
     $ip: null,
     app_version: ctx.appVersion,
     browser: detectBrowser(ctx.ua),
