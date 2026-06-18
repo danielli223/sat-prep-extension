@@ -5,10 +5,9 @@ import type { QuestionView } from '../cb/reader';
 const mc: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear equations in one variable',
   difficulty: 'Hard', stem: 'STEM TEXT — must not leak',
-  stemHtml: '<div>STEM HTML — must not leak</div>', choices: [
+  choices: [
     { letter: 'A', text: '3' }, { letter: 'B', text: '5' }, { letter: 'C', text: '7' }, { letter: 'D', text: '15' },
-  ], correctAnswer: 'B', explanation: 'EXPLANATION TEXT — must not leak',
-  explanationHtml: '<div>EXPLANATION HTML — must not leak</div>',
+  ], correctAnswer: 'B',
 };
 
 describe('toCardVM', () => {
@@ -23,17 +22,11 @@ describe('toCardVM', () => {
     expect(vm.kind).toBe('mc');
   });
 
-  it('NEVER carries stem or explanation text (RAM-only LiveContent stays out of the VM)', () => {
+  it('NEVER carries stem text (RAM-only stem stays out of the VM)', () => {
     const vm = toCardVM(mc, 0, 1);
     const json = JSON.stringify(vm);
     expect(json).not.toContain('STEM TEXT');
-    expect(json).not.toContain('STEM HTML');
-    expect(json).not.toContain('EXPLANATION TEXT');
-    expect(json).not.toContain('EXPLANATION HTML');
     expect((vm as Record<string, unknown>).stem).toBeUndefined();
-    expect((vm as Record<string, unknown>).stemHtml).toBeUndefined();
-    expect((vm as Record<string, unknown>).explanation).toBeUndefined();
-    expect((vm as Record<string, unknown>).explanationHtml).toBeUndefined();
   });
 
   it('marks a grid-in question (no choices) with kind "grid"', () => {

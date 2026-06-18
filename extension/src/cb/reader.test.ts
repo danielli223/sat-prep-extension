@@ -71,136 +71,17 @@ describe('readQuestion', () => {
     expect(v.stem).toContain('If 3x = 9');
   });
 
-  // stemHtml renders CB's stem markup so tables paint as real tables (a table-bearing stem flattened
-  // to a run-on text blob before this; live 2026-06-16). It is a strict allowlist — the ONLY place CB
-  // HTML is rendered un-escaped — so these tests double as the XSS contract.
-  it('preserves a stem table as real <table> markup with its cell values', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="cb-dialog-content"><div class="question-content">' +
-      '<div class="question">For the table below: [SYNTHETIC]' +
-      '<figure class="table"><table><thead><tr><th>x</th><th>y</th></tr></thead>' +
-      '<tbody><tr><td>1</td><td>13</td></tr><tr><td>2</td><td>k</td></tr></tbody></table></figure>' +
-      '</div></div></div></div>';
-    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
-    expect(v.stemHtml).toContain('<table>');
-    expect(v.stemHtml).toContain('<td>13</td>');
-    expect(v.stemHtml).toContain('<td>k</td>');
-    expect(v.stemHtml).toContain('For the table below');
-    // <figure> isn't in the allowlist → unwrapped, but the <table> it held survives.
-    expect(v.stemHtml).not.toContain('<figure');
+  it('no longer exposes stemHtml, but still reads plain stem text (observer dedup needs it)', () => {
+    const v = readQuestion(load('multiple-choice.html'))! as unknown as Record<string, unknown>;
+    expect(v.stemHtml).toBeUndefined();
+    expect(typeof v.stem).toBe('string');
+    expect((v.stem as string).length).toBeGreaterThan(0);
   });
 
-  it('strips scripts, event handlers, and all attributes from stem HTML (XSS contract)', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="cb-dialog-content"><div class="question-content">' +
-      '<div class="question">Solve: [SYNTHETIC]' +
-      '<script>steal()</script>' +
-      '<img src="x" onerror="steal()">' +
-      '<p onclick="steal()" style="color:red" class="x">value <b>13</b></p>' +
-      '<a href="javascript:steal()">link</a>' +
-      '</div></div></div></div>';
-    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
-    expect(v.stemHtml).not.toContain('steal');
-    expect(v.stemHtml).not.toContain('onerror');
-    expect(v.stemHtml).not.toContain('onclick');
-    expect(v.stemHtml).not.toContain('javascript:');
-    expect(v.stemHtml).not.toContain('style=');
-    expect(v.stemHtml).not.toContain('class=');
-    expect(v.stemHtml).not.toContain('<script');
-    expect(v.stemHtml).not.toContain('<img');
-    // structural <p>/<b> and their text survive — the markup is rendered, just disarmed.
-    expect(v.stemHtml).toContain('<p>value <b>13</b></p>');
-  });
-
-  it('flattens embedded MathJax to its plain value in stem HTML (no mjx-container markup)', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="cb-dialog-content"><div class="question-content">' +
-      '<div class="question">If <mjx-container><mjx-math><style>mjx{}</style>k</mjx-math></mjx-container>' +
-      ' is constant [SYNTHETIC]</div></div></div></div>';
-    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
-    expect(v.stemHtml).not.toContain('mjx-container');
-    expect(v.stemHtml).not.toContain('<style');
-    expect(v.stemHtml).toContain('If k');
-    expect(v.stemHtml).toContain('is constant');
-  });
-
-  it('drops CB\'s section/difficulty <h5> labels from the stem (no "MathDifficulty:" leak)', () => {
-    // The .question-content also holds CB's own <h5> chrome. The live "MathDifficulty: Hard" leak came
-    // from flattening the WHOLE container; the stem must be only the .question body.
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="cb-dialog-content"><div class="question-content">' +
-      '<h5 class="text">Math</h5><h5>Difficulty: Hard</h5>' +
-      '<div class="prompt"></div>' +
-      '<div class="question">What is x? [SYNTHETIC]</div></div></div></div>';
-    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
-    expect(v.stemHtml).not.toContain('Difficulty:');
-    expect(v.stemHtml).not.toContain('Math<');
-    expect(v.stemHtml).toContain('What is x?');
-    expect(v.stem).not.toContain('Difficulty:');
-    expect(v.stem).not.toContain('Math');
-  });
-
-  // explanationHtml renders CB's rationale with the SAME sanitized allowlist as the stem, so the
-  // explanation panel mirrors CB's layout (bold answer line, paragraphs, tables) instead of one flat
-  // escaped run. Like stemHtml, the allowlist IS the XSS boundary — these tests double as that contract.
-  it('renders the rationale as sanitized HTML, bolding the Correct Answer line', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="answer-content"><div class="rationale">' +
-      '<p class="cb-margin-bottom-16 cb-font-weight-bold">Correct Answer: B</p>' +
-      '<div>Subtract 7 from both sides to get 3x = 15. [SYNTHETIC]</div>' +
-      '<div>Choice A is incorrect because it adds instead. [SYNTHETIC]</div>' +
-      '</div></div></div>';
-    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
-    // CB bolds the answer line with a CSS class the allowlist strips; we re-bold it with <strong>.
-    expect(v.explanationHtml).toContain('<strong>Correct Answer: B</strong>');
-    expect(v.explanationHtml).toContain('Subtract 7 from both sides');
-    expect(v.explanationHtml).toContain('Choice A is incorrect');
-    expect(v.explanationHtml).not.toContain('class=');
-  });
-
-  it('preserves a rationale table as real <table> markup in the explanation HTML', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="answer-content"><div class="rationale">' +
-      '<p class="cb-font-weight-bold">Correct Answer: C</p>' +
-      '<figure class="table"><table><tbody><tr><td>x</td><td>3</td></tr></tbody></table></figure>' +
-      '</div></div></div>';
-    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
-    expect(v.explanationHtml).toContain('<table>');
-    expect(v.explanationHtml).toContain('<td>3</td>');
-    expect(v.explanationHtml).not.toContain('<figure');
-  });
-
-  it('strips scripts, event handlers, and all attributes from explanation HTML (XSS contract)', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="answer-content"><div class="rationale">' +
-      '<p class="cb-font-weight-bold">Correct Answer: B</p>' +
-      '<script>steal()</script><img src="x" onerror="steal()">' +
-      '<p onclick="steal()" style="color:red" class="x">Because <b>13</b>.</p>' +
-      '<a href="javascript:steal()">link</a>' +
-      '</div></div></div>';
-    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
-    expect(v.explanationHtml).not.toContain('steal');
-    expect(v.explanationHtml).not.toContain('onerror');
-    expect(v.explanationHtml).not.toContain('onclick');
-    expect(v.explanationHtml).not.toContain('javascript:');
-    expect(v.explanationHtml).not.toContain('style=');
-    expect(v.explanationHtml).not.toContain('class=');
-    expect(v.explanationHtml).not.toContain('<script');
-    expect(v.explanationHtml).not.toContain('<img');
-    expect(v.explanationHtml).toContain('<p>Because <b>13</b>.</p>');
-  });
-
-  it('returns empty explanation HTML before the rationale is revealed', () => {
-    document.body.innerHTML =
-      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
-      '<div class="answer-content"><div class="answer-choices"><ul><li>3</li><li>5</li></ul></div></div></div>';
-    expect(readQuestion(document.querySelector('.cb-dialog-container')!)!.explanationHtml).toBe('');
+  it('no longer exposes explanation fields (CB renders its rationale natively)', () => {
+    const v = readQuestion(load('multiple-choice.html'))! as unknown as Record<string, unknown>;
+    expect(v.explanation).toBeUndefined();
+    expect(v.explanationHtml).toBeUndefined();
+    expect(v.correctAnswer).toBe('B');   // still read for scoring
   });
 });

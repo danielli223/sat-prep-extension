@@ -8,7 +8,6 @@ export const TT_POLICY = 'focused-practice';
 
 export const CARD_SLOT_CLASS = 'fp-card-slot';
 export const EXTRAS_SLOT_CLASS = 'fp-extras-slot';
-export const CARD_LAUNCHER_CLASS = 'fp-card-launcher';
 
 interface TTPolicy { createHTML(s: string): unknown; }
 let policy: TTPolicy | null = null;
@@ -18,8 +17,9 @@ function ensurePolicy(): void {
   // trustedTypes is absent in happy-dom and older browsers; degrade to the identity transform.
   // NOTE: the policy is the identity transform (createHTML: (s) => s) — it provides NO sanitization;
   // it exists only to satisfy a `require-trusted-types-for 'script'` CSP. XSS safety rests entirely
-  // on esc() at every CB-derived interpolation in card.ts. A new innerHTML call site MUST esc() its
-  // CB-derived inputs; the policy will not catch an unescaped string (contract §2.1 / spec §8.4).
+  // on esc() at every CB-derived interpolation in answer-overlay.ts (renderBody). A new innerHTML
+  // call site MUST esc() its CB-derived inputs; the policy will not catch an unescaped string
+  // (contract §2.1 / spec §8.4).
   const tt = (globalThis as { trustedTypes?: { createPolicy(name: string, rules: { createHTML(s: string): string }): TTPolicy } }).trustedTypes;
   if (tt) {
     policy = tt.createPolicy(TT_POLICY, { createHTML: (s: string) => s });
@@ -42,72 +42,10 @@ const BASE_CSS = `
 .${CARD_SLOT_CLASS}:empty{display:none;}
 .${EXTRAS_SLOT_CLASS}{position:fixed;inset:0;z-index:3;pointer-events:none;}
 .${EXTRAS_SLOT_CLASS}>*{pointer-events:auto;}
-/* Minimize launcher: a pill that re-opens a minimized focus card, parked beside the Journal launcher
-   in the top-right (matching padding/font, so top:12px lines them up). In the extras slot (above the
-   card/panel) so it floats over the dimmed page; hidden until the card is minimized. The right offset
-   clears the Journal pill (its right:12 + ~93px width + an ~8px gap). */
-.${CARD_LAUNCHER_CLASS}{position:fixed;top:12px;right:113px;z-index:4;background:#3b82f6;color:#fff;border:none;
-  border-radius:9px;padding:8px 14px;font:700 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);}
-.${CARD_LAUNCHER_CLASS}[hidden]{display:none;}
-.fp-card,.fp-start{width:100%;max-width:460px;max-height:88vh;overflow:auto;background:#fff;color:#1f2937;
+.fp-start{width:100%;max-width:460px;max-height:88vh;overflow:auto;background:#fff;color:#1f2937;
   border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:20px;box-sizing:border-box;}
-.fp-card-head{display:flex;justify-content:space-between;align-items:center;gap:12px;}
 .fp-start-head{display:flex;justify-content:flex-end;margin-bottom:10px;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
-.fp-trust{font-size:10px;letter-spacing:.04em;color:#16a34a;font-weight:700;text-transform:uppercase;margin-bottom:10px;}
-.fp-trust::before{content:"\\25CF  ";}
-.fp-progress{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#6b7280;
-  border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:12px;}
-.fp-stem{font-weight:600;line-height:1.5;margin-bottom:14px;}
-.fp-stem svg,.fp-stem img{max-width:100%;}
-/* Stems can carry a real data table (sanitized allowlist markup from reader.ts). Render it as a
-   readable grid instead of a run-on text blob; weight:400 so cell data isn't bolded like the prompt. */
-.fp-stem table{border-collapse:collapse;margin:10px 0;font-weight:400;}
-.fp-stem th,.fp-stem td{border:1px solid #cbd5e1;padding:4px 10px;text-align:center;}
-.fp-stem th{background:#f1f5f9;font-weight:700;}
-.fp-choices{list-style:none;margin:0 0 12px;padding:0;}
-.fp-choice{display:flex;align-items:center;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:7px;}
-.fp-choice .fp-eliminate{border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:14px;padding:8px 4px 8px 10px;}
-.fp-choice .fp-pick{flex:1;display:flex;align-items:center;text-align:left;border:none;background:transparent;
-  cursor:pointer;padding:9px 12px 9px 2px;color:inherit;font:inherit;}
-.fp-choice .fp-letter{font-weight:700;margin-right:8px;}
-.fp-choice.fp-selected{border:2px solid #3b82f6;background:#eff6ff;}
-.fp-choice.fp-selected .fp-pick::after{content:"selected";margin-left:auto;font-size:9px;color:#3b82f6;font-weight:700;}
-.fp-choice.fp-eliminated .fp-pick{color:#9ca3af;text-decoration:line-through;}
-.fp-choice.fp-correct{border:2px solid #16a34a;background:#dcfce7;}
-.fp-choice.fp-correct .fp-pick::after{content:"\\2713 correct";margin-left:auto;font-size:9px;color:#16a34a;font-weight:700;}
-.fp-choice.fp-wrong{border:2px solid #dc2626;background:#fee2e2;}
-.fp-choice.fp-wrong .fp-pick::after{content:"\\2717 you chose";margin-left:auto;font-size:9px;color:#dc2626;font-weight:700;}
-.fp-gridin-label{display:block;font-size:12px;color:#6b7280;margin-bottom:12px;}
-.fp-gridin{display:block;width:100%;margin-top:5px;padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;font:inherit;box-sizing:border-box;}
-.fp-actions{display:flex;gap:8px;align-items:center;margin-bottom:10px;}
-.fp-check{background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer;font:inherit;}
-.fp-reveal{background:#f1f5f9;color:#334155;border:none;border-radius:8px;padding:9px 14px;cursor:pointer;font:inherit;}
-.fp-next{margin-left:auto;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;font:inherit;}
-.fp-verdict{margin-bottom:10px;font-weight:700;}
-.fp-verdict .fp-ok{color:#16a34a;}
-.fp-verdict .fp-no{color:#dc2626;}
-.fp-indeterminate{color:#92400e;font-weight:600;font-size:13px;}
-.fp-need-answer{color:#1d4ed8;font-weight:600;font-size:13px;}
-.fp-stale{color:#b45309;font-weight:600;font-size:13px;line-height:1.4;}
-.fp-explanation{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:10px;font-size:13px;color:#4b5563;line-height:1.45;}
-.fp-explanation[hidden]{display:none;}
-.fp-explanation-label{font-size:10px;color:#16a34a;font-weight:700;text-transform:uppercase;margin-bottom:4px;}
-/* CB's rationale, rendered from sanitized allowlist markup (reader.ts) so it mirrors CB's layout.
-   weight:400 because the non-graded verdict path nests this inside .fp-verdict (font-weight:700). */
-.fp-explanation-body{font-weight:400;font-size:13px;line-height:1.45;color:#4b5563;}
-.fp-explanation-body p,.fp-explanation-body div{margin:0 0 8px;}
-.fp-explanation-body p:last-child,.fp-explanation-body div:last-child{margin-bottom:0;}
-.fp-explanation-body strong{font-weight:700;color:#111827;}
-.fp-explanation-body ul,.fp-explanation-body ol{margin:0 0 8px;padding-left:20px;}
-.fp-explanation-body table{border-collapse:collapse;margin:8px 0;}
-.fp-explanation-body th,.fp-explanation-body td{border:1px solid #cbd5e1;padding:3px 8px;text-align:center;}
-.fp-explanation-body th{background:#f1f5f9;font-weight:700;}
-.fp-note-label{display:block;font-size:11px;color:#92400e;margin-bottom:12px;}
-.fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
-  padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}
-.fp-note::placeholder{color:#b45309;}
 /* Bottom-LEFT so the floating calculator never collides with the right-docked .fp-panel journal.
    A flex column: a slim header bar (label + ✕) over the iframe, which fills the rest. overflow:hidden
    so the iframe's corners clip to the panel's rounded border. */
@@ -118,8 +56,6 @@ const BASE_CSS = `
   border-bottom:1px solid #e5e7eb;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#475569;}
 .fp-geogebra-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:26px;height:26px;cursor:pointer;font-size:12px;line-height:1;}
 .fp-geogebra-frame{flex:1;width:100%;border:0;}
-.fp-calc{display:flex;gap:8px;}
-.fp-calc-pin,.fp-desmos{background:#f1f5f9;color:#334155;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;}
 .fp-onboarding{font-size:12px;color:#0c4a6e;line-height:1.5;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px;margin-bottom:14px;}
 .fp-start-title{font-size:17px;margin:0 0 12px;color:#0f172a;}
 .fp-start>button{display:block;width:100%;margin-bottom:8px;padding:11px;border-radius:9px;border:1px solid #cbd5e1;
@@ -153,16 +89,16 @@ const BASE_CSS = `
 .fp-empty{font-size:12px;color:#9ca3af;}
 `;
 
-// The shadow root holds two sibling slots so a card repaint never clobbers persistent UI:
-//   .fp-card-slot   — the focus card / start panel; OVERWRITTEN on every render.
+// The shadow root holds two sibling slots so a start-panel repaint never clobbers persistent UI:
+//   .fp-card-slot   — the start panel; OVERWRITTEN on every render.
 //   .fp-extras-slot — the calculator iframe and other persistent overlays; SURVIVES re-renders.
-// Returns the card slot (renderCard/renderStartPanel target this, not the whole shadow root).
+// Returns the card slot (renderStartPanel targets this, not the whole shadow root).
 export function cardSlot(shadow: ShadowRoot): HTMLElement {
   ensureSlots(shadow);
   return shadow.querySelector(`.${CARD_SLOT_CLASS}`) as HTMLElement;
 }
 
-// Returns the persistent extras slot (the calculator mounts here so renderCard can't wipe it).
+// Returns the persistent extras slot (the calculator mounts here so renderStartPanel can't wipe it).
 export function extrasSlot(shadow: ShadowRoot): HTMLElement {
   ensureSlots(shadow);
   return shadow.querySelector(`.${EXTRAS_SLOT_CLASS}`) as HTMLElement;

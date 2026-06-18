@@ -11,8 +11,8 @@ const GEOGEBRA_URL = 'https://www.geogebra.org/scientific';
 const DESMOS_URL = 'https://www.desmos.com/calculator';
 
 export function toggleGeoGebra(root: ShadowRoot): boolean {
-  // Mount into the persistent extras slot — NOT the card slot — so advancing to the next question
-  // (which repaints the card via renderCard) doesn't wipe an open calculator.
+  // Mount into the persistent extras slot — NOT the card slot — so the start panel (which writes
+  // the card slot) doesn't wipe an open calculator, and vice versa.
   const slot = extrasSlot(root);
   const existing = slot.querySelector('.fp-geogebra');
   if (existing) { existing.remove(); return false; }
