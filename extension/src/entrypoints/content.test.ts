@@ -839,6 +839,7 @@ describe('content telemetry hand-off', () => {
   // Minimal chrome stub: emit() checks chrome.runtime.id; sendMessage is a spy.
   beforeEach(() => {
     document.body.innerHTML = '';
+    vi.restoreAllMocks(); // clear any spies that leaked from earlier describe blocks (e.g. checkContract spy)
     vi.stubGlobal('chrome', { runtime: { id: 'ext-test', sendMessage: vi.fn() } });
   });
   afterEach(() => { vi.unstubAllGlobals(); });
@@ -856,6 +857,15 @@ describe('content telemetry hand-off', () => {
     await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
     return db;
   }
+
+  it('emits dom_contract_failed when the contract check fails', async () => {
+    const sent: any[] = [];
+    (globalThis as any).chrome.runtime.sendMessage = (m: any) => sent.push(m);
+    (globalThis as any).chrome.storage = { local: { get: async () => ({}), set: async () => {}, remove: async () => {} } };
+    const shadow = document.createElement('div').attachShadow({ mode: 'open' });
+    await handleQuestion(shadow, null, () => {}); // null view → contract fails
+    expect(sent.some((m) => m?.event?.event === 'dom_contract_failed')).toBe(true);
+  });
 
   // Telemetry hand-off: a TELEMETRY_EVENT is posted when a question is checked.
   it('emits question_attempted after a graded Check', async () => {

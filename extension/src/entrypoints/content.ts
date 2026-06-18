@@ -24,6 +24,7 @@ import { OPEN_JOURNAL } from '../messages';
 import { emit } from '../telemetry/emit';
 import {
   buildPracticeStarted, buildQuestionAttempted, buildNoteAdded, CALCULATOR_OPENED,
+  DOM_CONTRACT_FAILED, BLOCK_DETECTED, KILLSWITCH_ACTIVATED, UNSCORED_FALLBACK, JS_ERROR,
 } from '../telemetry/events';
 import { readListQuestionIds } from '../cb/list-reader';
 import { isEnabled } from '../resilience/killswitch';    // Plan 4 (§2.5)
@@ -156,6 +157,7 @@ export async function handleQuestion(
   if (!checkContract(view).ok) {
     renderBanner(shadow);
     await bumpFailureCounter();
+    emit({ event: DOM_CONTRACT_FAILED, props: { failure_reason: checkContract(view).reason ?? 'unreadable', question_id: view?.id ?? null } });
     return;
   }
   renderQuestion(); // contract passed → mount the answer overlay into CB's live .answer-content
@@ -167,8 +169,9 @@ export async function handleQuestion(
 export async function guardedStart(doc: Document, runner: () => Promise<void>): Promise<void> {
   // isEnabled() fetches OUR config host only (never CB) — so a takedown flag wins over a block, and
   // the §8.3 "never call the API" rule is intact: the only network here is to our own kill-switch.
-  if (!(await isEnabled())) return;                 // §2.5: hosted kill-switch off
+  if (!(await isEnabled())) { emit({ event: KILLSWITCH_ACTIVATED, props: {} }); return; } // §2.5: hosted kill-switch off
   if (detectBlock(doc) !== null) {                  // §8.3: CB block — pure DOM read, no network
+    emit({ event: BLOCK_DETECTED, props: { block_reason: detectBlock(doc) ?? 'forbidden' } });
     renderBlockNotice(mountHost(doc));              // disable AND point the student to CB
     return;
   }
@@ -325,6 +328,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       result, revealUsed: revealedFor(view.id), section: view.section, domain: view.domain,
       skill: view.skill, difficulty: view.difficulty,
     }));
+    if (!result.graded) emit({ event: UNSCORED_FALLBACK, props: { session_id: session?.sessionId ?? '', question_id: view.id } });
     if (overlay) renderVerdict(overlay, { pick, result });   // graded===false → non-verdict state (contract §2.4)
   }
 
@@ -443,12 +447,15 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
   // Plan 4: the whole post-Plan-3 startup body runs through the §2.5/§8.3 gate. isEnabled() off →
   // mount nothing; a CB block → mount the §8.3 "use CB directly" notice and return (never retry,
   // never call the API). When enabled and unblocked, the runner is Plan 2/3's startup verbatim.
+  self.addEventListener?.('unhandledrejection', () => emit({ event: JS_ERROR, props: { component: 'unhandledrejection', error_code: 'BOOT_FAILURE' } }));
   void guardedStart(document, async () => {
-    const db = await openStore();
-    await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
+    try {
+      const db = await openStore();
+      await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
 
-    mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
-    watchResultsList(document, db);   // badge on list render + whenever CB re-renders it (coachmarks bind on panel open)
-    chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
+      mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
+      watchResultsList(document, db);   // badge on list render + whenever CB re-renders it (coachmarks bind on panel open)
+      chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
+    } catch { emit({ event: JS_ERROR, props: { component: 'boot', error_code: 'BOOT_FAILURE' } }); }
   });
 }
