@@ -40,7 +40,7 @@ export function assertTelemetrySafe(payload: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(payload)) {
     // PostHog hygiene flags: fixed values, nothing else.
     if (key === '$process_person_profile') {
-      if (value !== false) throw new TelemetryGuardError('$process_person_profile must be false');
+      if (value !== true) throw new TelemetryGuardError('$process_person_profile must be true');
       continue;
     }
     if (key === '$ip') {

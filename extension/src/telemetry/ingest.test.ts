@@ -38,7 +38,7 @@ describe('background ingest', () => {
     expect(q.length).toBe(1);
     expect(q[0]!.properties.distinct_id).toBe(id);
     expect(q[0]!.properties.$ip).toBe(null);
-    expect(q[0]!.properties.$process_person_profile).toBe(false);
+    expect(q[0]!.properties.$process_person_profile).toBe(true);
     expect(q[0]!.properties.browser).toBe('chrome');
     expect(q[0]!.properties.days_since_install_bucket).toBe('day_0');
     expect(typeof q[0]!.timestamp).toBe('string');
@@ -59,7 +59,7 @@ describe('injectSuperProps (trusted super-property set)', () => {
     const id = await optIn();
     const props = await injectSuperProps({ session_id: 's', question_id: 'q' }, ctx);
     expect(props.distinct_id).toBe(id);
-    expect(props.$process_person_profile).toBe(false);
+    expect(props.$process_person_profile).toBe(true);
     expect(props.$ip).toBe(null);
     expect(props.app_version).toBe('0.0.1');
     expect(props.browser).toBe('chrome');

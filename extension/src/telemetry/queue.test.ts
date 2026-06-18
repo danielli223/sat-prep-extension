@@ -12,7 +12,7 @@ function stubChrome() {
   return mem;
 }
 const ev = (id: string): QueuedEvent => ({ event: 'e', timestamp: '2026-06-17T00:00:00.000Z',
-  properties: { distinct_id: id, $process_person_profile: false, $ip: null } });
+  properties: { distinct_id: id, $process_person_profile: true, $ip: null } });
 beforeEach(() => vi.unstubAllGlobals());
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -70,7 +70,7 @@ describe('queue', () => {
   it('freezes the capture timestamp across a retry (5xx kept, then 200) — never restamped', async () => {
     stubChrome();
     const T = '2026-06-17T00:00:00.000Z';
-    await enqueue({ event: 'e', timestamp: T, properties: { distinct_id: 'a', $process_person_profile: false, $ip: null } });
+    await enqueue({ event: 'e', timestamp: T, properties: { distinct_id: 'a', $process_person_profile: true, $ip: null } });
 
     const seen: string[] = [];
     const record = (init: RequestInit) => {
