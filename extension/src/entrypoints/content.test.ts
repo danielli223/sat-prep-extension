@@ -581,6 +581,33 @@ describe('content wiring (Plan 3)', () => {
     expect(document.querySelectorAll('.fp-panel-toggle')).toHaveLength(1);
   });
 
+  it('mountPanelToggle: the launcher swallows its own pointer events so CB never closes the open question modal', () => {
+    // The Journal launcher lives in the LIGHT DOM (doc.body), OUTSIDE our overlay host's stopPropagation
+    // guard. CB closes its question modal on an outside pointer-down/click, so without its own guard a
+    // click on the launcher bubbles to the document and trips CB's close — the open problem page vanishes
+    // (reported 2026-06-18). The launcher must stop its own pointer events, exactly like the host does.
+    const onOpen = vi.fn();
+    const btn = mountPanelToggle(document, onOpen);
+    const onDocPointerdown = vi.fn();
+    const onDocMousedown = vi.fn();
+    const onDocClick = vi.fn();
+    document.addEventListener('pointerdown', onDocPointerdown);   // mimic CB's close-on-outside listeners
+    document.addEventListener('mousedown', onDocMousedown);
+    document.addEventListener('click', onDocClick);
+
+    btn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(onDocPointerdown).not.toHaveBeenCalled();   // stopped at the button — never reaches CB's listener
+    expect(onDocMousedown).not.toHaveBeenCalled();
+    expect(onDocClick).not.toHaveBeenCalled();
+    expect(onOpen).toHaveBeenCalledTimes(1);            // ...yet the launcher's own open-journal handler still fires
+    document.removeEventListener('pointerdown', onDocPointerdown);
+    document.removeEventListener('mousedown', onDocMousedown);
+    document.removeEventListener('click', onDocClick);
+  });
+
   it('bindPanelCoachmarks: clicking a Practice link drops a coachmark whose confirm re-badges', async () => {
     const db = await freshDb();
     document.body.innerHTML = LIST;
