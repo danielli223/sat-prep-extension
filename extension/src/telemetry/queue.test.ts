@@ -66,4 +66,26 @@ describe('queue', () => {
     const remaining = await readQueue();
     expect(remaining.map((e) => e.properties.distinct_id)).toEqual(['b']);   // 4xx drops 'a' only, keeps 'b'
   });
+
+  it('freezes the capture timestamp across a retry (5xx kept, then 200) — never restamped', async () => {
+    stubChrome();
+    const T = '2026-06-17T00:00:00.000Z';
+    await enqueue({ event: 'e', timestamp: T, properties: { distinct_id: 'a', $process_person_profile: false, $ip: null } });
+
+    const seen: string[] = [];
+    const record = (init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      seen.push(body.batch[0].timestamp);
+    };
+    // First flush: 5xx → kept (retryable), so the event stays for the next attempt.
+    await flush(vi.fn(async (_u: string, init: RequestInit) => { record(init); return new Response('', { status: 503 }); }) as unknown as typeof fetch);
+    expect((await readQueue()).length).toBe(1);
+    // Second flush: 200 → sent.
+    await flush(vi.fn(async (_u: string, init: RequestInit) => { record(init); return new Response('{}', { status: 200 }); }) as unknown as typeof fetch);
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toBe(T);
+    expect(seen[1]).toBe(T);           // byte-identical across both attempts — stamped at capture, never on retry
+    expect(seen[0]).toBe(seen[1]);
+  });
 });
