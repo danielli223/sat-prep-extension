@@ -59,4 +59,14 @@ describe('consent + install_id', () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline'); }));
     expect(await isTelemetryEnabled()).toBe(true);
   });
+
+  it('makes NO network call before opt-in (locks the AND short-circuit against an order regression)', async () => {
+    stubChrome(); // never opted in
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ telemetryAllowed: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    expect(await isTelemetryEnabled()).toBe(false);
+    // The opt-in check must short-circuit BEFORE remoteAllowed() fetches the flag. If the AND were
+    // reordered (remote first), this fetch would fire — telemetry network before consent.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });
