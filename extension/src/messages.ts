@@ -5,6 +5,9 @@
 export const OPEN_JOURNAL = 'open-journal';
 
 // Telemetry hand-off. Content/popup post these; the background worker is the sole consumer + egress
-// point. TELEMETRY_EVENT carries one built event; TELEMETRY_DELETE triggers server-side erasure.
+// point. TELEMETRY_EVENT carries one built event; TELEMETRY_DELETE triggers server-side erasure;
+// TELEMETRY_OPTOUT runs the opt-out lifecycle in the background so the final telemetry_disabled event
+// is built + flushed there (with the full trusted super-property set) before local state is cleared.
 export const TELEMETRY_EVENT = 'telemetry-event';
 export const TELEMETRY_DELETE = 'telemetry-delete';
+export const TELEMETRY_OPTOUT = 'telemetry-optout';

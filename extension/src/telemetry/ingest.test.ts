@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { detectBrowser, ingestTelemetryEvent } from './ingest';
+import { detectBrowser, ingestTelemetryEvent, injectSuperProps } from './ingest';
 import { readQueue } from './queue';
-import { optIn } from './consent';
+import { optIn, CONSENT_VERSION } from './consent';
 
 function stubChrome() {
   const mem: Record<string, unknown> = {};
@@ -50,5 +50,23 @@ describe('background ingest', () => {
     await optIn();
     await ingestTelemetryEvent({ event: 'question_attempted', props: { note_text: 'leak!' } }, ctx);
     expect(await readQueue()).toEqual([]); // scrubber threw → swallowed → nothing queued
+  });
+});
+
+describe('injectSuperProps (trusted super-property set)', () => {
+  it('returns the props with the FULL trusted super-property set', async () => {
+    stubChrome();
+    const id = await optIn();
+    const props = await injectSuperProps({ session_id: 's', question_id: 'q' }, ctx);
+    expect(props.distinct_id).toBe(id);
+    expect(props.$process_person_profile).toBe(false);
+    expect(props.$ip).toBe(null);
+    expect(props.app_version).toBe('0.0.1');
+    expect(props.browser).toBe('chrome');
+    expect(props.consent_version).toBe(CONSENT_VERSION);
+    expect(props.days_since_install_bucket).toBe('day_0');
+    // The original props are preserved.
+    expect(props.session_id).toBe('s');
+    expect(props.question_id).toBe('q');
   });
 });

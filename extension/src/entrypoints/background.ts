@@ -1,7 +1,8 @@
 import { firstRunOnboarding } from './onboarding';
-import { TELEMETRY_EVENT, TELEMETRY_DELETE } from '../messages';
+import { TELEMETRY_EVENT, TELEMETRY_DELETE, TELEMETRY_OPTOUT } from '../messages';
 import { ingestTelemetryEvent } from '../telemetry/ingest';
 import { deleteMyData } from '../telemetry/delete';
+import { optOut } from '../telemetry/lifecycle';
 import { flush } from '../telemetry/queue';
 import type { TelemetryEvent } from '../telemetry/events';
 
@@ -16,6 +17,14 @@ export function installTelemetryListeners(api: typeof chrome): void {
         ua: typeof navigator !== 'undefined' ? navigator.userAgent : 'chrome',
         nowMs: Date.now(),
       }).then(() => flush());
+    } else if (msg?.type === TELEMETRY_OPTOUT) {
+      // Opt-out runs HERE (the single egress point): builds + flushes the final telemetry_disabled
+      // with the full trusted super-prop set, then clears local state.
+      void optOut({
+        appVersion: api.runtime.getManifest().version,
+        ua: typeof navigator !== 'undefined' ? navigator.userAgent : 'chrome',
+        nowMs: Date.now(),
+      });
     } else if (msg?.type === TELEMETRY_DELETE) {
       void deleteMyData();
     }
