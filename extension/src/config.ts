@@ -17,3 +17,8 @@ export const POSTHOG_PROJECT_TOKEN =
 export const TELEMETRY_DELETE_URL = 'https://api.focusedpractice.app/v1/delete';
 // Remote telemetry kill flag rides on the existing flags.json (CONFIG_FLAG_URL); cache key:
 export const TELEMETRY_FLAG_CACHE_KEY = 'telemetry.remoteAllowed';
+
+// Consent-UI launch gate. Stays FALSE until PRIVACY.md + the Chrome Web Store data-disclosure ship
+// (plan Rollout step 6). The popup renders NO telemetry consent surface while this is false, so the
+// live opt-in toggle can never become user-reachable ahead of the legal/disclosure deliverables.
+export const TELEMETRY_UI_ENABLED = false;
