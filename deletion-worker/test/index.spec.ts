@@ -97,4 +97,14 @@ describe('deletion worker', () => {
     await waitOnExecutionContext(ctx);
     expect(res.status).toBe(502);
   });
+
+  it('returns 429 and never calls PostHog when rate-limited', async () => {
+    const phMock = vi.spyOn(globalThis, 'fetch');
+    const limited: Env = { ...env, RATE_LIMITER: { limit: async () => ({ success: false }) } as unknown as RateLimit };
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(postJson({ install_id: VALID_ID }), limited, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(429);
+    expect(phMock).not.toHaveBeenCalled();
+  });
 });
