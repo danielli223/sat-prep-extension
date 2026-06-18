@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "focusedpractice-deletion-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-18",
+  "observability": { "enabled": true },
+  "vars": { "POSTHOG_PROJECT_ID": "376909", "POSTHOG_API_HOST": "https://us.posthog.com" }
+}
