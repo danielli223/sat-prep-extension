@@ -49,6 +49,11 @@ export default {
     if (!isValidInstallId(install_id))
       return withCors(request, json({ error: 'missing or invalid install_id' }, 400));
 
+    if (env.RATE_LIMITER) {
+      const { success } = await env.RATE_LIMITER.limit({ key: install_id });
+      if (!success) return withCors(request, json({ ok: false, error: 'rate_limited' }, 429));
+    }
+
     const host = env.POSTHOG_API_HOST ?? 'https://us.posthog.com';
     const url = `${host}/api/projects/${env.POSTHOG_PROJECT_ID}/persons/bulk_delete/`;
     let phRes: Response;
