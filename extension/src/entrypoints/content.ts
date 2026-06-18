@@ -363,6 +363,13 @@ export function mountPanelToggle(doc: Document, onOpen: () => void = () => {}): 
   btn.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483000;background:#3b82f6;color:#fff;' +
     'border:none;border-radius:9px;padding:8px 14px;font:700 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
     'cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);';
+  // This launcher is in the LIGHT DOM, OUTSIDE the overlay host — so it misses the host's pointer guard
+  // (host.ts). CB closes its open question modal on an outside pointer-down/click, so a real click here
+  // would bubble to the document and trip that close, dismissing the open problem page (reported
+  // 2026-06-18). Swallow our own pointer events at the button, exactly as the host does for the overlay.
+  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+    btn.addEventListener(t, (e) => e.stopPropagation());
+  }
   btn.addEventListener('click', onOpen);
   doc.body.appendChild(btn);
   return btn;
