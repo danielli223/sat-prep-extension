@@ -15,7 +15,9 @@ describe('bucketing (deterministic, timezone-agnostic)', () => {
   });
   it('durationBucket boundaries (ms)', () => {
     expect(durationBucket(60_000)).toBe('0-1m'); expect(durationBucket(60_001)).toBe('1-5m');
-    expect(durationBucket(900_000)).toBe('5-15m'); expect(durationBucket(3_600_001)).toBe('60m+');
+    expect(durationBucket(900_000)).toBe('5-15m');
+    expect(durationBucket(1_800_000)).toBe('15-60m'); expect(durationBucket(3_600_000)).toBe('15-60m');
+    expect(durationBucket(3_600_001)).toBe('60m+');
   });
   it('daysSinceInstallBucket is deterministic regardless of clock value', () => {
     const t0 = '2026-01-01T00:00:00.000Z';
