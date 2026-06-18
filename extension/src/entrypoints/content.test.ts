@@ -878,4 +878,59 @@ describe('content telemetry hand-off', () => {
     expect(ev.event.props.result).toBeDefined();
     expect(JSON.stringify(ev)).not.toMatch(/stem|passage|rationale/i); // no content leaks
   });
+
+  it('emits journal_opened when the journal panel is opened', async () => {
+    const sent: any[] = [];
+    (globalThis as any).chrome.runtime.sendMessage = (m: any) => { sent.push(m); };
+    const db = await freshDb();
+    await handleMessage(db, { type: 'open-journal' });
+    const ev = sent.find((m) => m?.type === 'telemetry-event' && m.event?.event === 'journal_opened');
+    expect(ev).toBeTruthy();
+    expect(JSON.stringify(ev)).not.toMatch(/stem|passage|rationale|note/i); // empty props, no content
+  });
+
+  it('emits practice_resumed (resume_index + total_in_order) when the student resumes a session', async () => {
+    const sent: any[] = [];
+    (globalThis as any).chrome.runtime.sendMessage = (m: any) => { sent.push(m); };
+    const db = await freshDb();
+    // A stored session for the filter the probe will read off the on-screen question modal.
+    const s = makeSession({ deviceId: 'dev-1', filterContext: 'SAT|Math|Algebra|Hard', orderMode: 'list', shuffleSeed: 0 });
+    s.lastQuestionId = 'ab12cd34';
+    await saveSession(db, s);
+    // The results list + a question modal must be present at runLoop time so the probe finds the
+    // filterContext and getSession returns a session → the start panel renders the Resume button.
+    document.body.innerHTML +=
+      '<table class="cb-table-react"><tbody>' +
+      '<tr class="result-row"><td class="id-column"><button class="cb-btn">ab12cd34</button></td></tr>' +
+      '</tbody></table>';
+    document.body.innerHTML += mc;
+
+    const shadow = await runLoop(document, db, 'dev-1');
+    const resume = shadow.querySelector('.fp-resume') as HTMLElement | null;
+    expect(resume).not.toBeNull();   // a session exists → Resume is offered
+    resume!.click();
+
+    await vi.waitFor(() => {
+      const ev = sent.find((m) => m?.type === 'telemetry-event' && m.event?.event === 'practice_resumed');
+      expect(ev).toBeTruthy();
+      expect(ev.event.props.total_in_order).toBe(1);   // one row loaded
+      expect(ev.event.props.resume_index).toBe(0);      // ab12cd34 is at index 0
+    });
+  });
+
+  it('emits session_ended on pagehide once a session is active (attempted/accuracy/duration buckets)', async () => {
+    const sent: any[] = [];
+    (globalThis as any).chrome.runtime.sendMessage = (m: any) => { sent.push(m); };
+    await driveOneGradedCheck();   // starts a session and records one correct attempt
+
+    (typeof self !== 'undefined' ? self : window).dispatchEvent(new Event('pagehide'));
+
+    // Prior runLoop calls in this file register their own pagehide listeners; assert THIS session's
+    // session_ended (one correct attempt → 100% accuracy) is among the emitted events.
+    const ended = sent.filter((m) => m?.type === 'telemetry-event' && m.event?.event === 'session_ended');
+    expect(ended.length).toBeGreaterThan(0);
+    const ev = ended.find((m) => m.event.props.accuracy_bucket === '85-100' && m.event.props.attempted_bucket === '1-5');
+    expect(ev).toBeTruthy();
+    expect(ev.event.props.duration_bucket).toBeDefined();
+  });
 });

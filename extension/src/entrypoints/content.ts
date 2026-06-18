@@ -23,7 +23,8 @@ import { dropCoachmark, COACHMARK_CLASS } from '../ui/coachmark';
 import { OPEN_JOURNAL } from '../messages';
 import { emit } from '../telemetry/emit';
 import {
-  buildPracticeStarted, buildQuestionAttempted, buildNoteAdded, CALCULATOR_OPENED,
+  buildPracticeStarted, buildQuestionAttempted, buildNoteAdded, buildCalculatorOpened,
+  buildPracticeResumed, buildSessionEnded, JOURNAL_OPENED,
   DOM_CONTRACT_FAILED, BLOCK_DETECTED, KILLSWITCH_ACTIVATED, UNSCORED_FALLBACK, JS_ERROR,
 } from '../telemetry/events';
 import { readListQuestionIds } from '../cb/list-reader';
@@ -197,7 +198,16 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     onClose: () => cardSlot(shadow).replaceChildren(),   // hide the start panel without starting a session
     onResume: async () => {
       const list = findResultsList(doc);
-      if (list && existing) await resumeFor(db, list, existing.filterContext);   // read getSession, rebuild order, scroll
+      if (list && existing) {
+        const resumed = await resumeFor(db, list, existing.filterContext);   // read getSession, rebuild order, scroll
+        if (resumed) {
+          emit(buildPracticeResumed({
+            sessionId: resumed.session.sessionId,
+            resumeIndex: Math.max(0, resumed.plan.resumeIndex),
+            totalInOrder: resumed.plan.order.length,
+          }));
+        }
+      }
       void start(existing?.orderMode ?? 'list');
     },
   });
@@ -207,7 +217,25 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   let total = 1;   // loaded-results count N for "Q n of N"; fixed at Start
   const revealedIds = new Set<string>(); // per-question reveal tracking (reset on new session, keyed by question id)
 
+  // Per-session stats for session_ended (emitted once on pagehide if a session is active). Reset when a
+  // new session is created. Counts attempts that recorded (graded) and how many were correct.
+  let sessionStartMs = 0;
+  let attempted = 0;
+  let correct = 0;
+
   const revealedFor = (id: string) => revealedIds.has(id);
+
+  // session_ended fires once, when the page goes away (pagehide), if a session was active this sitting.
+  // pagehide is the reliable MV3/bfcache-safe teardown signal (unload is unreliable). Best-effort emit.
+  const onPageHide = (): void => {
+    if (!session) return;
+    emit(buildSessionEnded({
+      sessionId: session.sessionId, attempted,
+      accuracyPct: attempted ? Math.round((correct / attempted) * 100) : 0,
+      durationMs: Date.now() - sessionStartMs,
+    }));
+  };
+  (typeof self !== 'undefined' ? self : window).addEventListener?.('pagehide', onPageHide);
 
   function start(orderMode: 'list' | 'random'): void {
     cardSlot(shadow).replaceChildren();   // dismiss the start panel so the student can open a CB question
@@ -220,6 +248,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
           deviceId: dev, filterContext: filterContextOf(view), orderMode,
           shuffleSeed: orderMode === 'random' ? newSeed() : 0,
         });
+        sessionStartMs = Date.now(); attempted = 0; correct = 0;   // start the session_ended stat window
         // Fire-and-forget from inside the MutationObserver callback. The observer outlives a single
         // runLoop, so a stale write can land after the page (or, in tests, the DB connection) is torn
         // down — that loses to the teardown and is a harmless no-op, never an unhandled rejection.
@@ -265,8 +294,8 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       onNext: () => onNext(view),
       // Calculator toggles in the BODY host (the mountHost shadow), NOT the overlay shadow, so it
       // survives across questions and lives in the persistent extras slot.
-      onToggleCalc: () => { toggleGeoGebra(shadow); emit({ event: CALCULATOR_OPENED, props: { session_id: session?.sessionId ?? '', calculator_type: 'geogebra' } }); },
-      onOpenDesmos: () => { openDesmos(); emit({ event: CALCULATOR_OPENED, props: { session_id: session?.sessionId ?? '', calculator_type: 'desmos' } }); },
+      onToggleCalc: () => { toggleGeoGebra(shadow); emit(buildCalculatorOpened({ sessionId: session?.sessionId ?? '', calculatorType: 'geogebra' })); },
+      onOpenDesmos: () => { openDesmos(); emit(buildCalculatorOpened({ sessionId: session?.sessionId ?? '', calculatorType: 'desmos' })); },
       // ✕ tears down our overlay AND restores CB's masked native nodes, so closing never leaves CB's
       // own question blanked at display:none.
       onClose: () => { unmountAnswerOverlay(answerContent); },
@@ -323,6 +352,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
       })));
+      attempted++; if (result.correct) correct++;   // feed session_ended's accuracy/attempted buckets
     }
     emit(buildQuestionAttempted({
       sessionId: session?.sessionId ?? '', questionId: view.id, choicesLength: view.choices.length,
@@ -436,6 +466,7 @@ export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): P
   // but a stale .fp-coachmark would otherwise persist across re-opens).
   host.querySelector(`.${COACHMARK_CLASS}`)?.remove();
   renderPanel(host, { stats: deriveStats(await getAttempts(db)), mistakes: await getMistakes(db) });
+  void emit({ event: JOURNAL_OPENED, props: {} });
   // Bind the coachmark links AFTER the panel exists — renderPanel injects a.fp-practice-link /
   // a.fp-find-link, so binding earlier (e.g. at boot, against an empty host) matches nothing.
   const list = findResultsList(document);
