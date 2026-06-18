@@ -21,6 +21,10 @@ import { deriveStats } from '../stats';
 import { resumeSession, type ResumeResult } from '../ui/resume';
 import { dropCoachmark, COACHMARK_CLASS } from '../ui/coachmark';
 import { OPEN_JOURNAL } from '../messages';
+import { emit } from '../telemetry/emit';
+import {
+  buildPracticeStarted, buildQuestionAttempted, buildNoteAdded, CALCULATOR_OPENED,
+} from '../telemetry/events';
 import { readListQuestionIds } from '../cb/list-reader';
 import { isEnabled } from '../resilience/killswitch';    // Plan 4 (§2.5)
 import { detectBlock } from '../resilience/block-detect';// Plan 4 (§8.3)
@@ -197,6 +201,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   let session: Session | null = null;
   let stop: (() => void) | null = null;
   let total = 1;   // loaded-results count N for "Q n of N"; fixed at Start
+  const revealedIds = new Set<string>(); // per-question reveal tracking (reset on new session, keyed by question id)
+
+  const revealedFor = (id: string) => revealedIds.has(id);
 
   function start(orderMode: 'list' | 'random'): void {
     cardSlot(shadow).replaceChildren();   // dismiss the start panel so the student can open a CB question
@@ -213,6 +220,10 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         // runLoop, so a stale write can land after the page (or, in tests, the DB connection) is torn
         // down — that loses to the teardown and is a harmless no-op, never an unhandled rejection.
         void safeWrite(saveSession(db, session));   // §8.5: best-effort; an IDB failure leaves the session untracked, not broken
+        emit(buildPracticeStarted({
+          sessionId: session.sessionId, orderMode, resultCount: total,
+          filterContext: session.filterContext,
+        }));
       }
       showQuestion(view);
     });
@@ -240,13 +251,18 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       onCheck: (pick) => onCheck(view, pick),
       // Reveal: un-hide CB's OWN rationale (the overlay hid it on mount/observer) — CB renders the
       // explanation natively now, so there's nothing for us to render. Sole un-hider.
-      onReveal: () => { revealRationale(answerContent); },
-      onNote: (text) => { if (text) void safeWrite(saveNote(db, makeNote({ deviceId: dev, questionId: view.id, text }))); },
+      onReveal: () => { revealedIds.add(view.id); revealRationale(answerContent); },
+      onNote: (text) => {
+        if (text) {
+          void safeWrite(saveNote(db, makeNote({ deviceId: dev, questionId: view.id, text })));
+          emit(buildNoteAdded({ sessionId: session?.sessionId ?? '', questionId: view.id, noteLength: text.length }));
+        }
+      },
       onNext: () => onNext(view),
       // Calculator toggles in the BODY host (the mountHost shadow), NOT the overlay shadow, so it
       // survives across questions and lives in the persistent extras slot.
-      onToggleCalc: () => toggleGeoGebra(shadow),
-      onOpenDesmos: () => openDesmos(),
+      onToggleCalc: () => { toggleGeoGebra(shadow); emit({ event: CALCULATOR_OPENED, props: { session_id: session?.sessionId ?? '', calculator_type: 'geogebra' } }); },
+      onOpenDesmos: () => { openDesmos(); emit({ event: CALCULATOR_OPENED, props: { session_id: session?.sessionId ?? '', calculator_type: 'desmos' } }); },
       // ✕ tears down our overlay AND restores CB's masked native nodes, so closing never leaves CB's
       // own question blanked at display:none.
       onClose: () => { unmountAnswerOverlay(answerContent); },
@@ -304,6 +320,11 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
       })));
     }
+    emit(buildQuestionAttempted({
+      sessionId: session?.sessionId ?? '', questionId: view.id, choicesLength: view.choices.length,
+      result, revealUsed: revealedFor(view.id), section: view.section, domain: view.domain,
+      skill: view.skill, difficulty: view.difficulty,
+    }));
     if (overlay) renderVerdict(overlay, { pick, result });   // graded===false → non-verdict state (contract §2.4)
   }
 

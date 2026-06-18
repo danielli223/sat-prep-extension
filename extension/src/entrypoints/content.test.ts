@@ -833,3 +833,39 @@ describe('overlay close ✕ and cross-question navigation', () => {
     expect(inOverlay('.fp-choice')).toBeNull();
   });
 });
+
+// --- Task 14: telemetry hand-off at call sites ---
+describe('content telemetry hand-off', () => {
+  // Minimal chrome stub: emit() checks chrome.runtime.id; sendMessage is a spy.
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    vi.stubGlobal('chrome', { runtime: { id: 'ext-test', sendMessage: vi.fn() } });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  // Shared helper: runs Start → injects the MC fixture → picks B → clicks Check → waits for verdict.
+  // Returns the DB used, so callers can inspect state if needed.
+  async function driveOneGradedCheck() {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    return db;
+  }
+
+  // Telemetry hand-off: a TELEMETRY_EVENT is posted when a question is checked.
+  it('emits question_attempted after a graded Check', async () => {
+    const sent: any[] = [];
+    // reuse this file's existing chrome stub; ensure runtime.sendMessage records messages:
+    (globalThis as any).chrome.runtime.sendMessage = (m: any) => { sent.push(m); };
+    await driveOneGradedCheck(); // helper already used by neighbouring tests to run a Check to verdict
+    const ev = sent.find((m) => m?.type === 'telemetry-event' && m.event?.event === 'question_attempted');
+    expect(ev).toBeTruthy();
+    expect(ev.event.props.result).toBeDefined();
+    expect(JSON.stringify(ev)).not.toMatch(/stem|passage|rationale/i); // no content leaks
+  });
+});
