@@ -49,6 +49,12 @@ HTTP ingestion API with plain `fetch` (no remote SDK, no vendor cookies).
 - **Never blocks the app:** every emit is fire-and-forget (`void emit(...)`, never
   awaited, never throws). What makes a failure invisible is the **on-disk queue**, not
   the existing `safeWrite` IDB helper (which only swallows IndexedDB errors).
+- **Retention:** **12-month** event TTL in PostHog (subject to final legal sign-off, but
+  this is the chosen number; it ships in `PRIVACY.md`). No indefinite retention.
+- **Delete-my-data:** a **tiny deletion-only endpoint** (a Cloudflare Worker holding the
+  PostHog *private* key server-side) lets a user erase their server-side events by
+  `install_id` — a real deletion right, no accounts, and the private key never ships in
+  the extension.
 
 ## Event taxonomy
 
@@ -120,7 +126,8 @@ stack trace, any PII.
 - **Age gate:** a lightweight **"I'm 13 or older"** self-attestation. This is a **UX
   measure to support a general-audience (not under-13-directed) posture — it is NOT
   COPPA-compliant consent** and does not by itself discharge COPPA duties (see Compliance).
-- **Delete-my-data** affordance (see ID lifecycle + open question on server-side delete).
+- **Delete-my-data** affordance — local purge **plus** server-side erasure via the
+  deletion endpoint (see ID lifecycle).
 
 ## ID lifecycle
 
@@ -131,6 +138,11 @@ stack trace, any PII.
   id before deletion, and the queue must not outlive consent.
 - **Reset →** regenerate the UUID (fresh start; breaks linkage). Already-queued events
   keep the old id; new events use the new one.
+- **Delete my data →** (1) capture the current `install_id`; (2) POST it to the deletion
+  endpoint; (3) delete the local id; (4) purge the queue; (5) set `consent = false`. This
+  path does **not** emit `telemetry_disabled` (that event would itself be deleted). The UI
+  confirms: "Deleted on this device; server-side removal completes within 24h." A network
+  failure on step 2 queues the delete request for retry so the erasure isn't silently lost.
 - **Effective gate** = `userOptedIn && remoteAllowed`. User opt-in defaults **off**; the
   remote flag defaults **on-when-unreachable** (it is a force-disable only, so a network
   blip never silences a consented user). Both gates checked with **AND**, at the emit
@@ -167,6 +179,13 @@ it never throws and never blocks.
   mock and never hit the network. Ships only the **public project token** (`phc_…`, safe
   in client bundles, write-only, single-project); the personal key is never bundled. A CI
   guard asserts no `phx_`/private-key prefix in `dist/`.
+- **Deletion endpoint (small backend, not in the extension):** a Cloudflare Worker at
+  `https://api.focusedpractice.app/v1/delete` holding the PostHog **private** key as a
+  server secret. It accepts `POST { install_id }`, validates shape, and calls PostHog's
+  data-deletion API to erase all events for that `distinct_id`. The extension's
+  `telemetry/consent.ts` is the only client. (Griefing surface is low: `install_id`s are
+  random, non-enumerable UUIDs, so an attacker can't target another user's id; rate-limit
+  the Worker as defense in depth. Exact PostHog deletion call confirmed during the spike.)
 
 ### Data flow
 
@@ -230,8 +249,9 @@ the emit does not fire.
 
 ### Manifest / permissions
 
-Add `https://us.i.posthog.com/*` to `host_permissions` **and** `alarms` to `permissions`
-in **all three** manifests (`manifest.json`, `manifest.firefox.json`, `manifest.edge.json`).
+Add `https://us.i.posthog.com/*` **and** `https://api.focusedpractice.app/*` (the deletion
+endpoint) to `host_permissions`, and `alarms` to `permissions`, in **all three** manifests
+(`manifest.json`, `manifest.firefox.json`, `manifest.edge.json`).
 **No CSP change** — outbound `fetch` of JSON isn't governed by the script CSP, and bundling
 our own transport (not the CDN `posthog-js` snippet) keeps us clear of the MV3 remote-code ban.
 
@@ -279,23 +299,29 @@ the existing `guard.test.ts` / `killswitch.test.ts` / `block-detect.test.ts`.
 - **CI egress guard** (extend the existing `guard-ci` check) — the only analytics URL is the
   single `POSTHOG_URL` constant in `config.ts`; fail on any hardcoded `posthog` literal
   elsewhere or any `phx_` in `dist/`.
+- **delete-flow test** — "delete my data" POSTs the *current* `install_id` to the deletion
+  endpoint (mock `fetch`), then deletes the local id and purges the queue, and does **not**
+  emit `telemetry_disabled`; a failed POST is queued for retry.
+
+The deletion Worker is a small separate backend; it gets its own minimal test (valid
+`install_id` → PostHog delete call; malformed body → 400; never logs the id long-term).
 
 Live PostHog verification runs only manually against a **dev** project — never in CI.
 
 ## Compliance deliverables (require attorney sign-off *before* implementation)
 
-- **Retention is a pre-launch requirement, not open.** Choose, disclose, and configure a
-  concrete TTL before launch. **Proposed default: 12-month event TTL in PostHog** (data
-  minimization for a minor audience may argue shorter, e.g. 6 months — confirm with counsel).
-  No indefinite retention. The chosen number ships in `PRIVACY.md`.
+- **Retention: 12 months (decided).** Configure a 12-month event TTL in PostHog and
+  disclose it in `PRIVACY.md`. No indefinite retention. (Counsel may still tighten this at
+  sign-off; 12 months is the number we build and disclose against.)
 - **Rewrite `PRIVACY.md`.** Current lines ("no server, no backend… do not transfer it to
   third parties"; "the only network request… is to our own configuration host") become
   **false** once analytics ship and are themselves a removal trigger. New policy must state:
   what's shared (question IDs + per-question correctness + usage events) and what's never
   shared (text/notes/PII/stack traces); that question IDs let us see *which topics you
   struggle with*, linked to a random install-id, persisting until opt-out; the
-  **PostHog-US processor** relationship; opt-in + how to turn off + how to delete; the
-  **retention period (number)**; HTTPS; and a COPPA-aligned minors note naming the **specific
+  **PostHog-US processor** relationship; opt-in + how to turn off + how to delete (the
+  deletion endpoint erases server-side events within 24h); the **retention period
+  (12 months)**; HTTPS; and a COPPA-aligned minors note naming the **specific
   internal-operations purposes** (product improvement + service-health) and how the id is
   prevented from being used to contact/profile an individual (as the in-effect 2025 COPPA
   Rule amendments require).
@@ -321,7 +347,9 @@ Live PostHog verification runs only manually against a **dev** project — never
 
 1. Ship the `telemetry/` module **dark** (built, no call sites wired).
 2. **Spike:** confirm the PostHog batch `distinct_id` placement + a 200 from a live dev
-   project; confirm the Firefox flush fallback.
+   project; confirm the PostHog data-deletion API call; confirm the Firefox flush fallback.
+   Deploy the deletion Worker (`api.focusedpractice.app/v1/delete`) with the private key as
+   a server secret.
 3. Wire call sites behind the off-by-default opt-in.
 4. Verify against the **dev** PostHog project across Chrome/Firefox/Edge.
 5. Legal sign-off on `PRIVACY.md` + the CWS form + retention.
@@ -335,15 +363,9 @@ The remote kill flag is the instant off-switch if anything looks wrong post-laun
   identified analytics *could* be added later as a separate decision; this MVP stays
   accountless and pseudonymous.
 - **A/B experimentation / feature flags** — out for v1.
-- **Open decision — server-side "delete my data".** Local delete (purge id + queue) is
-  immediate and specified. True server-side deletion of past events tied to an install-id
-  needs PostHog's authenticated delete API, which we can't call client-side (the private key
-  can't ship). Two options to resolve at the review gate: **(a)** a tiny deletion-only
-  endpoint (e.g., a Cloudflare Worker holding the private key) the extension calls with the
-  install-id — a real delete right, but reintroduces a small backend; **(b)** local delete +
-  forget-the-id (orphaning past events so they can't link to anything) + reliance on the
-  retention TTL to expire them — no backend, weaker "delete now" guarantee. Recommendation:
-  **(a)** for a minor audience with deletion rights.
+- **Server-side "delete my data" — decided (option a).** A tiny deletion-only Worker erases
+  server-side events by `install_id` (see Architecture + ID lifecycle). The no-backend
+  alternative (forget-the-id + TTL only) was rejected for a minor audience.
 
 ---
 
