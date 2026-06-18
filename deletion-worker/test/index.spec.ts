@@ -1,6 +1,10 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
 import worker from '../src/index';
+import { vi, afterEach } from 'vitest';
+afterEach(() => vi.restoreAllMocks());
+
+const VALID_ID = '4156b4fe-3f36-4c9d-859f-ca179b497cbc';
 
 function req(url: string, init?: RequestInit): Request { return new Request(url, init); }
 
@@ -56,5 +60,41 @@ describe('deletion worker', () => {
       await waitOnExecutionContext(ctx);
       expect(res.status).toBe(400);
     }
+  });
+
+  it('forwards a valid install_id to PostHog bulk_delete with the Bearer key, returns 202', async () => {
+    const phMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ persons_found: 1, events_queued_for_deletion: true }), { status: 202 }),
+    );
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(postJson({ install_id: VALID_ID }), env, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ ok: true, submitted: true, matched: true });
+    const [url, init] = phMock.mock.calls[0]!;
+    expect(String(url)).toBe('https://ph.test/api/projects/376909/persons/bulk_delete/');
+    expect((init as RequestInit).method).toBe('POST');
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer phx_test_key' });
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ distinct_ids: [VALID_ID], delete_events: true });
+  });
+
+  it('reports matched:false when PostHog found no person (still ok/submitted)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ persons_found: 0, events_queued_for_deletion: false }), { status: 202 }),
+    );
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(postJson({ install_id: VALID_ID }), env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ ok: true, matched: false });
+  });
+
+  it('returns 502 when PostHog errors', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 403 }));
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(postJson({ install_id: VALID_ID }), env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(502);
   });
 });
