@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  QUESTION_ATTEMPTED, buildQuestionAttempted, buildNoteAdded, buildPracticeStarted, buildSessionEnded,
+  QUESTION_ATTEMPTED, PRACTICE_RESUMED, CALCULATOR_OPENED,
+  buildQuestionAttempted, buildNoteAdded, buildPracticeStarted, buildSessionEnded,
+  buildPracticeResumed, buildCalculatorOpened,
 } from './events';
 import { assertTelemetrySafe } from './scrubber';
 
@@ -44,5 +46,20 @@ describe('event builders', () => {
     expect(e.props.attempted_bucket).toBe('6-20');
     expect(e.props.accuracy_bucket).toBe('70-84');
     expect(e.props.duration_bucket).toBe('5-15m');
+  });
+
+  it('practice_resumed carries the resume index + order length (scrubber-safe)', () => {
+    const e = buildPracticeResumed({ sessionId: 's', resumeIndex: 3, totalInOrder: 10 });
+    expect(e.event).toBe(PRACTICE_RESUMED);
+    expect(e.props.resume_index).toBe(3);
+    expect(e.props.total_in_order).toBe(10);
+    expect(() => assertTelemetrySafe({ event: e.event, ...e.props })).not.toThrow();
+  });
+
+  it('calculator_opened carries the calculator type (scrubber-safe)', () => {
+    const e = buildCalculatorOpened({ sessionId: 's', calculatorType: 'desmos' });
+    expect(e.event).toBe(CALCULATOR_OPENED);
+    expect(e.props.calculator_type).toBe('desmos');
+    expect(() => assertTelemetrySafe({ event: e.event, ...e.props })).not.toThrow();
   });
 });

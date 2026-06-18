@@ -58,3 +58,17 @@ export function buildSessionEnded(i: {
     accuracy_bucket: accuracyBucket(i.accuracyPct), duration_bucket: durationBucket(i.durationMs),
   });
 }
+
+export function buildPracticeResumed(i: {
+  sessionId: string; resumeIndex: number; totalInOrder: number;
+}): TelemetryEvent {
+  return make(PRACTICE_RESUMED, {
+    session_id: i.sessionId, resume_index: i.resumeIndex, total_in_order: i.totalInOrder,
+  });
+}
+
+export function buildCalculatorOpened(i: {
+  sessionId: string; calculatorType: 'geogebra' | 'desmos';
+}): TelemetryEvent {
+  return make(CALCULATOR_OPENED, { session_id: i.sessionId, calculator_type: i.calculatorType });
+}

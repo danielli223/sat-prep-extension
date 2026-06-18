@@ -1871,6 +1871,7 @@ git add -A && git commit -m "chore(telemetry): typecheck + tri-browser build gre
 - 12-month retention + IP/autocapture off → **PostHog project config, out of scope for code** (noted at top). ✓ (operational)
 - Deletion Worker → **separate plan** (client call covered in Task 11). ✓
 - `onboarding_shown` event: **deliberately not implemented** — under opt-in-OFF-by-default it can never fire before consent exists; the opt-in toggle itself is the signal. Documented deviation.
+- `badge_clicked` event: **deferred deviation** — the re-surface badger (`src/ui/badger.ts`) renders informational state chips (done/missed/new) with **no click affordance or handler**; the chips are passive labels in CB's light DOM. Wiring `badge_clicked` would require inventing new clickable-badge UX, which is out of scope for this telemetry pass. Deferred until/unless a clickable badge affordance exists, mirroring the `onboarding_shown` posture above. The `BADGE_CLICKED` constant remains defined in `events.ts` for when the affordance lands. (The other three previously-unemitted taxonomy events — `journal_opened`, `practice_resumed`, `session_ended` — are now wired in `content.ts`.)
 
 **2. Placeholder scan:** the `phc_` token is no longer hardcoded — it's build-time injected from a gitignored `extension/.env` (Task 1), so there is no placeholder string in source. Every step has real code/commands.
 
