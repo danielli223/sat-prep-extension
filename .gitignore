@@ -9,3 +9,4 @@ extension/dist-firefox/
 extension/dist-edge/
 extension/.dev-chrome-profile/
 /.claude/
+deploy-todo.md
