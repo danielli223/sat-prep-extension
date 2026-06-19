@@ -34,3 +34,11 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # v1 has no `model:` / `effort:` inputs — both are forwarded to the
+          # Claude CLI via `claude_args`. Pin Opus 4.8 and set xhigh effort
+          # (ultracode's effort level) as a dependable baseline.
+          claude_args: "--model claude-opus-4-8 --effort xhigh"
+          # "ultracode" (xhigh effort + dynamic workflow orchestration) is a
+          # Claude Code setting, not an action input; request it via settings.
+          settings: |
+            {"ultracode": true}
