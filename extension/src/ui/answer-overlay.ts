@@ -1,5 +1,5 @@
 import { html } from './host';
-import type { CardVM } from './view-model';
+import type { CardVM, ChoiceVM } from './view-model';
 import type { ScoreResult } from '../scoring';
 
 export interface AnswerHandlers {
@@ -36,12 +36,19 @@ const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+function choiceBody(c: ChoiceVM): string {
+  if (c.imgSrc) {
+    return `<img src="${esc(c.imgSrc)}" alt="${esc(c.text || c.letter)}" class="fp-choice-img" />`;
+  }
+  return esc(c.text);
+}
+
 function renderBody(vm: CardVM): string {
   const answerBody = vm.kind === 'mc'
     ? `<ul class="fp-choices">${vm.choices.map((c) => `
         <li class="fp-choice" data-letter="${esc(c.letter)}">
           <button class="fp-eliminate" aria-label="Cross off ${esc(c.letter)}">⊘</button>
-          <button class="fp-pick"><span class="fp-letter">${esc(c.letter)}</span> ${esc(c.text)}</button>
+          <button class="fp-pick"><span class="fp-letter">${esc(c.letter)}</span> ${choiceBody(c)}</button>
         </li>`).join('')}</ul>`
     : `<label class="fp-gridin-label">Your answer
          <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>`;
@@ -224,6 +231,7 @@ const ANSWER_CSS = `
 .fp-choice .fp-pick{flex:1;display:flex;align-items:center;text-align:left;border:none;background:transparent;
   cursor:pointer;padding:9px 12px 9px 2px;color:inherit;font:inherit;}
 .fp-choice .fp-letter{font-weight:700;margin-right:8px;}
+.fp-choice-img{max-height:2.5em;width:auto;vertical-align:middle;}
 .fp-choice.fp-selected{border:2px solid #3b82f6;background:#eff6ff;}
 .fp-choice.fp-selected .fp-pick::after{content:"selected";margin-left:auto;font-size:9px;color:#3b82f6;font-weight:700;}
 .fp-choice.fp-eliminated .fp-pick{color:#9ca3af;text-decoration:line-through;}

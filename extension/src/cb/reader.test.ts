@@ -84,4 +84,32 @@ describe('readQuestion', () => {
     expect(v.explanationHtml).toBeUndefined();
     expect(v.correctAnswer).toBe('B');   // still read for scoring
   });
+
+  it('reads image-based choices: sets imgSrc when <li> has an <img> and no text', () => {
+    const v = readQuestion(load('image-choice.html'))!;
+    expect(v.choices).toHaveLength(4);
+    expect(v.choices.map((c) => c.letter)).toEqual(['A', 'B', 'C', 'D']);
+    expect(v.choices[0]!.imgSrc).toBe('https://example-cb.org/img/choice-a.png');
+    expect(v.choices[1]!.imgSrc).toBe('https://example-cb.org/img/choice-b.png');
+    expect(v.correctAnswer).toBe('A');
+  });
+
+  it('does not set imgSrc when choices have text content', () => {
+    const v = readQuestion(load('multiple-choice.html'))!;
+    expect(v.choices.every((c) => c.imgSrc === undefined)).toBe(true);
+  });
+
+  it('falls back to img alt as text when present', () => {
+    document.body.innerHTML =
+      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
+      '<div class="answer-content"><div class="answer-choices"><ul>' +
+      '<li><img src="https://cb.org/a.png" alt="x squared" /></li>' +
+      '<li><img src="https://cb.org/b.png" alt="" /></li>' +
+      '</ul></div></div></div>';
+    const v = readQuestion(document.querySelector('.cb-dialog-container')!)!;
+    expect(v.choices[0]!.text).toBe('x squared');
+    expect(v.choices[0]!.imgSrc).toBe('https://cb.org/a.png');
+    expect(v.choices[1]!.text).toBe('');
+    expect(v.choices[1]!.imgSrc).toBe('https://cb.org/b.png');
+  });
 });
