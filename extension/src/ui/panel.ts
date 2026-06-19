@@ -1,6 +1,7 @@
 import { html } from './host';
-import type { Stats } from '../stats';
+import { deriveStats, type Stats } from '../stats';
 import type { Mistake } from '../journal';
+import type { Attempt } from '../types';
 
 // Journal/progress panel (spec §7). Renders into the shared Shadow-DOM host. EVERY innerHTML write
 // goes through Plan 2's html() helper from host.ts — the SINGLE owner of the "focused-practice"
@@ -9,7 +10,16 @@ import type { Mistake } from '../journal';
 // browsers. "Practice [skill] on CB" / "Find on CB" are plain links to CB's QB carrying a
 // data-skill hook — the student drives the filter (D3); the integration layer (Task 5b/Task 6)
 // attaches the coachmark/badger hand-off. We never touch CB's controls and never auto-apply a filter.
-export interface PanelVM { stats: Stats; mistakes: Mistake[]; }
+// Issue #34: the VM carries the raw `attempts` so the difficulty control can re-derive locally via
+// deriveStats on change (student-own data — never question text). `difficulties` is the option list
+// (derived from the data, not hardcoded); `selected` is the chosen subset (empty = all). All three
+// are optional so existing call sites that pass only { stats, mistakes } keep working.
+export interface PanelVM {
+  stats: Stats; mistakes: Mistake[];
+  attempts?: Attempt[];
+  difficulties?: string[];
+  selected?: Set<string>;
+}
 
 // Educator Question Bank search page (a plain link — expressly permitted, spec §4 step 1).
 export const CB_SEARCH_URL = 'https://satsuiteeducatorquestionbank.collegeboard.org/digital/search';
@@ -33,6 +43,25 @@ function weakAreaHtml(s: { skill: string; accuracy: number; total: number }): st
   </div>`;
 }
 
+// Issue #34: the inner markup of .fp-weak-areas for a given perSkill list. The change handler
+// re-renders ONLY this block so the rest of the panel (stats, mistakes, the control itself) is
+// untouched. Empty list → the same empty-state copy as the initial render.
+function weakAreasInner(perSkill: Stats['perSkill']): string {
+  const weak = perSkill.map(weakAreaHtml).join('');
+  return weak || '<p class="fp-empty">Answer a few questions to see your weak areas.</p>';
+}
+
+// One checkbox option per difficulty, in the VM-provided order, each carrying the data-difficulty
+// hook the integration layer (and the tests) key on. Checked reflects the current selection; an
+// empty selection (= all) leaves every box unchecked.
+function difficultyControlHtml(difficulties: string[], selected: Set<string>): string {
+  const opts = difficulties.map((d) => {
+    const checked = selected.has(d) ? ' checked' : '';
+    return `<label class="fp-diff-opt"><input type="checkbox" class="fp-diff-cb" data-difficulty="${esc(d)}"${checked}><span>${esc(d)}</span></label>`;
+  }).join('');
+  return `<div class="fp-diff-filter">${opts}</div>`;
+}
+
 function mistakeHtml(m: Mistake): string {
   const note = m.note ? `<p class="fp-mistake-note">${esc(m.note)}</p>` : '';
   return `<li class="fp-mistake">
@@ -47,10 +76,13 @@ function mistakeHtml(m: Mistake): string {
 
 export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
   const { stats, mistakes } = vm;
-  const weak = stats.perSkill.map(weakAreaHtml).join('');
+  const difficulties = vm.difficulties ?? [];
+  const selected = new Set(vm.selected ?? []);
+  const attempts = vm.attempts ?? [];
   const mistakesHtml = mistakes.length
     ? `<ul class="fp-mistakes">${mistakes.map(mistakeHtml).join('')}</ul>`
     : `<p class="fp-empty">No mistakes logged yet — your missed questions will show up here.</p>`;
+  const controlHtml = difficulties.length ? difficultyControlHtml(difficulties, selected) : '';
 
   let panel = host.querySelector('.fp-panel');
   if (!panel) { panel = document.createElement('section'); panel.className = 'fp-panel'; host.appendChild(panel); }
@@ -61,10 +93,24 @@ export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
       <div class="fp-stat"><span class="fp-stat-n">${pct(stats.accuracy)}</span><span class="fp-stat-l">accuracy</span></div>
       <div class="fp-stat"><span class="fp-stat-n">${stats.streakDays}</span><span class="fp-stat-l">day streak</span></div>
     </div>
+    ${controlHtml}
     <h3>Weak areas (worst first)</h3>
-    <div class="fp-weak-areas">${weak || '<p class="fp-empty">Answer a few questions to see your weak areas.</p>'}</div>
+    <div class="fp-weak-areas">${weakAreasInner(stats.perSkill)}</div>
     <h3>Mistakes</h3>
     ${mistakesHtml}`);
 
   panel.querySelector('.fp-panel-close')?.addEventListener('click', () => panel!.remove());
+
+  // Issue #34: on any difficulty toggle, read the CURRENT checkbox state (the event doesn't carry
+  // the value), re-derive the weak areas locally from the raw attempts, and re-render ONLY the
+  // .fp-weak-areas block. No CB read, no network — pure aggregation over student-own data.
+  if (difficulties.length) {
+    const weakAreas = panel.querySelector('.fp-weak-areas') as HTMLElement;
+    panel.querySelector('.fp-diff-filter')?.addEventListener('change', () => {
+      const picked = new Set<string>();
+      panel!.querySelectorAll<HTMLInputElement>('.fp-diff-cb').forEach((cb) => { if (cb.checked) picked.add(cb.dataset.difficulty!); });
+      const filtered = deriveStats(attempts, { difficulties: picked });
+      setHtml(weakAreas, weakAreasInner(filtered.perSkill));
+    });
+  }
 }
