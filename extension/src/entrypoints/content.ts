@@ -14,7 +14,7 @@ import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
 import { toggleGeoGebra, openDesmos } from '../ui/calculator';
 import { newSeed } from '../order';
-import type { Session } from '../types';
+import type { Session, Attempt } from '../types';
 import { badge } from '../ui/badger';
 import { getSeen, getMistakes } from '../journal';
 import { deriveStats } from '../stats';
@@ -31,6 +31,18 @@ function deviceId(): string {
   let id = localStorage.getItem(DEVICE_KEY);
   if (!id) { id = newId(); localStorage.setItem(DEVICE_KEY, id); }
   return id;
+}
+
+// Issue #34: the difficulty options for the journal's multi-select filter, derived solely from the
+// difficulties present in the student's own attempts. Canonical order first (Easy/Medium/Hard), then
+// any others alphabetically, so the control stays stable across re-opens. Skips tombstoned attempts.
+const DIFFICULTY_ORDER = ['Easy', 'Medium', 'Hard'];
+function difficultyOptions(attempts: Attempt[]): string[] {
+  const present = new Set<string>();
+  for (const a of attempts) { if (!a.deleted && a.difficulty) present.add(a.difficulty); }
+  const known = DIFFICULTY_ORDER.filter((d) => present.has(d));
+  const others = [...present].filter((d) => !DIFFICULTY_ORDER.includes(d)).sort();
+  return [...known, ...others];
 }
 
 // "SAT|Math|<domain>|<difficulty-or-Any>" — derived from the question's own taxonomy (we never read
@@ -426,7 +438,18 @@ export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): P
   // Clear any coachmark left over from a prior open (the panel re-renders into the same .fp-panel,
   // but a stale .fp-coachmark would otherwise persist across re-opens).
   host.querySelector(`.${COACHMARK_CLASS}`)?.remove();
-  renderPanel(host, { stats: deriveStats(await getAttempts(db)), mistakes: await getMistakes(db) });
+  const attempts = await getAttempts(db);
+  // Issue #34: the difficulty option list is derived from the student's own attempts, in a stable
+  // canonical order (Easy/Medium/Hard first, then any others), so the multi-select only ever offers
+  // difficulties the student has actually answered. No selection = all (the empty Set).
+  const difficulties = difficultyOptions(attempts);
+  renderPanel(host, {
+    stats: deriveStats(attempts),
+    mistakes: await getMistakes(db),
+    attempts,
+    difficulties,
+    selected: new Set<string>(),
+  });
   // Bind the coachmark links AFTER the panel exists — renderPanel injects a.fp-practice-link /
   // a.fp-find-link, so binding earlier (e.g. at boot, against an empty host) matches nothing.
   const list = findResultsList(document);
