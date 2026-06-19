@@ -4,7 +4,7 @@
 > needs background; it points to the right doc instead of re-deriving from scratch.
 > Update it on every ingest (new row + one-line summary).
 >
-> *Last updated: 2026-06-17*
+> *Last updated: 2026-06-19*
 
 ## How this is organized
 
@@ -57,3 +57,4 @@ Verbatim CB terms, retrieved 2026-06-17, authoritative URL in each file's header
 |---|---|
 | [`specs/2026-06-17-answer-area-overlay-design.md`](specs/2026-06-17-answer-area-overlay-design.md) | Design: stop re-rendering CB's question; mount our interaction over CB's `.answer-content` and let CB render stem/choices/rationale natively (kills a class of fidelity bugs). Approved, full replacement. |
 | [`plans/2026-06-17-answer-area-overlay.md`](plans/2026-06-17-answer-area-overlay.md) | Implementation plan for the answer-area overlay: the new `answer-overlay` module, reader changes (drop `stemHtml`/`explanationHtml` + sanitizer), and task-by-task steps. |
+| [`specs/2026-06-19-desmos-side-dock.md`](specs/2026-06-19-desmos-side-dock.md) | Decision (issue #37): dock the calculator to the side of the screen — full-height GeoGebra panel in-page, and "Open real Desmos" as a screen-edge window. **Reaffirms** the no-iframe / zero-license Desmos line; defers "unify with Desmos" and "move to bottom bar". |
