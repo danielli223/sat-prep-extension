@@ -1,7 +1,7 @@
 // ISOLATED CB-DOM KNOWLEDGE. The only place (with observer.ts) that knows CB's HTML shape.
 // Pure read: returns a clean view-model. Question text is for in-RAM spotlighting only — never stored.
 // Selectors calibrated against the LIVE Educator Question Bank DOM (DOM-contract spike, 2026-06-15).
-export interface Choice { letter: string; text: string; }
+export interface Choice { letter: string; text: string; imgSrc?: string; }
 export interface QuestionView {
   id: string;
   section: string; domain: string; skill: string; difficulty: string;
@@ -53,10 +53,16 @@ export function readQuestion(root: Element): QuestionView | null {
 
   // Choices: <li> in .answer-choices ul. The A–D letter is CSS-generated (absent from the text),
   // so it is derived from the list index. Present in the DOM whether or not the answer is revealed.
-  const choices: Choice[] = [...root.querySelectorAll('.answer-choices ul > li')].map((li, i) => ({
-    letter: 'ABCD'[i] ?? '',
-    text: (li.textContent ?? '').trim(),
-  }));
+  // Some CB Math questions render choices as images (e.g. complex math expressions) — textContent
+  // is empty in that case, so fall back to capturing the <img> src for overlay rendering.
+  const choices: Choice[] = [...root.querySelectorAll('.answer-choices ul > li')].map((li, i) => {
+    const text = (li.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (!text) {
+      const img = li.querySelector('img');
+      if (img?.src) return { letter: 'ABCD'[i] ?? '', text: img.alt || '', imgSrc: img.src };
+    }
+    return { letter: 'ABCD'[i] ?? '', text };
+  });
 
   // Correct answer: the "Correct Answer: X" element inside .rationale — only in the DOM once the
   // student reveals "Show correct answer and explanation". Read the SMALLEST matching element so the
