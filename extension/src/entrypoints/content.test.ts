@@ -990,3 +990,54 @@ describe('content telemetry hand-off', () => {
     expect(ev.event.props.duration_bucket).toBeDefined();
   });
 });
+
+// --- Issue #27: after Check, the action button morphs into "Explain" ---
+// End-to-end through the real onCheck → renderVerdict flow. Placed LAST so this test's leftover
+// observeQuestions observer (each runLoop leaves one live on document.body) can't perturb the earlier
+// async-reveal race test. "Explain" must reveal CB's OWN native rationale (revealRationale) — never
+// synthesize/AI/fetch (bright-line invariant #3).
+describe('after Check, the button morphs to Explain (issue #27)', () => {
+  beforeEach(() => { document.body.innerHTML = ''; history.replaceState({}, '', '/digital/results'); });
+
+  it('morphs Check into Explain and Explain reveals CB\'s own native rationale', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // Comment-free inline modal (happy-dom mis-parses the .html fixture's comments — same reason as the
+    // "Reveal un-hides CB's OWN native rationale" test) with a distinctive [SYNTHETIC] explanation, so
+    // proving that text is visible after Explain proves "Explain" un-hid CB's OWN content (no synthesis).
+    document.body.innerHTML +=
+      '<div role="dialog" class="cb-modal-container"><div class="cb-dialog-container">' +
+      '<div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
+      '<div class="cb-dialog-content">' +
+      '<table class="cb-table"><tbody>' +
+      '<tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>' +
+      '<tr><td>SAT</td><td>Math</td><td>Algebra</td><td>S</td><td>Hard</td></tr></tbody></table>' +
+      '<div class="question-content"><div class="question">If 3x + 7 = 22, x = ? [SYNTHETIC]</div></div>' +
+      '<div class="answer-content"><div class="answer-choices"><ul><li>3</li><li>5</li><li>7</li><li>15</li></ul></div>' +
+      '<div class="rationale"><p>Correct Answer: B</p><div>Subtract 7, divide by 3. [SYNTHETIC]</div></div>' +
+      '</div></div></div></div>';
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    const rationale = document.querySelector('.answer-content .rationale') as HTMLElement;
+    expect(rationale.style.display).toBe('none');   // CB's native rationale hidden on mount (pre-Explain)
+    // Pre-Check: Check is visible and there is no "Explain" control yet.
+    expect((inOverlay('.fp-check') as HTMLElement).style.display).not.toBe('none');
+    expect(inOverlay('.fp-reveal')!.textContent!.trim()).not.toBe('Explain');
+
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));   // graded Check resolved
+
+    // The morph: Check is hidden and the reveal control now reads exactly "Explain".
+    expect((inOverlay('.fp-check') as HTMLElement).style.display).toBe('none');
+    expect(inOverlay('.fp-reveal')!.textContent!.trim()).toBe('Explain');
+
+    // "Explain" === revealRationale of CB's own content: clicking it un-hides CB's native .rationale and
+    // its synthetic explanation text becomes readable. Nothing is synthesized/fetched (invariant #3).
+    (inOverlay('.fp-reveal') as HTMLElement).click();
+    expect(rationale.style.display).toBe('');
+    expect(rationale.textContent).toContain('Subtract 7, divide by 3. [SYNTHETIC]');
+  });
+});

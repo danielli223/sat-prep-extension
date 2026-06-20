@@ -217,6 +217,61 @@ it('escapes hostile choice text / taxonomy — no live <img>/<script> reaches th
   expect(shadow.querySelector('.fp-choice[data-letter="A"]')!.textContent).toContain('<img src=x onerror=steal()>');
 });
 
+// Issue #27: after a Check resolves (the renderVerdict path, graded OR ungraded), morph the action
+// row — hide .fp-check and relabel the existing .fp-reveal control to exactly "Explain", keeping its
+// class and its onReveal→revealRationale wiring (invariant #3: "Explain" reveals CB's OWN rationale,
+// never synthesizes). The needs-answer + stale paths return BEFORE renderVerdict and must NOT morph.
+it('renderVerdict morphs Check into Explain (graded)', () => {
+  const ac = cbAnswerContent();
+  let revealed = 0;
+  const shadow = mountAnswerOverlay(ac, vm, { ...noop(), onReveal: () => { revealed++; } });
+  // pre-morph: Check is visible and the reveal control is NOT yet "Explain"
+  expect((shadow.querySelector('.fp-check') as HTMLElement).style.display).not.toBe('none');
+  expect(shadow.querySelector('.fp-reveal')!.textContent!.trim()).not.toBe('Explain');
+
+  shadow.querySelector('.fp-choice[data-letter="B"]')!.setAttribute('data-correct', 'true');
+  renderVerdict(shadow, { pick: 'B', result: score('B', 'B') });
+
+  // post-morph: Check hidden, reveal relabeled to exactly "Explain", still wired to onReveal
+  expect((shadow.querySelector('.fp-check') as HTMLElement).style.display).toBe('none');
+  expect(shadow.querySelector('.fp-reveal')!.textContent!.trim()).toBe('Explain');
+  (shadow.querySelector('.fp-reveal') as HTMLElement).click();
+  expect(revealed).toBe(1);   // clicking "Explain" still fires onReveal (revealRationale wiring intact)
+});
+
+it('renderVerdict morphs Check into Explain (ungraded)', () => {
+  const ac = cbAnswerContent();
+  const shadow = mountAnswerOverlay(ac, vm, noop());
+  expect((shadow.querySelector('.fp-check') as HTMLElement).style.display).not.toBe('none');
+  expect(shadow.querySelector('.fp-reveal')!.textContent!.trim()).not.toBe('Explain');
+
+  const ungraded = score('A', '');   // empty correct-answer → graded:false (the indeterminate path)
+  expect(ungraded.graded).toBe(false);
+  renderVerdict(shadow, { pick: 'A', result: ungraded });
+
+  // The morph fires on the ungraded branch too (the student completed a real Check).
+  expect((shadow.querySelector('.fp-check') as HTMLElement).style.display).toBe('none');
+  expect(shadow.querySelector('.fp-reveal')!.textContent!.trim()).toBe('Explain');
+});
+
+it('renderNeedAnswer does NOT morph (no real Check happened yet)', () => {
+  const ac = cbAnswerContent();
+  const shadow = mountAnswerOverlay(ac, vm, noop());
+  renderNeedAnswer(shadow, 'mc');
+  expect((shadow.querySelector('.fp-check') as HTMLElement).style.display).not.toBe('none');
+  expect(shadow.querySelector('.fp-reveal')!.textContent!.trim()).not.toBe('Explain');
+  expect(shadow.querySelector('.fp-reveal')!.textContent!).toContain('Reveal');
+});
+
+it('renderStaleCard does NOT morph (refused to grade — no real Check completed)', () => {
+  const ac = cbAnswerContent();
+  const shadow = mountAnswerOverlay(ac, vm, noop());
+  renderStaleCard(shadow);
+  expect((shadow.querySelector('.fp-check') as HTMLElement).style.display).not.toBe('none');
+  expect(shadow.querySelector('.fp-reveal')!.textContent!.trim()).not.toBe('Explain');
+  expect(shadow.querySelector('.fp-reveal')!.textContent!).toContain('Reveal');
+});
+
 it('renderVerdict writes "Correct" for a correct result and "Not quite" for a wrong result', () => {
   const ac = cbAnswerContent();
   const shadow = mountAnswerOverlay(ac, vm, noop());
