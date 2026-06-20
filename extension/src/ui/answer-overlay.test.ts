@@ -25,12 +25,12 @@ function cbAnswerContent(): HTMLElement {
 }
 
 describe('renders interactive UI', () => {
-  it('renders the trust badge, A–D choices, controls, and fires handlers', () => {
+  it('renders A–D choices, controls, and fires handlers (no trust badge — the student is on CB itself)', () => {
     const ac = cbAnswerContent();
     let picked = ''; let checked = '';
     const shadow = mountAnswerOverlay(ac, vm, { ...noop(),
       onSelect: (l) => { picked = l; }, onCheck: (p) => { checked = p; } });
-    expect(shadow.querySelector('.fp-trust')!.textContent).toContain('unaltered');
+    expect(shadow.querySelector('.fp-trust')).toBeNull();
     expect(shadow.querySelectorAll('.fp-choice')).toHaveLength(2);
     expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 10');
     (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
