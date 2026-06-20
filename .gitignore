@@ -8,5 +8,17 @@ extension/dist/
 extension/dist-firefox/
 extension/dist-edge/
 extension/.dev-chrome-profile/
-/.claude/
+extension/.env
+deletion-worker/node_modules/
+deletion-worker/.dev.vars*
+!deletion-worker/.dev.vars.example
+deletion-worker/.env*
+deletion-worker/.wrangler/
+# Ignore local/personal Claude config, but track the committed loop machinery
+# (subagents, skills, slash commands) so CI (.github/workflows/issue-loop.yml) can
+# read them after checkout.
+/.claude/*
+!/.claude/agents/
+!/.claude/commands/
+!/.claude/skills/
 deploy-todo.md

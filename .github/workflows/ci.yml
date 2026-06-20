@@ -1,0 +1,47 @@
+name: CI
+
+# Green-gate: typecheck + the full vitest suite (which includes the legal
+# bright-line guard, extension/tests/guard-ci.test.ts) on every PR and on
+# pushes to main. Read-only verification — no write permissions, no secrets.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel an in-progress run when a new commit lands on the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        working-directory: extension
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: extension
+        run: npm run typecheck
+
+      - name: Test (includes legal bright-line guard)
+        working-directory: extension
+        run: npm test
