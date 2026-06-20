@@ -21,6 +21,12 @@ import { deriveStats } from '../stats';
 import { resumeSession, type ResumeResult } from '../ui/resume';
 import { dropCoachmark, COACHMARK_CLASS } from '../ui/coachmark';
 import { OPEN_JOURNAL } from '../messages';
+import { emit } from '../telemetry/emit';
+import {
+  buildPracticeStarted, buildQuestionAttempted, buildNoteAdded, buildCalculatorOpened,
+  buildPracticeResumed, buildSessionEnded, JOURNAL_OPENED,
+  DOM_CONTRACT_FAILED, BLOCK_DETECTED, KILLSWITCH_ACTIVATED, UNSCORED_FALLBACK, JS_ERROR,
+} from '../telemetry/events';
 import { readListQuestionIds } from '../cb/list-reader';
 import { isEnabled } from '../resilience/killswitch';    // Plan 4 (§2.5)
 import { detectBlock } from '../resilience/block-detect';// Plan 4 (§8.3)
@@ -149,9 +155,11 @@ export async function handleQuestion(
   view: QuestionView | null,
   renderQuestion: () => void,
 ): Promise<void> {
-  if (!checkContract(view).ok) {
+  const contract = checkContract(view);
+  if (!contract.ok) {
     renderBanner(shadow);
     await bumpFailureCounter();
+    emit({ event: DOM_CONTRACT_FAILED, props: { failure_reason: contract.reason ?? 'unreadable', question_id: view?.id ?? null } });
     return;
   }
   renderQuestion(); // contract passed → mount the answer overlay into CB's live .answer-content
@@ -163,8 +171,9 @@ export async function handleQuestion(
 export async function guardedStart(doc: Document, runner: () => Promise<void>): Promise<void> {
   // isEnabled() fetches OUR config host only (never CB) — so a takedown flag wins over a block, and
   // the §8.3 "never call the API" rule is intact: the only network here is to our own kill-switch.
-  if (!(await isEnabled())) return;                 // §2.5: hosted kill-switch off
+  if (!(await isEnabled())) { emit({ event: KILLSWITCH_ACTIVATED, props: {} }); return; } // §2.5: hosted kill-switch off
   if (detectBlock(doc) !== null) {                  // §8.3: CB block — pure DOM read, no network
+    emit({ event: BLOCK_DETECTED, props: { block_reason: detectBlock(doc) ?? 'forbidden' } });
     renderBlockNotice(mountHost(doc));              // disable AND point the student to CB
     return;
   }
@@ -189,7 +198,16 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     onClose: () => cardSlot(shadow).replaceChildren(),   // hide the start panel without starting a session
     onResume: async () => {
       const list = findResultsList(doc);
-      if (list && existing) await resumeFor(db, list, existing.filterContext);   // read getSession, rebuild order, scroll
+      if (list && existing) {
+        const resumed = await resumeFor(db, list, existing.filterContext);   // read getSession, rebuild order, scroll
+        if (resumed) {
+          emit(buildPracticeResumed({
+            sessionId: resumed.session.sessionId,
+            resumeIndex: Math.max(0, resumed.plan.resumeIndex),
+            totalInOrder: resumed.plan.order.length,
+          }));
+        }
+      }
       void start(existing?.orderMode ?? 'list');
     },
   });
@@ -197,6 +215,27 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   let session: Session | null = null;
   let stop: (() => void) | null = null;
   let total = 1;   // loaded-results count N for "Q n of N"; fixed at Start
+  const revealedIds = new Set<string>(); // per-question reveal tracking (reset on new session, keyed by question id)
+
+  // Per-session stats for session_ended (emitted once on pagehide if a session is active). Reset when a
+  // new session is created. Counts attempts that recorded (graded) and how many were correct.
+  let sessionStartMs = 0;
+  let attempted = 0;
+  let correct = 0;
+
+  const revealedFor = (id: string) => revealedIds.has(id);
+
+  // session_ended fires once, when the page goes away (pagehide), if a session was active this sitting.
+  // pagehide is the reliable MV3/bfcache-safe teardown signal (unload is unreliable). Best-effort emit.
+  const onPageHide = (): void => {
+    if (!session) return;
+    emit(buildSessionEnded({
+      sessionId: session.sessionId, attempted,
+      accuracyPct: attempted ? Math.round((correct / attempted) * 100) : 0,
+      durationMs: Date.now() - sessionStartMs,
+    }));
+  };
+  (typeof self !== 'undefined' ? self : window).addEventListener?.('pagehide', onPageHide);
 
   function start(orderMode: 'list' | 'random'): void {
     cardSlot(shadow).replaceChildren();   // dismiss the start panel so the student can open a CB question
@@ -209,10 +248,15 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
           deviceId: dev, filterContext: filterContextOf(view), orderMode,
           shuffleSeed: orderMode === 'random' ? newSeed() : 0,
         });
+        sessionStartMs = Date.now(); attempted = 0; correct = 0;   // start the session_ended stat window
         // Fire-and-forget from inside the MutationObserver callback. The observer outlives a single
         // runLoop, so a stale write can land after the page (or, in tests, the DB connection) is torn
         // down — that loses to the teardown and is a harmless no-op, never an unhandled rejection.
         void safeWrite(saveSession(db, session));   // §8.5: best-effort; an IDB failure leaves the session untracked, not broken
+        emit(buildPracticeStarted({
+          sessionId: session.sessionId, orderMode, resultCount: total,
+          filterContext: session.filterContext,
+        }));
       }
       showQuestion(view);
     });
@@ -240,13 +284,18 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       onCheck: (pick) => onCheck(view, pick),
       // Reveal: un-hide CB's OWN rationale (the overlay hid it on mount/observer) — CB renders the
       // explanation natively now, so there's nothing for us to render. Sole un-hider.
-      onReveal: () => { revealRationale(answerContent); },
-      onNote: (text) => { if (text) void safeWrite(saveNote(db, makeNote({ deviceId: dev, questionId: view.id, text }))); },
+      onReveal: () => { revealedIds.add(view.id); revealRationale(answerContent); },
+      onNote: (text) => {
+        if (text) {
+          void safeWrite(saveNote(db, makeNote({ deviceId: dev, questionId: view.id, text })));
+          emit(buildNoteAdded({ sessionId: session?.sessionId ?? '', questionId: view.id, noteLength: text.length }));
+        }
+      },
       onNext: () => onNext(view),
       // Calculator toggles in the BODY host (the mountHost shadow), NOT the overlay shadow, so it
       // survives across questions and lives in the persistent extras slot.
-      onToggleCalc: () => toggleGeoGebra(shadow),
-      onOpenDesmos: () => openDesmos(),
+      onToggleCalc: () => { toggleGeoGebra(shadow); emit(buildCalculatorOpened({ sessionId: session?.sessionId ?? '', calculatorType: 'geogebra' })); },
+      onOpenDesmos: () => { openDesmos(); emit(buildCalculatorOpened({ sessionId: session?.sessionId ?? '', calculatorType: 'desmos' })); },
       // ✕ tears down our overlay AND restores CB's masked native nodes, so closing never leaves CB's
       // own question blanked at display:none.
       onClose: () => { unmountAnswerOverlay(answerContent); },
@@ -303,6 +352,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
       })));
+      attempted++; if (result.correct) correct++;   // feed session_ended's accuracy/attempted buckets
       // Reflect the just-recorded result on the underlying results list NOW, so its done/missed chip
       // updates without a manual page refresh. The list sits behind the modal; watchResultsList only
       // repaints when the row-ID set changes, not when the student's own data does — so this answer-
@@ -314,6 +364,12 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       const list = findResultsList(doc);
       if (list) void refreshBadges(db, list);
     }
+    emit(buildQuestionAttempted({
+      sessionId: session?.sessionId ?? '', questionId: view.id, choicesLength: view.choices.length,
+      result, revealUsed: revealedFor(view.id), section: view.section, domain: view.domain,
+      skill: view.skill, difficulty: view.difficulty,
+    }));
+    if (!result.graded) emit({ event: UNSCORED_FALLBACK, props: { session_id: session?.sessionId ?? '', question_id: view.id } });
     if (overlay) renderVerdict(overlay, { pick, result });   // graded===false → non-verdict state (contract §2.4)
   }
 
@@ -427,6 +483,7 @@ export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): P
   // but a stale .fp-coachmark would otherwise persist across re-opens).
   host.querySelector(`.${COACHMARK_CLASS}`)?.remove();
   renderPanel(host, { stats: deriveStats(await getAttempts(db)), mistakes: await getMistakes(db) });
+  void emit({ event: JOURNAL_OPENED, props: {} });
   // Bind the coachmark links AFTER the panel exists — renderPanel injects a.fp-practice-link /
   // a.fp-find-link, so binding earlier (e.g. at boot, against an empty host) matches nothing.
   const list = findResultsList(document);
@@ -439,12 +496,15 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
   // Plan 4: the whole post-Plan-3 startup body runs through the §2.5/§8.3 gate. isEnabled() off →
   // mount nothing; a CB block → mount the §8.3 "use CB directly" notice and return (never retry,
   // never call the API). When enabled and unblocked, the runner is Plan 2/3's startup verbatim.
+  self.addEventListener?.('unhandledrejection', () => emit({ event: JS_ERROR, props: { component: 'unhandledrejection', error_code: 'BOOT_FAILURE' } }));
   void guardedStart(document, async () => {
-    const db = await openStore();
-    await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
+    try {
+      const db = await openStore();
+      await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
 
-    mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
-    watchResultsList(document, db);   // badge on list render + whenever CB re-renders it (coachmarks bind on panel open)
-    chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
+      mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
+      watchResultsList(document, db);   // badge on list render + whenever CB re-renders it (coachmarks bind on panel open)
+      chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
+    } catch { emit({ event: JS_ERROR, props: { component: 'boot', error_code: 'BOOT_FAILURE' } }); }
   });
 }
