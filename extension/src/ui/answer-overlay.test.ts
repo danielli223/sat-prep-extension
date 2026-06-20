@@ -217,6 +217,64 @@ it('escapes hostile choice text / taxonomy — no live <img>/<script> reaches th
   expect(shadow.querySelector('.fp-choice[data-letter="A"]')!.textContent).toContain('<img src=x onerror=steal()>');
 });
 
+// Issue #2 — answer choices were rendered with the answer text as a loose text node directly
+// inside the .fp-pick button, beside the letter span:
+//   <button class="fp-pick"><span class="fp-letter">A</span> 3</button>
+// That cramped layout has no element to lay out the text independently from the letter. The fix
+// gives the answer text its OWN element (.fp-choice-text), a sibling of .fp-letter, so the two can
+// be laid out cleanly. These tests lock that STRUCTURE (happy-dom computes no geometry, so we cannot
+// assert wrapping/lines — we assert the queryable element separation the CSS fix depends on).
+describe('issue #2 — answer text gets its own element (compact MC choice formatting)', () => {
+  it('puts the choice answer TEXT in a dedicated .fp-choice-text element, not loose in the button', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    const choiceA = shadow.querySelector('.fp-choice[data-letter="A"]')!;
+
+    const textEl = choiceA.querySelector('.fp-choice-text');
+    expect(textEl).not.toBeNull();                       // dedicated wrapper exists
+    expect(textEl!.textContent).toBe('3');               // it holds exactly the answer text (vm choice A is '3')
+
+    // The text must NOT be a loose text-node sibling of .fp-letter inside the button. Once it lives in
+    // .fp-choice-text, the button's only own (non-whitespace) direct text content is empty.
+    const pick = choiceA.querySelector('.fp-pick')!;
+    const looseText = Array.from(pick.childNodes)
+      .filter((n) => n.nodeType === 3)                   // text nodes only
+      .map((n) => n.textContent ?? '')
+      .join('')
+      .trim();
+    expect(looseText).toBe('');                          // no answer text directly inside the button
+  });
+
+  it('keeps .fp-letter as a SEPARATE element from the answer-text wrapper (letter not inside text, text not inside letter)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    const choiceA = shadow.querySelector('.fp-choice[data-letter="A"]')!;
+
+    const letterEl = choiceA.querySelector('.fp-letter')!;
+    const textEl = choiceA.querySelector('.fp-choice-text')!;
+    expect(letterEl).not.toBeNull();
+    expect(letterEl.textContent).toBe('A');              // letter still carries the letter
+
+    // The two are distinct, neither nested in the other.
+    expect(letterEl).not.toBe(textEl);
+    expect(letterEl.contains(textEl)).toBe(false);       // text wrapper is not inside the letter
+    expect(textEl.contains(letterEl)).toBe(false);       // letter is not inside the text wrapper
+    expect(textEl.querySelector('.fp-letter')).toBeNull();
+  });
+
+  it('escapes hostile choice text INSIDE the new .fp-choice-text wrapper (no live <img> reaches the shadow)', () => {
+    const ac = cbAnswerContent();
+    const hostileVm = { ...vm,
+      choices: [{ letter: 'A', text: '<img src=x onerror=steal()>' }],
+    };
+    const shadow = mountAnswerOverlay(ac, hostileVm, noop());
+    const textEl = shadow.querySelector('.fp-choice[data-letter="A"] .fp-choice-text')!;
+    expect(textEl).not.toBeNull();
+    expect(textEl.querySelector('img')).toBeNull();      // not parsed into a live element
+    expect(textEl.textContent).toContain('<img src=x onerror=steal()>');  // survives as inert escaped text
+  });
+});
+
 it('renderVerdict writes "Correct" for a correct result and "Not quite" for a wrong result', () => {
   const ac = cbAnswerContent();
   const shadow = mountAnswerOverlay(ac, vm, noop());
