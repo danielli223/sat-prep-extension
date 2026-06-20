@@ -34,15 +34,16 @@ describe('toggleGeoGebra', () => {
     expect(shadow.querySelector('.fp-geogebra iframe')).toBeNull(); // …iframe with it
   });
 
-  it('sizes the panel as a fixed floating box so the FULL calculator shows (not the default box)', () => {
+  it('sizes the side-docked panel with explicit fixed dimensions so the FULL calculator shows', () => {
     // Regression: .fp-geogebra had no CSS rule, so it fell back to the browser default (~300x150) in
-    // static flow and only a slice — the keyboard — was visible ("not shown in complete"). The fix
-    // gives the panel an explicit size and fixed positioning; the iframe fills it.
+    // static flow and only a slice — the keyboard — was visible ("not shown in complete"). The panel
+    // now docks full-height to the side (issue #37) but still needs explicit fixed dimensions so the
+    // iframe fills a real box, not a collapsed static-flow default.
     const shadow = mountHost(document);
     toggleGeoGebra(shadow);
     const panel = shadow.querySelector('.fp-geogebra') as HTMLElement;
     const cs = getComputedStyle(panel);
-    expect(cs.position).toBe('fixed');                 // floating panel, not collapsed static flow
+    expect(cs.position).toBe('fixed');                 // docked panel, not collapsed static flow
     for (const dim of [cs.width, cs.height]) {
       expect(dim).not.toBe('');                        // an explicit size was applied...
       expect(dim).not.toBe('auto');
@@ -53,8 +54,9 @@ describe('toggleGeoGebra', () => {
 
   it('docks clear of the right-docked journal panel and stacks above it (no overlap, never hidden)', () => {
     // Regression: the calculator and the .fp-panel journal were BOTH right-docked, so they overlapped
-    // and one hid the other. Fix: dock the calculator bottom-LEFT, and give its stacking layer
-    // (.fp-extras-slot) an explicit z-index above the panel so it can never be buried underneath.
+    // and one hid the other. Fix: dock the calculator to the LEFT edge (issue #37 docks it full-height
+    // there; the journal owns the right), and give its stacking layer (.fp-extras-slot) an explicit
+    // z-index above the panel so it can never be buried underneath.
     const shadow = mountHost(document);
     toggleGeoGebra(shadow);
     const calc = shadow.querySelector('.fp-geogebra') as HTMLElement;
@@ -74,12 +76,15 @@ describe('toggleGeoGebra', () => {
 });
 
 describe('openDesmos', () => {
-  it('opens desmos.com in a fresh _blank window with noopener (no reusable, disownable handle)', () => {
+  it('opens desmos.com docked to the side: a positioned _blank popup with noopener (no disownable handle)', () => {
+    // Issue #37: open the real Desmos docked to the SIDE of the screen — a positioned window
+    // (popup + width/height/left/top, flush to the right edge) instead of a default floating window.
     // Regression (live 2026-06-16): opening with a NAMED target ('fp-desmos') and then nulling
     // win.opener meant a SECOND click tried to re-navigate the now-cross-origin (desmos.com) named
     // window without being its opener — Chrome blocks that as "Unsafe attempt to initiate navigation".
     // Use _blank (a new window each click, nothing to re-navigate) + the standard `noopener` token
     // (prevents reverse-tabnabbing AND makes window.open return null, so we never hold/disown a handle).
+    // The positioning features coexist with noopener and never reintroduce a reusable named target.
     const spy = vi.fn((..._args: unknown[]) => null);
     vi.stubGlobal('open', spy);
     openDesmos();
@@ -88,6 +93,12 @@ describe('openDesmos', () => {
     expect(url).toBe('https://www.desmos.com/calculator');
     expect(target).toBe('_blank');                       // NOT a reusable named target
     expect(features).toMatch(/\bnoopener\b/);
+    // Docked-to-the-side window geometry (issue #37): a positioned popup, not a default floating window.
+    expect(features).toMatch(/\bpopup\b/);
+    expect(features).toMatch(/\bwidth=\d+/);
+    expect(features).toMatch(/\bheight=\d+/);
+    expect(features).toMatch(/\bleft=\d+/);
+    expect(features).toMatch(/\btop=\d+/);
     vi.unstubAllGlobals();
   });
 });
