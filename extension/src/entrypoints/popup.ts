@@ -1,9 +1,66 @@
-import { OPEN_JOURNAL } from '../messages';
+import { OPEN_JOURNAL, TELEMETRY_DELETE, TELEMETRY_OPTOUT } from '../messages';
+import { optIn, isOptedIn } from '../telemetry/consent';
+import { TELEMETRY_UI_ENABLED } from '../config';
 
 // Toolbar popup (spec §9 #9, §4 step 1). A plain link to CB's Question Bank (expressly permitted,
 // D3) plus an "Open journal" button that tells the active tab's content script to mount the panel.
 // No CB content is ever read here. Built with createElement (no innerHTML in the popup surface).
 export const CB_SEARCH_URL = 'https://satsuiteeducatorquestionbank.collegeboard.org/digital/search';
+
+// Opt-in analytics consent surface (spec 2026-06-17): OFF by default, gated behind a 13+ attestation.
+// Extracted so renderPopup can gate it behind TELEMETRY_UI_ENABLED — the section is built and appended
+// to `root` ONLY when the launch gate is open. Kept directly testable in isolation.
+export function renderTelemetryConsent(root: HTMLElement): void {
+  const tele = document.createElement('section');
+  tele.className = 'fp-telemetry';
+  const blurb = document.createElement('p');
+  blurb.textContent =
+    'Optional: help improve this tool by sharing anonymous usage (which questions you practice and ' +
+    'whether you got them right) with our analytics provider, PostHog (a US company). We send nothing ' +
+    'that identifies you — never the questions themselves, your notes, or scores. Turn it off or delete ' +
+    'your data anytime.';
+
+  const ageLabel = document.createElement('label');
+  const age = document.createElement('input');
+  age.type = 'checkbox'; age.className = 'fp-telemetry-age';
+  ageLabel.append(age, document.createTextNode(" I'm 13 or older"));
+
+  const toggleLabel = document.createElement('label');
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox'; toggle.className = 'fp-telemetry-toggle'; toggle.disabled = true;
+  toggleLabel.append(toggle, document.createTextNode(' Share anonymous usage analytics'));
+
+  const del = document.createElement('button');
+  del.className = 'fp-telemetry-delete'; del.textContent = 'Delete my analytics data';
+
+  age.addEventListener('change', () => { toggle.disabled = !age.checked; });
+  toggle.addEventListener('change', () => {
+    if (toggle.checked) {
+      // Opt-IN stays local: it only writes chrome.storage, no egress. Keep it off the message path.
+      void optIn();
+    } else {
+      // Opt-OUT must run in the BACKGROUND (the single egress point): it builds + flushes the final
+      // telemetry_disabled with the full super-prop set, then clears local state. Best-effort.
+      try {
+        if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) chrome.runtime.sendMessage({ type: TELEMETRY_OPTOUT });
+      } catch { /* no receiver / context gone — opt-out is best-effort */ }
+    }
+  });
+  del.addEventListener('click', () => {
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) chrome.runtime.sendMessage({ type: TELEMETRY_DELETE });
+    } catch { /* no receiver / context gone — delete is best-effort */ }
+    toggle.checked = false;
+    age.checked = false;
+    toggle.disabled = true;
+  });
+
+  // Reflect current state when the popup opens.
+  void isOptedIn().then((on) => { if (on) { age.checked = true; toggle.disabled = false; toggle.checked = true; } });
+
+  tele.append(blurb, ageLabel, toggleLabel, del);
+  root.append(tele);
+}
 
 export function renderPopup(root: HTMLElement): void {
   root.replaceChildren();
@@ -32,7 +89,11 @@ export function renderPopup(root: HTMLElement): void {
   notice.className = 'fp-notice';
   notice.textContent = 'Not affiliated with, authorized, or endorsed by College Board; SAT is a trademark of the College Board.';
 
-  root.append(link, journal, notice);
+  root.append(link, journal);
+  // The consent surface stays DARK until PRIVACY.md + the CWS disclosure ship (plan Rollout step 6).
+  // Default: renderPopup emits NO telemetry UI, so the live opt-in toggle is never user-reachable.
+  if (TELEMETRY_UI_ENABLED) renderTelemetryConsent(root);
+  root.append(notice);
 }
 
 if (typeof document !== 'undefined' && document.getElementById('root') && typeof chrome !== 'undefined' && chrome.runtime?.id) {
