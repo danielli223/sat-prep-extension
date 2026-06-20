@@ -11,6 +11,7 @@
     "reload": "node scripts/reload-ext.mjs",
     "reload:build": "node scripts/build.mjs chrome && node scripts/reload-ext.mjs",
     "cdp": "node scripts/cdp-eval.mjs",
+    "drift:probe": "npm run cdp -- --file scripts/probe-fingerprint.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
