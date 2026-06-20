@@ -60,13 +60,21 @@ function parseMathEl(el: Element): MathNode | null {
   switch (el.localName) {
     case 'mn': case 'mi': case 'mo': case 'mtext':
       return { kind: 'text', value: collapse(el.textContent) };
+    // Fixed-arity elements index specific children. FAIL SAFE (invariant #6): if CB emits one with
+    // FEWER children than the form requires, do NOT index past the end (parseMathEl(undefined) would
+    // crash, suppressing the whole overlay). Degrade to a `row` of the children that ARE present so the
+    // readable leaves survive. Well-formed inputs take the structured branch and render unchanged.
     case 'mfrac':
+      if (kids.length < 2) return row(parseChildren(kids));
       return { kind: 'frac', num: parseMathEl(kids[0]!) ?? row([]), den: parseMathEl(kids[1]!) ?? row([]) };
     case 'msup':
+      if (kids.length < 2) return row(parseChildren(kids));
       return { kind: 'sup', base: parseMathEl(kids[0]!) ?? row([]), sup: parseMathEl(kids[1]!) ?? row([]) };
     case 'msub':
+      if (kids.length < 2) return row(parseChildren(kids));
       return { kind: 'sub', base: parseMathEl(kids[0]!) ?? row([]), sub: parseMathEl(kids[1]!) ?? row([]) };
     case 'msubsup':
+      if (kids.length < 3) return row(parseChildren(kids));
       return {
         kind: 'subsup',
         base: parseMathEl(kids[0]!) ?? row([]),
@@ -76,6 +84,7 @@ function parseMathEl(el: Element): MathNode | null {
     case 'msqrt':
       return { kind: 'sqrt', radicand: row(parseChildren(kids)) };
     case 'mroot':
+      if (kids.length < 1) return row([]);
       return { kind: 'sqrt', radicand: parseMathEl(kids[0]!) ?? row([]) };
     // Raw TeX must never enter the AST.
     case 'annotation': case 'annotation-xml':
