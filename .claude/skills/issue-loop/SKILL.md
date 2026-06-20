@@ -67,6 +67,14 @@ or step-by-step with the `Agent` tool. Per issue:
      rounds, then escalate to a human).
    - `APPROVE` → continue.
 
+6.5. **Visual check (UI diffs only, human-gated).** If the diff touches `src/ui/`, the
+   overlay's real rendering needs human eyes — note in the PR body that the reviewer
+   should run **`/verify-overlay`** (drives the dev Chrome harness on a real CB question)
+   before merging. Advisory: it never blocks the pipeline. In headless/CI mode there is
+   no dev Chrome and no human, so record "visual check pending human review" instead.
+   Never feed CB content to a model — `/verify-overlay` enforces this (the agent runs
+   content-free checks only).
+
 7. **PR.** Push the branch; `gh pr create` linked to the issue (`Closes #<n>`). PR
    body: triage verdict, what changed, test evidence (raw counts), the checker's
    verdict, and any redesign. Leave it for human review. **Do not merge.**
