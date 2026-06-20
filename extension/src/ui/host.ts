@@ -73,6 +73,10 @@ const BASE_CSS = `
 .fp-stat{flex:1;background:#f1f5f9;border-radius:8px;padding:10px;text-align:center;}
 .fp-stat-n{display:block;font-size:18px;font-weight:800;}
 .fp-stat-l{font-size:9px;text-transform:uppercase;color:#6b7280;}
+.fp-diff-filter{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 4px;}
+.fp-diff-opt{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#374151;
+  background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:4px 10px;cursor:pointer;user-select:none;}
+.fp-diff-opt input{margin:0;cursor:pointer;}
 .fp-weak-area{margin-bottom:11px;}
 .fp-weak-head{display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;}
 .fp-acc{font-weight:700;} .fp-acc-low{color:#dc2626;} .fp-acc-mid{color:#d97706;} .fp-acc-high{color:#16a34a;}
