@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "focusedpractice-deletion-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-18",
+  "observability": { "enabled": true },
+  "vars": { "POSTHOG_PROJECT_ID": "376909", "POSTHOG_API_HOST": "https://us.posthog.com" },
+  // TEST deploy: the Worker is served at <name>.<subdomain>.workers.dev.
+  // For PRODUCTION, set "workers_dev": false and uncomment "routes" below (requires
+  // focusedpractice.app to be a Cloudflare zone with a proxied `api` DNS record).
+  // The extension POSTs to api.focusedpractice.app, so the route is required before
+  // the in-extension "delete my data" flow works end-to-end.
+  "workers_dev": true,
+  // "routes": [
+  //   { "pattern": "api.focusedpractice.app/v1/*", "zone_name": "focusedpractice.app" }
+  // ],
+  "unsafe": {
+    "bindings": [
+      { "name": "RATE_LIMITER", "type": "ratelimit", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }
+    ]
+  }
+}

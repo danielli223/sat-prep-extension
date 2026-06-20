@@ -1,0 +1,3 @@
+# Local-dev secret for `wrangler dev`. Copy to .dev.vars (gitignored) and fill in.
+# This is the PostHog PERSONAL API key (prefix phx_) with the person:write scope — NEVER commit it.
+POSTHOG_PERSONAL_API_KEY="phx_xxx_local_dev_value"

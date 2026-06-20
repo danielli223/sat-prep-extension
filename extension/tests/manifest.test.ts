@@ -3,8 +3,17 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const manifest = JSON.parse(
-  readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'manifest.json'), 'utf8'));
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+function loadManifest(file: string): Record<string, unknown> & {
+  permissions: string[];
+  host_permissions: string[];
+  content_security_policy: Record<string, string>;
+} {
+  return JSON.parse(readFileSync(join(ROOT, file), 'utf8'));
+}
+
+const manifest = loadManifest('manifest.json');
 
 describe('manifest CSP', () => {
   it('allows the GeoGebra frame and no other host (D7)', () => {
@@ -17,3 +26,12 @@ describe('manifest CSP', () => {
     expect(JSON.stringify(manifest)).not.toContain('desmos.com');
   });
 });
+
+for (const file of ['manifest.json', 'manifest.firefox.json', 'manifest.edge.json']) {
+  it(`${file} grants telemetry egress + alarms`, () => {
+    const m = loadManifest(file); // use the helper this test file already defines
+    expect(m.permissions).toContain('alarms');
+    expect(m.host_permissions).toContain('https://us.i.posthog.com/*');
+    expect(m.host_permissions).toContain('https://api.focusedpractice.app/*');
+  });
+}
