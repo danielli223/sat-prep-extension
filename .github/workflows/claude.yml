@@ -12,11 +12,16 @@ on:
 
 jobs:
   claude:
+    # Mutually exclusive with the Issue Loop. The loop "owns" any issue/PR carrying
+    # the `agent-ready` label, so this generic @claude bot skips those. The loop, in
+    # turn, fires only on `agent-ready` / workflow_dispatch / schedule and never on a
+    # bare @claude mention — so the two never act on the same issue at the same time.
+    # (A loop-opened PR is not labeled `agent-ready`, so @claude still works there.)
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.issue.labels.*.name, 'agent-ready')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.pull_request.labels.*.name, 'agent-ready')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && !contains(github.event.pull_request.labels.*.name, 'agent-ready')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && !contains(github.event.issue.labels.*.name, 'agent-ready'))
     runs-on: ubuntu-latest
     permissions:
       contents: write

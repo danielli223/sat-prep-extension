@@ -1,0 +1,79 @@
+name: docs-lint
+
+# Periodic lint of the docs/ knowledge base: stale docs/index.md rows, derived
+# legal analysis superseded by a newer cb-legal-sources retrieval, contradictions
+# between derived docs, and dishonest Last updated:/retrieval dates. CB-content-free
+# and read-only over content — it surfaces findings (flags contradictions in place)
+# and opens a PR/issue; it never auto-resolves legal substance.
+
+on:
+  # Manual trigger only, for now. Run it from the Actions tab.
+  workflow_dispatch:
+
+  # Weekly schedule is intentionally OFF until the loop is trusted — mirror the
+  # repo's cautious activation pattern (turn this on only after a few clean manual
+  # runs). Uncomment to enable: Mondays 09:00 UTC.
+  # schedule:
+  #   - cron: "0 9 * * 1"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  docs-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Full history so the lint can use `git log` to verify Last updated:
+          # date stamps against each doc's real last substantive change (Check 4).
+          fetch-depth: 0
+
+      - name: Run docs-lint
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # v1 has no `model:` / `effort:` inputs — both are forwarded to the
+          # Claude CLI via `claude_args`. Pin Opus 4.8 and set xhigh effort
+          # (ultracode's effort level) as a dependable baseline.
+          claude_args: "--model claude-opus-4-8 --effort xhigh"
+          # "ultracode" (xhigh effort + dynamic workflow orchestration) is a
+          # Claude Code setting, not an action input; request it via settings.
+          settings: |
+            {"ultracode": true}
+          prompt: |
+            Run the docs-lint skill (.claude/skills/docs-lint/SKILL.md) over this
+            repo's docs/ knowledge base and follow it exactly.
+
+            Do all four checks: (1) stale docs/index.md rows (moved/renamed/deleted
+            targets, outdated one-liners, orphan docs), (2) derived legal analysis
+            superseded by a newer retrieval in docs/cb-legal-sources/, (3)
+            contradictions between derived docs (and against CLAUDE.md's six
+            bright-line invariants), (4) dishonest Last updated:/retrieval dates
+            (use `git log` as the oracle).
+
+            Flag contradictions and superseded claims IN PLACE with a dated,
+            CB-content-free `DOCS-LINT` HTML comment naming the conflicting
+            doc/clause — surface, never silently overwrite. Apply only safe
+            mechanical fixes (dead index links, provably-stale date stamps). Never
+            edit docs/cb-legal-sources/ (immutable). Never feed College Board
+            question/choice/passage/rationale content to a model.
+
+            Then:
+            - If there are safe mechanical fixes and/or in-place flags to commit,
+              open a PR titled `docs-lint: <N> findings (<date>)` with the full
+              findings report (grouped blockers/warnings/nits) as the body.
+            - If the only findings need human/attorney judgment and there is nothing
+              safe to auto-apply, open an ISSUE with the same title and the report as
+              the body instead.
+            - If everything is clean, say so and open neither — a clean lint is a
+              valid outcome.
