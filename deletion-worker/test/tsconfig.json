@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "types": ["@cloudflare/vitest-pool-workers"] },
+  "include": ["**/*.ts", "../src/**/*.ts"]
+}

@@ -7,6 +7,8 @@ const ext = join(dirname(fileURLToPath(import.meta.url)), '..');
 const load = (f: string) => JSON.parse(readFileSync(join(ext, f), 'utf8'));
 const CB = '*://satsuiteeducatorquestionbank.collegeboard.org/*';
 const CONFIG = 'https://config.focusedpractice.app/*';
+const POSTHOG = 'https://us.i.posthog.com/*';
+const DELETE_EP = 'https://api.focusedpractice.app/*';
 
 describe('packaging — three browser manifests', () => {
   const manifests = ['manifest.json', 'manifest.firefox.json', 'manifest.edge.json'].map(load);
@@ -22,7 +24,7 @@ describe('packaging — three browser manifests', () => {
     for (const m of manifests) {
       expect(m.host_permissions).toContain(CONFIG);
       for (const h of m.host_permissions) {
-        const ok = h === CB || h === CONFIG;
+        const ok = h === CB || h === CONFIG || h === POSTHOG || h === DELETE_EP;
         expect(ok, `unexpected host permission: ${h}`).toBe(true);
       }
       // no host permission may target collegeboard.org beyond the educator bank match
