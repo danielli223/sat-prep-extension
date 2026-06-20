@@ -1,5 +1,14 @@
 import { build } from 'esbuild';
 import { mkdir, copyFile } from 'node:fs/promises';
+import { readFileSync, existsSync } from 'node:fs';
+// Load extension/.env (KEY=VALUE lines) into process.env without a dependency.
+const envPath = new URL('../.env', import.meta.url);
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  }
+}
 
 const TARGETS = {
   chrome:  { out: 'dist',         manifest: 'manifest.json' },
@@ -23,6 +32,7 @@ await build({
   format: 'iife',
   target: 'chrome120',
   legalComments: 'none',
+  define: { __POSTHOG_PROJECT_TOKEN__: JSON.stringify(process.env.POSTHOG_PROJECT_TOKEN ?? '') },
 });
 await copyFile(cfg.manifest, `${cfg.out}/manifest.json`);
 await copyFile('popup.html', `${cfg.out}/popup.html`);
