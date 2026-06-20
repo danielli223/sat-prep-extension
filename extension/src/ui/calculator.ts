@@ -17,8 +17,9 @@ export function toggleGeoGebra(root: ShadowRoot): boolean {
   const existing = slot.querySelector('.fp-geogebra');
   if (existing) { existing.remove(); return false; }
   const doc = root.ownerDocument!;
-  // The calculator is a floating PANEL (.fp-geogebra) with a header bar carrying a ✕, so it can be
-  // dismissed directly — matching the focus card / start panel — without re-toggling the card button.
+  // The calculator is a side-docked PANEL (.fp-geogebra; full-height, left edge — see host.ts CSS) with
+  // a header bar carrying a ✕, so it can be dismissed directly — matching the focus card / start panel
+  // — without re-toggling the card button.
   const panel = doc.createElement('div');
   panel.className = 'fp-geogebra';
   const head = doc.createElement('div');
@@ -42,10 +43,28 @@ export function toggleGeoGebra(root: ShadowRoot): boolean {
 }
 
 export function openDesmos(): void {
-  // The real test-day tool on its own free site — a new window, never an iframe. Open with `_blank`
-  // and the standard `noopener` token, NOT a reusable named target. A named target ('fp-desmos') plus
-  // a nulled opener meant a second click re-navigated the now-cross-origin (desmos.com) named window
-  // without being its opener — which Chrome blocks as "Unsafe attempt to initiate navigation" (live
-  // 2026-06-16). `noopener` also makes window.open return null, so we hold no handle to disown.
-  window.open(DESMOS_URL, '_blank', 'noopener,noreferrer');
+  // The real test-day tool on its own free site — a new window, NEVER an iframe (the zero-license
+  // fallback, Open item O1: we don't embed desmos.com, so it can't be docked *inside* the page).
+  //
+  // Issue #37: dock it to the SIDE of the screen instead of a default floating window — a tall, narrow
+  // window flush to the right edge of the display, echoing College Board's side-docked Math calculator.
+  // This is the closest honest match to in-page docking for an external site we never iframe.
+  //
+  // Still `_blank` + the standard `noopener` token, NOT a reusable named target: a named target
+  // ('fp-desmos') plus a nulled opener meant a second click re-navigated the now-cross-origin
+  // (desmos.com) named window without being its opener — which Chrome blocks as "Unsafe attempt to
+  // initiate navigation" (live 2026-06-16). `noopener` also makes window.open return null, so we hold
+  // no handle to disown. The `popup` + width/height/left/top features ask the browser for a positioned
+  // window rather than a tab; they coexist with `noopener`.
+  const scr = window.screen as Screen & { availLeft?: number; availTop?: number };
+  // availWidth/Height can be 0 under non-browser test runtimes — fall back to a sane desktop size.
+  const availW = scr.availWidth || 1280;
+  const availH = scr.availHeight || 800;
+  const originX = scr.availLeft ?? 0;
+  const originY = scr.availTop ?? 0;
+  const width = Math.max(380, Math.min(460, Math.round(availW * 0.4)));
+  const left = originX + availW - width; // flush to the right edge
+  const features =
+    `noopener,noreferrer,popup,width=${width},height=${availH},left=${left},top=${originY}`;
+  window.open(DESMOS_URL, '_blank', features);
 }
