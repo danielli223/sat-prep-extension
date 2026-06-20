@@ -889,3 +889,104 @@ describe('overlay close ✕ and cross-question navigation', () => {
     expect(inOverlay('.fp-choice')).toBeNull();
   });
 });
+
+// --- Task 14: telemetry hand-off at call sites ---
+describe('content telemetry hand-off', () => {
+  // Minimal chrome stub: emit() checks chrome.runtime.id; sendMessage is a spy.
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks(); // clear any spies that leaked from earlier describe blocks (e.g. checkContract spy)
+    vi.stubGlobal('chrome', { runtime: { id: 'ext-test', sendMessage: vi.fn() } });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  // Shared helper: runs Start → injects the MC fixture → picks B → clicks Check → waits for verdict.
+  // Returns the DB used, so callers can inspect state if needed.
+  async function driveOneGradedCheck() {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    return db;
+  }
+
+  it('emits dom_contract_failed when the contract check fails', async () => {
+    const sent: any[] = [];
+    (globalThis as any).chrome.runtime.sendMessage = (m: any) => sent.push(m);
+    (globalThis as any).chrome.storage = { local: { get: async () => ({}), set: async () => {}, remove: async () => {} } };
+    const shadow = document.createElement('div').attachShadow({ mode: 'open' });
+    await handleQuestion(shadow, null, () => {}); // null view → contract fails
+    expect(sent.some((m) => m?.event?.event === 'dom_contract_failed')).toBe(true);
+  });
+
+  // Telemetry hand-off: a TELEMETRY_EVENT is posted when a question is checked.
+  it('emits question_attempted after a graded Check', async () => {
+    const sent: any[] = [];
+    // reuse this file's existing chrome stub; ensure runtime.sendMessage records messages:
+    (globalThis as any).chrome.runtime.sendMessage = (m: any) => { sent.push(m); };
+    await driveOneGradedCheck(); // helper already used by neighbouring tests to run a Check to verdict
+    const ev = sent.find((m) => m?.type === 'telemetry-event' && m.event?.event === 'question_attempted');
+    expect(ev).toBeTruthy();
+    expect(ev.event.props.result).toBeDefined();
+    expect(JSON.stringify(ev)).not.toMatch(/stem|passage|rationale/i); // no content leaks
+  });
+
+  it('emits journal_opened when the journal panel is opened', async () => {
+    const sent: any[] = [];
+    (globalThis as any).chrome.runtime.sendMessage = (m: any) => { sent.push(m); };
+    const db = await freshDb();
+    await handleMessage(db, { type: 'open-journal' });
+    const ev = sent.find((m) => m?.type === 'telemetry-event' && m.event?.event === 'journal_opened');
+    expect(ev).toBeTruthy();
+    expect(JSON.stringify(ev)).not.toMatch(/stem|passage|rationale|note/i); // empty props, no content
+  });
+
+  it('emits practice_resumed (resume_index + total_in_order) when the student resumes a session', async () => {
+    const sent: any[] = [];
+    (globalThis as any).chrome.runtime.sendMessage = (m: any) => { sent.push(m); };
+    const db = await freshDb();
+    // A stored session for the filter the probe will read off the on-screen question modal.
+    const s = makeSession({ deviceId: 'dev-1', filterContext: 'SAT|Math|Algebra|Hard', orderMode: 'list', shuffleSeed: 0 });
+    s.lastQuestionId = 'ab12cd34';
+    await saveSession(db, s);
+    // The results list + a question modal must be present at runLoop time so the probe finds the
+    // filterContext and getSession returns a session → the start panel renders the Resume button.
+    document.body.innerHTML +=
+      '<table class="cb-table-react"><tbody>' +
+      '<tr class="result-row"><td class="id-column"><button class="cb-btn">ab12cd34</button></td></tr>' +
+      '</tbody></table>';
+    document.body.innerHTML += mc;
+
+    const shadow = await runLoop(document, db, 'dev-1');
+    const resume = shadow.querySelector('.fp-resume') as HTMLElement | null;
+    expect(resume).not.toBeNull();   // a session exists → Resume is offered
+    resume!.click();
+
+    await vi.waitFor(() => {
+      const ev = sent.find((m) => m?.type === 'telemetry-event' && m.event?.event === 'practice_resumed');
+      expect(ev).toBeTruthy();
+      expect(ev.event.props.total_in_order).toBe(1);   // one row loaded
+      expect(ev.event.props.resume_index).toBe(0);      // ab12cd34 is at index 0
+    });
+  });
+
+  it('emits session_ended on pagehide once a session is active (attempted/accuracy/duration buckets)', async () => {
+    const sent: any[] = [];
+    (globalThis as any).chrome.runtime.sendMessage = (m: any) => { sent.push(m); };
+    await driveOneGradedCheck();   // starts a session and records one correct attempt
+
+    (typeof self !== 'undefined' ? self : window).dispatchEvent(new Event('pagehide'));
+
+    // Prior runLoop calls in this file register their own pagehide listeners; assert THIS session's
+    // session_ended (one correct attempt → 100% accuracy) is among the emitted events.
+    const ended = sent.filter((m) => m?.type === 'telemetry-event' && m.event?.event === 'session_ended');
+    expect(ended.length).toBeGreaterThan(0);
+    const ev = ended.find((m) => m.event.props.accuracy_bucket === '85-100' && m.event.props.attempted_bucket === '1-5');
+    expect(ev).toBeTruthy();
+    expect(ev.event.props.duration_bucket).toBeDefined();
+  });
+});
