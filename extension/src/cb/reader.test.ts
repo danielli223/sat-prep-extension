@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readQuestion } from './reader';
+import { readQuestion, type MathNode } from './reader';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const load = (name: string) => {
@@ -111,5 +111,100 @@ describe('readQuestion', () => {
     expect(v.choices[0]!.imgSrc).toBe('https://cb.org/a.png');
     expect(v.choices[1]!.text).toBe('');
     expect(v.choices[1]!.imgSrc).toBe('https://cb.org/b.png');
+  });
+
+  it('regression: choices WITHOUT a <math> element keep math undefined (image-choice + plain-text fixtures)', () => {
+    const plain = readQuestion(load('multiple-choice.html'))!;
+    expect(plain.choices.every((c) => c.math === undefined)).toBe(true);
+    const img = readQuestion(load('image-choice.html'))!;
+    expect(img.choices.every((c) => c.math === undefined)).toBe(true);
+  });
+});
+
+// Flatten a MathNode to its raw text (no structure) so a test can assert which characters
+// were captured from the SEMANTIC tree, independent of the renderer's tag emission.
+function flat(n: MathNode | undefined): string {
+  if (!n) return '';
+  switch (n.kind) {
+    case 'text': return n.value;
+    case 'row': return n.items.map(flat).join('');
+    case 'sup': return flat(n.base) + flat(n.sup);
+    case 'sub': return flat(n.base) + flat(n.sub);
+    case 'subsup': return flat(n.base) + flat(n.sub) + flat(n.sup);
+    case 'frac': return flat(n.num) + flat(n.den);
+    case 'sqrt': return flat(n.radicand);
+  }
+}
+
+// Collect every node of a given kind anywhere in the tree.
+function collect(n: MathNode | undefined, kind: MathNode['kind']): MathNode[] {
+  if (!n) return [];
+  const here = n.kind === kind ? [n] : [];
+  const kids =
+    n.kind === 'row' ? n.items :
+    n.kind === 'sup' ? [n.base, n.sup] :
+    n.kind === 'sub' ? [n.base, n.sub] :
+    n.kind === 'subsup' ? [n.base, n.sub, n.sup] :
+    n.kind === 'frac' ? [n.num, n.den] :
+    n.kind === 'sqrt' ? [n.radicand] : [];
+  return here.concat(...kids.map((k) => collect(k, kind)));
+}
+
+describe('readQuestion — faithful math in answer choices (#35)', () => {
+  it('reads the question cleanly when choices carry MathJax/MathML', () => {
+    const v = readQuestion(load('math-choice.html'))!;
+    expect(v.id).toBe('bc23de45');
+    expect(v.section).toBe('Math');
+    expect(v.choices.map((c) => c.letter)).toEqual(['A', 'B', 'C', 'D']);
+    expect(v.correctAnswer).toBe('A');
+  });
+
+  it('parses a fraction choice into a frac node (the bar survives as STRUCTURE, not dropped)', () => {
+    const c = readQuestion(load('math-choice.html'))!.choices[0]!;
+    expect(c.math).toBeDefined();
+    const fracs = collect(c.math, 'frac');
+    expect(fracs).toHaveLength(1);
+    const frac = fracs[0]!;
+    if (frac.kind !== 'frac') throw new Error('expected frac');
+    // Numerator carries −150 v ; denominator carries x — structure, not a flattened "−150v x".
+    expect(flat(frac.num)).toContain('150');
+    expect(flat(frac.num)).toContain('v');
+    expect(flat(frac.den)).toBe('x');
+  });
+
+  it('reads the minus from the semantic <mo>, not the garbled visual layer (no stray "v" for the sign)', () => {
+    const c = readQuestion(load('math-choice.html'))!.choices[0]!;
+    const fracs = collect(c.math, 'frac');
+    const num = fracs[0]!.kind === 'frac' ? fracs[0]!.num : undefined;
+    // The numerator's leading sign is a real minus (− U+2212 or ascii -), NOT a leaked "v" from the
+    // MathJax visual glyph layer (mjx-container textContent was the garbled "w=v150vx").
+    expect(flat(num)).toMatch(/^[−-]/);
+    // And the visual-layer garbage ("w=v150vx") must not appear anywhere in the parsed structure.
+    expect(flat(c.math)).not.toContain('v150');
+  });
+
+  it('parses an exponent choice into sup/subsup nodes (superscripts survive)', () => {
+    const c = readQuestion(load('math-choice.html'))!.choices[1]!;
+    expect(c.math).toBeDefined();
+    const sups = collect(c.math, 'sup');
+    expect(sups.length).toBeGreaterThanOrEqual(3);   // m^4, q^20, z^-3
+    // The "20" exponent is preserved as an exponent (not flattened next to the base).
+    const supTexts = sups.map((s) => (s.kind === 'sup' ? flat(s.sup) : ''));
+    expect(supTexts).toContain('20');
+  });
+
+  it('does NOT leak the raw <annotation> TeX into the AST or the text fallback', () => {
+    const c = readQuestion(load('math-choice.html'))!.choices[0]!;
+    expect(flat(c.math)).not.toContain('\\frac');
+    expect(c.text).not.toContain('\\frac');
+    expect(c.text).not.toContain('frac{');
+  });
+
+  it('sets the text fallback to a CLEANED string (no MathJax visual glyph noise, no TeX)', () => {
+    const c = readQuestion(load('math-choice.html'))!.choices[0]!;
+    // The visual mjx-container ("w=v150vx") and the annotation TeX must be stripped from the
+    // a11y/fallback string.
+    expect(c.text).not.toContain('w=v150vx');
+    expect(c.text).not.toContain('\\frac');
   });
 });
