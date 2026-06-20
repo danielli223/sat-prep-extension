@@ -990,3 +990,57 @@ describe('content telemetry hand-off', () => {
     expect(ev.event.props.duration_bucket).toBeDefined();
   });
 });
+
+// --- Issue #38: answer-content FOUC (flash of CB's unstyled answers before our overlay loads) ---
+//
+// THE BUG: observeQuestions (src/cb/observer.ts) DEBOUNCES its read by 150ms — it emits the view, and
+// thus mounts the overlay (the FIRST thing that masks CB's `.answer-content` children via display:none),
+// only AFTER CB's modal stops mutating. So for >=150ms after CB paints `.answer-content`, its native
+// `.answer-choices` are fully VISIBLE and unstyled — that flash is the FOUC.
+//
+// THE FIX (maker, not us): mask CB's `.answer-content` children as soon as the modal is OBSERVED,
+// decoupled from the 150ms read-debounce, so the hide lands before CB's raw choices can paint. The
+// overlay host still mounts later, on the settled read, exactly as today.
+//
+// We use a comment-free inline MC modal (NOT the multiple-choice.html fixture) on purpose: happy-dom
+// mis-parses the HTML comments in that .html fixture and re-parents `.answer-choices` so it is NOT a
+// direct child of `.answer-content` — which would make the masking (a direct-child sweep) unobservable
+// here. The neighbouring "ASYNC-injected rationale" test documents the same comment-parse hazard.
+const FOUC_MC_MODAL =
+  '<div role="dialog" class="cb-modal-container"><div class="cb-dialog-container">' +
+  '<div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
+  '<div class="cb-dialog-content">' +
+  '<table class="cb-table"><tbody>' +
+  '<tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>' +
+  '<tr><td>SAT</td><td>Math</td><td>Algebra</td><td>S</td><td>Hard</td></tr></tbody></table>' +
+  '<div class="question-content"><div class="question">stem [SYNTHETIC]</div></div>' +
+  '<div class="answer-content"><div class="answer-choices"><ul><li>3 [SYNTHETIC]</li><li>5 [SYNTHETIC]</li>' +
+  '<li>7 [SYNTHETIC]</li><li>15 [SYNTHETIC]</li></ul></div></div>' +
+  '</div></div></div>';
+
+describe('answer-content FOUC (#38): CB\'s raw choices are masked BEFORE the overlay mounts', () => {
+  beforeEach(() => { document.body.innerHTML = ''; history.replaceState({}, '', '/digital/results'); });
+
+  it('masks CB\'s native .answer-choices at the first microtask — before (not after) the 150ms-debounced overlay mount', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();   // masking is only active during a session
+
+    document.body.innerHTML += FOUC_MC_MODAL;                          // CB paints .answer-content
+    // setTimeout(0) flushes happy-dom's MutationObserver microtask (where an EARLY mask would run) but is
+    // FAR below observeQuestions' 150ms read-debounce — so the overlay has NOT mounted yet at this instant.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const choices = document.querySelector('.answer-content .answer-choices') as HTMLElement;
+    // FOUC is CLOSED at this instant: CB's raw choices are already hidden...
+    expect(choices.style.display).toBe('none');
+    // ...and crucially the overlay host is NOT mounted yet — proving the mask is decoupled from / earlier
+    // than the mount. (On current code the mask only happens AS PART OF the debounced mount, so here the
+    // host is null AND choices.style.display === '' — the flash window. That is the failure we lock.)
+    expect(document.querySelector('.answer-content .fp-answer-host')).toBeNull();
+
+    // Now let the read settle and the overlay mount (~150ms later) — the choices stay masked (no regression).
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect((document.querySelector('.answer-content .answer-choices') as HTMLElement).style.display).toBe('none');
+  });
+});
