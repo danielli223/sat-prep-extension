@@ -191,10 +191,23 @@ export function revealRationale(answerContent: HTMLElement): boolean {
   return true;
 }
 
+// Issue #27: once a Check resolves, the Check button has done its job — hide it (the house hide
+// idiom, matching hideCbNode) and relabel the EXISTING reveal control to "Explain". We keep the
+// .fp-reveal class and its onReveal→revealRationale wiring untouched, so "Explain" only ever un-hides
+// CB's OWN native rationale (bright-line invariant #3 — never synthesize). Idempotent: re-running on
+// the same shadow just re-applies display:none and the same label.
+function morphCheckToExplain(shadow: ShadowRoot): void {
+  (shadow.querySelector('.fp-check') as HTMLElement).style.display = 'none';
+  const reveal = shadow.querySelector('.fp-reveal') as HTMLElement;
+  reveal.textContent = 'Explain';
+  reveal.classList.add('fp-explain');
+}
+
 export function renderVerdict(shadow: ShadowRoot, v: Verdict): void {
   const verdict = shadow.querySelector('.fp-verdict') as HTMLElement;
   if (!v.result.graded) {
     verdict.innerHTML = html(`<div class="fp-indeterminate">Couldn't grade this one — see College Board's answer below.</div>`) as unknown as string;
+    morphCheckToExplain(shadow);
     return;
   }
   shadow.querySelectorAll('.fp-choice').forEach((li) => {
@@ -204,6 +217,7 @@ export function renderVerdict(shadow: ShadowRoot, v: Verdict): void {
   });
   verdict.innerHTML = html(v.result.correct
     ? `<span class="fp-ok">Correct</span>` : `<span class="fp-no">Not quite</span>`) as unknown as string;
+  morphCheckToExplain(shadow);
 }
 
 export function renderNeedAnswer(shadow: ShadowRoot, kind: 'mc' | 'grid'): void {
@@ -244,6 +258,8 @@ const ANSWER_CSS = `
 .fp-actions{display:flex;gap:8px;align-items:center;margin-bottom:10px;}
 .fp-check{background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer;font:inherit;}
 .fp-reveal{background:#f1f5f9;color:#334155;border:none;border-radius:8px;padding:9px 14px;cursor:pointer;font:inherit;}
+/* #27: after Check, the reveal control becomes the primary "Explain" action. */
+.fp-reveal.fp-explain{background:#3b82f6;color:#fff;font-weight:700;}
 .fp-next{margin-left:auto;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;font:inherit;}
 .fp-verdict{margin-bottom:10px;font-weight:700;}
 /* verdict/prompt states — populated by the verdict writer in a later task */
