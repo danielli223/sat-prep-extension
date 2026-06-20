@@ -8,12 +8,22 @@ export interface Stats {
   streakDays: number;                          // consecutive active days ending at the most recent
 }
 
-export function deriveStats(attempts: Attempt[]): Stats {
+// Issue #34: an optional difficulty filter. "No selection = all" — undefined opts, an empty Set, or
+// a Set covering every present difficulty all behave identically to the unfiltered call. The filter
+// is applied to the RAW attempts BEFORE the latest-per-question reduction, so a question whose latest
+// attempt is an unselected difficulty drops out and the latest attempt WITHIN the selection survives.
+// streakDays is intentionally computed over ALL active days, not the filtered pool.
+export interface StatsOpts { difficulties?: Set<string>; }
+
+export function deriveStats(attempts: Attempt[], opts?: StatsOpts): Stats {
+  const diffs = opts?.difficulties;
+  const filtering = diffs !== undefined && diffs.size > 0;
   const latest = new Map<string, Attempt>();
   const days = new Set<string>();
   for (const a of attempts) {
     if (a.deleted) continue;
     days.add(a.createdAt.slice(0, 10));
+    if (filtering && !diffs!.has(a.difficulty)) continue;   // drop unselected difficulties before reducing
     const prev = latest.get(a.questionId);
     if (!prev || a.createdAt > prev.createdAt) latest.set(a.questionId, a);
   }
