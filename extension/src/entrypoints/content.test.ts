@@ -62,6 +62,35 @@ describe('content loop wiring', () => {
     expect(session!.shuffleSeed).toBe(0);
   });
 
+  it('Check repaints the underlying results-list chip live (no page refresh needed)', async () => {
+    const db = await freshDb();
+    // The live CB results list (rows ab12cd34 + ef56ab78) is on the page behind the modal. ab12cd34 is
+    // the question the student is about to answer; ef56ab78 stays unseen. No chips yet (the list-load
+    // badger isn't wired in this unit harness — only onCheck's live repaint is under test).
+    document.body.innerHTML += `<table class="cb-table-react"><tbody>
+      <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ab12cd34</button></td></tr>
+      <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ef56ab78</button></td></tr>
+    </tbody></table>`;
+
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += mc;                                        // CB renders question ab12cd34
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    // Once the attempt is recorded, the row's chip flips to "done" WITHOUT a reload — the whole gap this
+    // fixes. The repaint is store-driven, so the still-unseen ef56ab78 row reads "new".
+    await vi.waitFor(() => {
+      const chip = document.querySelector('table.cb-table-react tbody tr:nth-child(1) .id-column .fp-badge');
+      expect(chip?.getAttribute('data-state')).toBe('done');
+    });
+    const ef = document.querySelector('table.cb-table-react tbody tr:nth-child(2) .id-column .fp-badge');
+    expect(ef?.getAttribute('data-state')).toBe('new');
+  });
+
   it('NEVER-GUESS: when the answer is unreadable, no attempt is recorded and no verdict shows', async () => {
     const db = await freshDb();
     const shadow = await runLoop(document, db, 'dev-1');
@@ -579,6 +608,33 @@ describe('content wiring (Plan 3)', () => {
     mountPanelToggle(document);
     mountPanelToggle(document);
     expect(document.querySelectorAll('.fp-panel-toggle')).toHaveLength(1);
+  });
+
+  it('mountPanelToggle: the launcher swallows its own pointer events so CB never closes the open question modal', () => {
+    // The Journal launcher lives in the LIGHT DOM (doc.body), OUTSIDE our overlay host's stopPropagation
+    // guard. CB closes its question modal on an outside pointer-down/click, so without its own guard a
+    // click on the launcher bubbles to the document and trips CB's close — the open problem page vanishes
+    // (reported 2026-06-18). The launcher must stop its own pointer events, exactly like the host does.
+    const onOpen = vi.fn();
+    const btn = mountPanelToggle(document, onOpen);
+    const onDocPointerdown = vi.fn();
+    const onDocMousedown = vi.fn();
+    const onDocClick = vi.fn();
+    document.addEventListener('pointerdown', onDocPointerdown);   // mimic CB's close-on-outside listeners
+    document.addEventListener('mousedown', onDocMousedown);
+    document.addEventListener('click', onDocClick);
+
+    btn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(onDocPointerdown).not.toHaveBeenCalled();   // stopped at the button — never reaches CB's listener
+    expect(onDocMousedown).not.toHaveBeenCalled();
+    expect(onDocClick).not.toHaveBeenCalled();
+    expect(onOpen).toHaveBeenCalledTimes(1);            // ...yet the launcher's own open-journal handler still fires
+    document.removeEventListener('pointerdown', onDocPointerdown);
+    document.removeEventListener('mousedown', onDocMousedown);
+    document.removeEventListener('click', onDocClick);
   });
 
   it('bindPanelCoachmarks: clicking a Practice link drops a coachmark whose confirm re-badges', async () => {

@@ -353,6 +353,16 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
       })));
       attempted++; if (result.correct) correct++;   // feed session_ended's accuracy/attempted buckets
+      // Reflect the just-recorded result on the underlying results list NOW, so its done/missed chip
+      // updates without a manual page refresh. The list sits behind the modal; watchResultsList only
+      // repaints when the row-ID set changes, not when the student's own data does — so this answer-
+      // driven change has no other repaint path. Safe re-entrancy: readListQuestionIds ignores chip
+      // text, so this chip mutation leaves the ID signature stable and never re-triggers that observer.
+      // Fire-and-forget (same posture as the coachmark re-badge): the chip lives behind the modal, so a
+      // background repaint must never delay the verdict the student is waiting on, and we already
+      // awaited recordAttempt above, so getSeen reads the just-recorded result.
+      const list = findResultsList(doc);
+      if (list) void refreshBadges(db, list);
     }
     emit(buildQuestionAttempted({
       sessionId: session?.sessionId ?? '', questionId: view.id, choicesLength: view.choices.length,
@@ -409,6 +419,13 @@ export function mountPanelToggle(doc: Document, onOpen: () => void = () => {}): 
   btn.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483000;background:#3b82f6;color:#fff;' +
     'border:none;border-radius:9px;padding:8px 14px;font:700 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
     'cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);';
+  // This launcher is in the LIGHT DOM, OUTSIDE the overlay host — so it misses the host's pointer guard
+  // (host.ts). CB closes its open question modal on an outside pointer-down/click, so a real click here
+  // would bubble to the document and trip that close, dismissing the open problem page (reported
+  // 2026-06-18). Swallow our own pointer events at the button, exactly as the host does for the overlay.
+  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+    btn.addEventListener(t, (e) => e.stopPropagation());
+  }
   btn.addEventListener('click', onOpen);
   doc.body.appendChild(btn);
   return btn;
