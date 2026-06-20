@@ -60,16 +60,80 @@ jobs:
           fi
 
       - name: Run issue loop
+        id: loop
         if: steps.pick.outputs.issue != ''
         uses: anthropics/claude-code-action@v1
+        env:
+          # `gh` in the agent's Bash reads GH_TOKEN. github.token carries the
+          # contents/pull-requests/issues write scopes granted above, so the agent
+          # can push the branch, open the PR, comment, and label.
+          GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-4-8 --effort xhigh"
+          # Surface the run in the Actions log. In prompt mode there is no @claude
+          # tracking comment, so without this the agent's reasoning (including WHY it
+          # stopped) is hidden — that is exactly how earlier no-op runs masqueraded
+          # as success and left no trace.
+          show_full_output: true
+          # In prompt/automation mode the action denies Bash + Task by DEFAULT (unlike
+          # @claude tag mode, which ships broader defaults). With them denied the loop
+          # could neither run its pipeline (npm/git/gh) nor dispatch its subagents —
+          # every attempt became a permission denial and the run no-op'd while still
+          # reporting green. Grant the tools the pipeline and its four subagents
+          # (issue-triager / test-author / maker / checker) actually use. We cannot use
+          # `--permission-mode bypassPermissions`: the CLI refuses it under root, which
+          # GitHub runners use.
+          claude_args: |
+            --model claude-opus-4-8
+            --effort xhigh
+            --allowedTools Bash,Edit,Write,Read,Glob,Grep,Task,TodoWrite,WebFetch
           settings: |
             {"ultracode": true}
           prompt: |
             Follow .claude/skills/issue-loop/SKILL.md exactly for issue
             #${{ steps.pick.outputs.issue }}. That skill is the single source of the
             steps, gates, and hard stops. You are in headless CI mode: never block
-            waiting for input — escalate per the skill (comment on the issue,
-            add the `needs-human` label, stop).
+            waiting for input — escalate per the skill (comment on the issue with
+            `gh`, add the `needs-human` label, stop).
+
+            The `Workflow` tool is NOT available here; run the pipeline with the `Task`
+            tool (the issue-triager / test-author / maker / checker agents in
+            `.claude/agents/`). Use `gh` for all GitHub actions (comment, label, push,
+            `gh pr create`).
+
+            You MUST finish in exactly one of two terminal states, or the job is failed
+            by a verification step:
+              (a) a pushed `loop/issue-${{ steps.pick.outputs.issue }}-<slug>` branch
+                  with a PR opened via `gh pr create`
+                  (body links `Closes #${{ steps.pick.outputs.issue }}`), or
+              (b) the `needs-human` label applied to the issue with a comment
+                  explaining why you stopped.
+
+      - name: Verify the loop delivered a PR or escalated
+        # Turn a silent no-op red. claude-code-action reports success whenever the
+        # agent exits cleanly — it does NOT verify that any work happened. The loop's
+        # only valid terminal states are: a PR on a loop/issue-<n>-* branch, or a
+        # needs-human escalation. Anything else means the run accomplished nothing and
+        # must fail loudly instead of going green.
+        if: success() && steps.pick.outputs.issue != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ steps.pick.outputs.issue }}
+        run: |
+          set -euo pipefail
+          pr_count=$(gh pr list --repo "$REPO" --state all --limit 200 --json headRefName \
+            --jq "[.[] | select(.headRefName | test(\"^loop/issue-${ISSUE}(-|$)\"))] | length")
+          if gh issue view "$ISSUE" --repo "$REPO" --json labels \
+               --jq '.labels[].name' | grep -qx 'needs-human'; then
+            needs_human=yes
+          else
+            needs_human=no
+          fi
+          echo "issue #$ISSUE -> loop/issue-$ISSUE-* PRs=$pr_count  needs-human=$needs_human"
+          if [ "$pr_count" -gt 0 ] || [ "$needs_human" = yes ]; then
+            echo "✅ Loop delivered a PR or escalated — valid terminal state."
+            exit 0
+          fi
+          echo "::error::Issue #$ISSUE: the loop finished green but produced NO PR and did NOT escalate (needs-human). Failing the job so the silent no-op is visible. See the 'Run issue loop' step output for why the agent stopped."
+          exit 1
