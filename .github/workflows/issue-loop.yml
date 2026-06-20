@@ -1,0 +1,75 @@
+name: Issue Loop
+
+# Autonomous triage → test → implement → review → PR for one GitHub issue.
+# Mirrors .claude/skills/issue-loop/SKILL.md. Never merges — humans review the PR.
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Issue number to run the loop on"
+        required: true
+        type: string
+  # Nightly unattended poll — OFF until trusted. Uncomment to let the loop pick the
+  # oldest open `agent-ready` issue every night with no human initiating it. (The
+  # "Pick target issue" step already handles the schedule case.)
+  # schedule:
+  #   - cron: "0 8 * * *"
+
+# One run per issue at a time; don't stack runs on the same issue.
+concurrency:
+  group: issue-loop-${{ github.event.issue.number || github.event.inputs.issue || 'scheduled' }}
+  cancel-in-progress: false
+
+jobs:
+  loop:
+    # Labeled trigger only fires for the agent-ready label; dispatch/schedule always run.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'issues' && github.event.label.name == 'agent-ready')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Pick target issue
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            echo "issue=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "issue=${{ github.event.inputs.issue }}" >> "$GITHUB_OUTPUT"
+          else
+            n=$(gh issue list --repo "$GITHUB_REPOSITORY" --label agent-ready --state open \
+                  --json number --jq 'sort_by(.number) | .[0].number // empty')
+            echo "issue=${n}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run issue loop
+        if: steps.pick.outputs.issue != ''
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-4-8 --effort xhigh"
+          settings: |
+            {"ultracode": true}
+          prompt: |
+            Follow .claude/skills/issue-loop/SKILL.md exactly for issue
+            #${{ steps.pick.outputs.issue }}. That skill is the single source of the
+            steps, gates, and hard stops. You are in headless CI mode: never block
+            waiting for input — escalate per the skill (comment on the issue,
+            add the `needs-human` label, stop).
