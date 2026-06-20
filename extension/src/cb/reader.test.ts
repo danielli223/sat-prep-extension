@@ -207,4 +207,40 @@ describe('readQuestion — faithful math in answer choices (#35)', () => {
     expect(c.text).not.toContain('w=v150vx');
     expect(c.text).not.toContain('\\frac');
   });
+
+  // FAIL SAFE (invariant #6): the fragile src/cb/ layer must DEGRADE on unexpected CB markup, never
+  // throw. The fixed-arity MathML parsers index required children (mfrac child[0..1], msup child[0..1],
+  // msubsup child[0..2]). If CB ever emits one of these with FEWER children than required, the parser
+  // must not call parseMathEl(undefined) and crash — readQuestion runs with NO try/catch in observer.ts,
+  // so a throw here suppresses the whole overlay for that question.
+  it('degrades on malformed fixed-arity MathML (too few children) instead of throwing', () => {
+    // [SYNTHETIC] malformed MathML: <mfrac>/<msup> with one child, <msubsup> with two. Fabricated —
+    // never real CB content. Wrapped in the minimal dialog/header/answer-choices shape readQuestion needs.
+    document.body.innerHTML =
+      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: dd44ee55</h4></div>' +
+      '<div class="answer-content"><div class="answer-choices"><ul><li>' +
+      '<math>' +
+      '<mfrac><mn>7</mn></mfrac>' +              // arity 2, only 1 child
+      '<msup><mi>z</mi></msup>' +                // arity 2, only 1 child
+      '<msubsup><mi>k</mi><mn>9</mn></msubsup>' +// arity 3, only 2 children
+      '</math>' +
+      '</li></ul></div></div></div>';
+    const el = document.querySelector('.cb-dialog-container')!;
+
+    // The bug: parseMathEl(kids[1]) / parseMathEl(kids[2]) on missing children does
+    // [...undefined.children] → TypeError, which (no try/catch upstream) kills the whole read.
+    expect(() => readQuestion(el)).not.toThrow();
+
+    const v = readQuestion(el);
+    expect(v).not.toBeNull();
+    const c = v!.choices[0]!;
+    // Degraded gracefully: the choice still has a defined math AST (a row/partial), not a crash.
+    expect(c.math).toBeDefined();
+    // And the readable leaf values that WERE present still survive somewhere (AST or text fallback).
+    const survives = flat(c.math) + c.text;
+    expect(survives).toContain('7');
+    expect(survives).toContain('z');
+    expect(survives).toContain('k');
+    expect(survives).toContain('9');
+  });
 });
