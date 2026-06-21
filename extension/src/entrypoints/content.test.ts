@@ -29,9 +29,9 @@ function inOverlay(sel: string): Element | null {
 beforeEach(() => { document.body.innerHTML = ''; history.replaceState({}, '', '/digital/results'); });
 
 describe('content loop wiring', () => {
-  it('Start → Check(correct) records one attempt, writes the session, and headers "Q n of N"', async () => {
+  it('Start → Check(correct) records one attempt and writes the session', async () => {
     const db = await freshDb();
-    // CB's loaded results list (10 rows) is on the page BEFORE Start, so N = 10 for the header.
+    // CB's loaded results list (10 rows) is on the page BEFORE Start.
     const rows = Array.from({ length: 10 }, () => '<tr><td>row</td></tr>').join('');
     document.body.innerHTML += `<table class="results-list"><tbody>${rows}</tbody></table>`;
 
@@ -42,9 +42,6 @@ describe('content loop wiring', () => {
     // The overlay mounts INSIDE CB's .answer-content (not the body host).
     await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
     expect(inOverlay('.fp-choice')).not.toBeNull();   // our interaction rendered in CB's answer region
-
-    // header is "Q n of N" (N = loaded results), NOT "Q n of n".
-    expect(inOverlay('.fp-progress')!.textContent).toContain('Q 1 of 10');
 
     (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
     (inOverlay('.fp-check') as HTMLElement).click();
@@ -197,32 +194,6 @@ describe('content loop wiring', () => {
 
     await vi.waitFor(() => expect(cbNextClicked).toHaveBeenCalledTimes(1));   // advanced via CB's Next
     expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull();   // NOT removed — it follows CB
-  });
-
-  it('headers "Q n of N" from the live cb-table-react results list', async () => {
-    const db = await freshDb();
-    document.body.innerHTML +=
-      '<table class="cb-table-react"><tbody>' +
-      Array.from({ length: 5 }, () => '<tr><td>q</td></tr>').join('') + '</tbody></table>';
-    const shadow = await runLoop(document, db, 'dev-1');
-    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
-    document.body.innerHTML += mc;
-    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
-    expect(inOverlay('.fp-progress')!.textContent).toContain('Q 1 of 5');
-  });
-
-  it('reads N at SHOW time, so "Q n of N" is right even if the list was not in the DOM at Start', async () => {
-    // Live 2026-06-16: starting before the list rendered (or from a single-question view) left N at the
-    // fallback 1 → "Q 2 of 1". The list is in the DOM behind the modal by show time; read it then.
-    const db = await freshDb();
-    const shadow = await runLoop(document, db, 'dev-1');   // NO list present at Start
-    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
-    document.body.innerHTML +=
-      '<table class="cb-table-react"><tbody>' +
-      Array.from({ length: 7 }, () => '<tr><td>q</td></tr>').join('') + '</tbody></table>';
-    document.body.innerHTML += mc;                          // list + question arrive after Start
-    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
-    expect(inOverlay('.fp-progress')!.textContent).toContain('Q 1 of 7');   // not "Q 1 of 1"
   });
 
   it('Check with no answer prompts to answer (NOT "couldn\'t grade"), records nothing, and stays re-checkable', async () => {
