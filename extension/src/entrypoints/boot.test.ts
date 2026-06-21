@@ -39,8 +39,15 @@ const boot = content as unknown as {
   activate(doc: Document): void | Promise<void>;
   teardown(doc: Document): void;
   handleRouteChange(doc: Document): void;
+  // Issue #70 round 2: the per-tick body of the always-on `location.href` poller. The isolated-world
+  // `history.pushState` patch the first cut shipped is DEAD CODE — content scripts run in a separate
+  // world and never see the page's main-world router calls, so the overlay would never activate after
+  // CB's login→bank SPA route. `checkForRouteChange` instead compares `doc.location.href` (which DOES
+  // reflect the page URL across worlds) against a module-level baseline. This is the testable unit; the
+  // `setInterval`/`popstate` wiring lives in the under-test-skipped boot block.
+  checkForRouteChange(doc: Document): void;
 };
-const { isQuestionBankPage, activate, teardown, handleRouteChange } = boot;
+const { isQuestionBankPage, activate, teardown, handleRouteChange, checkForRouteChange } = boot;
 
 // guardedStart wraps activation in the §2.5/§8.3 gate (kill-switch + block-detect). Force it OPEN so the
 // real boot runner (openStore → runLoop → mountPanelToggle → watchResultsList) runs and we can observe
@@ -197,5 +204,89 @@ describe('handleRouteChange — path-aware SPA reactivation (issue #70)', () => 
     handleRouteChange(document);
     await vi.waitFor(() => expect(toggle()).not.toBeNull());
     expect(document.querySelectorAll('.fp-panel-toggle')).toHaveLength(1);   // exactly one, never stacked
+  });
+});
+
+describe('checkForRouteChange — location.href poll tick (issue #70, round 2)', () => {
+  // WHY THIS EXISTS: the first cut detected SPA navigations by patching `history.pushState`/
+  // `replaceState` from the content script. Content scripts run in an ISOLATED world, so that patch
+  // never sees the page's main-world router calls — the overlay would silently fail to activate after
+  // CB's login→bank route (the issue #70 bug). The corrected mechanism polls `doc.location.href`, which
+  // DOES reflect the page URL across worlds, and pairs it with `popstate`. `checkForRouteChange` is the
+  // per-tick body of that poller (the unit we can drive in happy-dom): it records a baseline on its
+  // FIRST call (no activation), and on a LATER call where the href CHANGED it updates the baseline and
+  // delegates to handleRouteChange (which gates activate/teardown on isQuestionBankPage). An unchanged
+  // href is a no-op. This locks the real cross-world detection so a revert to the world-blind history
+  // patch is caught. The setInterval/popstate WIRING itself is verified live by /verify-overlay (log out
+  // → log in → overlay appears on /questionbank/results with NO hard reload). Content-free.
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    document.body.innerHTML = '';
+    document.getElementById(HOST_ID)?.remove();
+    document.querySelector('.fp-panel-toggle')?.remove();
+    await freshDb();
+    vi.stubGlobal('chrome', {
+      runtime: { id: 'ext-test', onMessage: { addListener: vi.fn() }, sendMessage: vi.fn() },
+      storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) } },
+    });
+  });
+  afterEach(() => {
+    // Settle the location back to a QB page so the module's "last seen href" baseline is reset to a
+    // known place for the next test's first (baseline) tick — these tests share a module-level cursor.
+    setLocation(STUDENT_HOST, '/questionbank/results');
+    checkForRouteChange(document);
+    teardown(document);
+    vi.unstubAllGlobals();
+  });
+
+  it('detects a FORWARD route into a QB page (the login→bank case the history patch missed)', async () => {
+    // Start at the student portal's /login — the document CB commits at after the login redirect. The
+    // first tick is BASELINE only: it records the href and must NOT activate (we're not on a QB page,
+    // and even on one the first tick only seeds the cursor).
+    setLocation(STUDENT_HOST, '/login');
+    checkForRouteChange(document);
+    expect(toggle()).toBeNull();   // baseline tick → nothing mounted
+
+    // The app SPA-routes into the bank WITHOUT a fresh document load — the exact transition the
+    // isolated-world pushState patch could never observe. The href poll DOES see it: href changed →
+    // delegate to handleRouteChange → it's a QB page → activate.
+    setLocation(STUDENT_HOST, '/questionbank/results');
+    checkForRouteChange(document);
+    await vi.waitFor(() => expect(toggle()).not.toBeNull());   // overlay activates after the SPA route
+    expect(host()).not.toBeNull();
+  });
+
+  it('is a NO-OP when the href is unchanged (no double-mount on a quiet poll tick)', async () => {
+    setLocation(STUDENT_HOST, '/login');
+    checkForRouteChange(document);   // baseline at /login
+
+    setLocation(STUDENT_HOST, '/questionbank/results');
+    checkForRouteChange(document);   // href changed → activate
+    await vi.waitFor(() => expect(toggle()).not.toBeNull());
+
+    // The poller ticks continuously; a tick at the SAME url must do nothing — not re-run activation,
+    // not stack a second toggle/host. (activate is idempotent too, but the cursor short-circuit is what
+    // keeps the poll cheap and is the behavior we lock here.)
+    checkForRouteChange(document);
+    await vi.waitFor(() => {});   // let any stray async settle
+    expect(document.querySelectorAll('.fp-panel-toggle')).toHaveLength(1);
+    expect(document.querySelectorAll(`#${HOST_ID}`)).toHaveLength(1);
+  });
+
+  it('TEARS DOWN when routing back out to a non-QB page (/dashboard)', async () => {
+    setLocation(STUDENT_HOST, '/login');
+    checkForRouteChange(document);   // baseline
+
+    setLocation(STUDENT_HOST, '/questionbank/results');
+    checkForRouteChange(document);   // activate
+    await vi.waitFor(() => expect(toggle()).not.toBeNull());
+
+    // SPA-route back out of the bank: href changed to a non-QB page → handleRouteChange tears the UI off.
+    setLocation(STUDENT_HOST, '/dashboard');
+    checkForRouteChange(document);
+    await vi.waitFor(() => {
+      expect(toggle()).toBeNull();   // Journal launcher gone
+      expect(host()).toBeNull();     // body host removed — nothing lingers on /dashboard
+    });
   });
 });
