@@ -1,5 +1,6 @@
 import { html } from './host';
 import type { CardVM, ChoiceVM } from './view-model';
+import type { MathNode } from '../cb/reader';
 import type { ScoreResult } from '../scoring';
 
 export interface AnswerHandlers {
@@ -13,6 +14,10 @@ const HOST_CLASS = 'fp-answer-host';
 // Marker on the CB-native nodes WE hid, so teardown restores exactly those (and never un-hides a node
 // CB itself had hidden). Also lets the MutationObserver and revealRationale find our own work.
 const HIDDEN_ATTR = 'data-fp-hidden';
+// Marker on a CB-native node we DELIBERATELY revealed + repositioned (the rationale, on reveal). The
+// masking observer treats the move as an addedNode and would re-hide it; this flags "hands off — the
+// student asked to see this" so hideCbNode skips it. Only the explicitly-revealed node is exempt.
+const REVEALED_ATTR = 'data-fp-revealed';
 
 // One MutationObserver per .answer-content, keyed by the container so re-mount can disconnect the
 // previous one (no stacked observers across CB's in-place re-renders). WeakMap → GC'd with the node.
@@ -27,6 +32,7 @@ export function findAnswerContent(modal: Element): HTMLElement | null {
 // Idempotent: re-hiding a node we already marked is a no-op.
 function hideCbNode(el: HTMLElement): void {
   if (el.classList.contains(HOST_CLASS)) return;   // never touch our own host
+  if (el.hasAttribute(REVEALED_ATTR)) return;      // a deliberate reveal/move — observer must not re-hide it
   if (el.hasAttribute(HIDDEN_ATTR)) return;
   el.setAttribute(HIDDEN_ATTR, '');
   el.style.display = 'none';
@@ -36,10 +42,26 @@ const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+// Render a neutral math AST (issue #35) into OUR OWN tags. esc() runs on every text value — this is
+// the sole XSS boundary (host.ts's TrustedTypes policy is identity, no sanitization). We never emit
+// CB markup; only our own structural tags carry the AST's structure.
+function renderMath(n: MathNode): string {
+  switch (n.kind) {
+    case 'text': return esc(n.value);
+    case 'row': return n.items.map(renderMath).join('');
+    case 'sup': return `${renderMath(n.base)}<sup>${renderMath(n.sup)}</sup>`;
+    case 'sub': return `${renderMath(n.base)}<sub>${renderMath(n.sub)}</sub>`;
+    case 'subsup': return `${renderMath(n.base)}<sub>${renderMath(n.sub)}</sub><sup>${renderMath(n.sup)}</sup>`;
+    case 'frac': return `<span class="fp-frac"><span class="fp-frac-num">${renderMath(n.num)}</span><span class="fp-frac-den">${renderMath(n.den)}</span></span>`;
+    case 'sqrt': return `<span class="fp-sqrt"><span class="fp-sqrt-rad">${renderMath(n.radicand)}</span></span>`;
+  }
+}
+
 function choiceBody(c: ChoiceVM): string {
   if (c.imgSrc) {
     return `<img src="${esc(c.imgSrc)}" alt="${esc(c.text || c.letter)}" class="fp-choice-img" />`;
   }
+  if (c.math) return renderMath(c.math);
   return esc(c.text);
 }
 
@@ -48,7 +70,7 @@ function renderBody(vm: CardVM): string {
     ? `<ul class="fp-choices">${vm.choices.map((c) => `
         <li class="fp-choice" data-letter="${esc(c.letter)}">
           <button class="fp-eliminate" aria-label="Cross off ${esc(c.letter)}">⊘</button>
-          <button class="fp-pick"><span class="fp-letter">${esc(c.letter)}</span> ${choiceBody(c)}</button>
+          <button class="fp-pick"><span class="fp-letter">${esc(c.letter)}</span><span class="fp-choice-text">${choiceBody(c)}</span></button>
         </li>`).join('')}</ul>`
     : `<label class="fp-gridin-label">Your answer
          <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>`;
@@ -56,7 +78,6 @@ function renderBody(vm: CardVM): string {
     <div class="fp-answer-head">
       <button class="fp-overlay-close" aria-label="Close">✕</button>
     </div>
-    <div class="fp-progress">${esc(vm.skill)} › ${esc(vm.difficulty)} · Q ${vm.position.index} of ${vm.position.total}</div>
     ${answerBody}
     <div class="fp-actions">
       <button class="fp-check">Check</button>
@@ -101,43 +122,31 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
   shadow.querySelector('.fp-desmos')!.addEventListener('click', () => h.onOpenDesmos());
 }
 
-// Mount (or reuse) our shadow host as the FIRST child of CB's .answer-content, masking CB's own
-// content. Idempotent: CB may replace .answer-content on its in-place "Next", so this is called on
-// every question emit and reuses an existing host when present.
+// Mask CB's own .answer-content children (display:none + our marker) WITHOUT mounting a host. This is
+// the FOUC primitive (#38): the orchestrator calls it the moment CB's modal is observed — decoupled
+// from observeQuestions' 150ms read-debounce — so CB's raw choices never flash visible before the
+// overlay mounts on the settled read. mountAnswerOverlay reuses it so the masking is shared and the
+// existing unmountAnswerOverlay (keyed on the same data-fp-hidden marker) already restores it.
 //
 // Masking is whitelist-based, not blacklist-based: we hide EVERY direct child that isn't our host
 // (so a future CB class rename can't leak content), and we install a MutationObserver to hide any
 // node CB injects LATER — critically CB's `.rationale`, which the reveal drives in asynchronously
-// (~150ms) and so does NOT exist at mount time. revealRationale is the sole un-hider.
-export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: AnswerHandlers): ShadowRoot {
-  // Reuse an existing direct-child host (idempotent re-mount). :scope > is unsupported in happy-dom,
-  // so scan children directly.
-  let host = Array.from(answerContent.children)
-    .find((c) => c.classList.contains(HOST_CLASS)) as HTMLElement | undefined ?? null;
-  if (!host) {
-    const doc = answerContent.ownerDocument!;
-    host = doc.createElement('div');
-    host.className = HOST_CLASS;
-    // CB closes its modal on outside pointer-down; stop our events at the host (belt-and-suspenders —
-    // we are inside the modal, but keep parity with the old body host).
-    for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
-      host.addEventListener(t, (e) => e.stopPropagation());
-    }
-    answerContent.insertBefore(host, answerContent.firstChild);
-    host.attachShadow({ mode: 'open' });
-  }
-
-  // Catch async-injected nodes (M1): CB injects .rationale after mount. Hide any NEW non-host direct
-  // child the same way. Disconnect a prior observer first so re-mounts don't stack observers.
+// (~150ms) and so does NOT exist at mask time. revealRationale is the sole un-hider.
+//
+// Idempotent: re-calling disconnects+reinstalls the per-container observer via the WeakMap (no stacked
+// observers across CB's in-place re-renders or an early-mask-then-mount sequence).
+export function maskAnswerContent(answerContent: HTMLElement): void {
+  // Catch async-injected nodes (M1): CB injects .rationale after the mask. Hide any NEW non-host direct
+  // child the same way. Disconnect a prior observer first so re-masks/re-mounts don't stack observers.
   //
   // ORDER MATTERS — install the observer BEFORE the synchronous sweep below, then sweep current
-  // children. This is gap-free across re-mounts: on CB's in-place re-render we disconnect the old
-  // observer and immediately install a fresh one, then sweep. A node injected between the old
-  // observer's disconnect and the new one's observe() would escape the observer — but the post-observe
-  // sweep hides any such already-present node. Conversely, anything injected after the sweep is caught
-  // by the now-active observer. No window is left where a CB node can stay visible. (Without this
-  // ordering, the async .rationale injection that lands at ~the same time as the debounced re-mount
-  // intermittently leaked through the disconnect gap — live-race flake.)
+  // children. This is gap-free across re-masks: on CB's in-place re-render we disconnect the old
+  // observer and immediately install a fresh one, then sweep. A node injected between the old observer's
+  // disconnect and the new one's observe() would escape the observer — but the post-observe sweep hides
+  // any such already-present node. Conversely, anything injected after the sweep is caught by the now-
+  // active observer. No window is left where a CB node can stay visible. (Without this ordering, the
+  // async .rationale injection that lands at ~the same time as the debounced re-mount intermittently
+  // leaked through the disconnect gap — live-race flake.)
   hideObservers.get(answerContent)?.disconnect();
   const observer = new MutationObserver((records) => {
     for (const rec of records) {
@@ -155,7 +164,61 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
   // Whitelist hide: every direct child that ISN'T our host (covers .answer-choices + any present
   // .rationale + anything else CB rendered). :scope > is unsupported in happy-dom, so scan children.
   for (const el of Array.from(answerContent.children)) hideCbNode(el as HTMLElement);
+}
 
+// Create (or reuse) our shadow host as the FIRST child of CB's .answer-content. Idempotent: CB may
+// replace .answer-content on its in-place "Next", so callers re-run this and reuse the existing host.
+// :scope > is unsupported in happy-dom, so scan children directly.
+function ensureHost(answerContent: HTMLElement): HTMLElement {
+  const existing = Array.from(answerContent.children)
+    .find((c) => c.classList.contains(HOST_CLASS)) as HTMLElement | undefined;
+  if (existing) return existing;
+  const doc = answerContent.ownerDocument!;
+  const host = doc.createElement('div');
+  host.className = HOST_CLASS;
+  // CB closes its modal on outside pointer-down; stop our events at the host (belt-and-suspenders —
+  // we are inside the modal, but keep parity with the old body host).
+  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+    host.addEventListener(t, (e) => e.stopPropagation());
+  }
+  answerContent.insertBefore(host, answerContent.firstChild);
+  host.attachShadow({ mode: 'open' });
+  return host;
+}
+
+// The opaque "white rectangle" we drop over CB's answer region before the real overlay mounts. A plain
+// light-DOM element (NOT the shadow host), so `.fp-answer-host` still means "the real overlay is up".
+const CURTAIN_CLASS = 'fp-curtain';
+
+function removeCurtain(answerContent: HTMLElement): void {
+  Array.from(answerContent.children).find((c) => c.classList.contains(CURTAIN_CLASS))?.remove();
+}
+
+// FOUC curtain (#38): the instant CB's answer region is observed — BEFORE the 150ms-debounced overlay
+// mount — hide CB's raw content AND drop an opaque white rectangle over it, so the student never sees
+// CB's unstyled choices flash. mountAnswerOverlay removes this rectangle when the real UI mounts, so the
+// nice UI loads over the white rectangle. Idempotent and safe to call on every mutation while the modal
+// renders: a no-op once the real overlay host is mounted, and it keeps a single curtain. Teardown
+// (unmountAnswerOverlay, the degrade/close path) removes it and restores CB's nodes.
+export function mountCurtain(answerContent: HTMLElement): void {
+  maskAnswerContent(answerContent);
+  if (answerContent.querySelector(`.${HOST_CLASS}`)) return;   // real overlay already up — no curtain needed
+  if (Array.from(answerContent.children).some((c) => c.classList.contains(CURTAIN_CLASS))) return;  // already curtained
+  const curtain = answerContent.ownerDocument!.createElement('div');
+  curtain.className = CURTAIN_CLASS;
+  curtain.setAttribute('aria-hidden', 'true');
+  curtain.style.cssText = 'min-height:140px;background:#fff;border-radius:8px;';
+  answerContent.insertBefore(curtain, answerContent.firstChild);
+}
+
+// Mount (or reuse) our shadow host as the FIRST child of CB's .answer-content, mask CB's own content,
+// remove the FOUC curtain, and fill the host with the interactive overlay (so the nice UI replaces the
+// white rectangle). Idempotent across CB's in-place "Next". Masking shares maskAnswerContent (the FOUC
+// primitive) so a node hidden before mount stays hidden and unmount restores exactly our marked nodes.
+export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: AnswerHandlers): ShadowRoot {
+  const host = ensureHost(answerContent);
+  maskAnswerContent(answerContent);
+  removeCurtain(answerContent);
   const shadow = host.shadowRoot!;
   shadow.innerHTML = html(`<style>${ANSWER_CSS}</style>` + renderBody(vm)) as unknown as string;
   wire(shadow, vm, h);
@@ -168,11 +231,15 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
 export function unmountAnswerOverlay(answerContent: HTMLElement): void {
   hideObservers.get(answerContent)?.disconnect();
   hideObservers.delete(answerContent);
-  for (const el of Array.from(answerContent.querySelectorAll<HTMLElement>(`[${HIDDEN_ATTR}]`))) {
+  // Restore both the nodes WE hid and the one we deliberately revealed, clearing both markers so a
+  // later re-mount + re-teardown starts from a clean slate.
+  for (const el of Array.from(answerContent.querySelectorAll<HTMLElement>(`[${HIDDEN_ATTR}],[${REVEALED_ATTR}]`))) {
     el.style.display = '';
     el.removeAttribute(HIDDEN_ATTR);
+    el.removeAttribute(REVEALED_ATTR);
   }
   answerContent.querySelector('.fp-answer-host')?.remove();
+  removeCurtain(answerContent);   // FOUC curtain (#38): drop the white rectangle too, if it's still up
 }
 
 export interface Verdict { pick: string; result: ScoreResult; }
@@ -186,6 +253,14 @@ export function revealRationale(answerContent: HTMLElement): boolean {
   const r = Array.from(answerContent.children)
     .find((c) => c.classList.contains('rationale')) as HTMLElement | undefined;
   if (!r) return false;
+  // #20: move CB's explanation ABOVE our interaction host so it renders directly under the question —
+  // co-visible with our (tall) UI rather than buried below it. Reposition CB's own node; never copy
+  // its text into our shadow root. The move is a childList mutation, so flag REVEALED_ATTR before
+  // un-hiding so the masking observer's hideCbNode doesn't re-hide this deliberate reveal.
+  const host = Array.from(answerContent.children)
+    .find((c) => c.classList.contains(HOST_CLASS)) as HTMLElement | undefined;
+  if (host && r.nextSibling !== host) answerContent.insertBefore(r, host);
+  r.setAttribute(REVEALED_ATTR, '');
   r.style.display = '';
   r.removeAttribute(HIDDEN_ATTR);
   return true;
@@ -223,22 +298,28 @@ const ANSWER_CSS = `
 .fp-answer{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;}
 .fp-answer-head{display:flex;justify-content:flex-end;align-items:center;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
-.fp-progress{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#6b7280;
-  border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:12px;}
 .fp-choices{list-style:none;margin:0 0 12px;padding:0;}
 .fp-choice{display:flex;align-items:center;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:7px;}
 .fp-choice .fp-eliminate{border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:14px;padding:8px 4px 8px 10px;}
-.fp-choice .fp-pick{flex:1;display:flex;align-items:center;text-align:left;border:none;background:transparent;
-  cursor:pointer;padding:9px 12px 9px 2px;color:inherit;font:inherit;}
-.fp-choice .fp-letter{font-weight:700;margin-right:8px;}
+.fp-choice .fp-pick{flex:1;display:flex;align-items:baseline;gap:8px;text-align:left;border:none;background:transparent;
+  cursor:pointer;padding:8px 12px 8px 2px;color:inherit;font:inherit;line-height:1.4;}
+.fp-choice .fp-letter{flex:none;font-weight:700;}
+.fp-choice .fp-choice-text{flex:1;min-width:0;}
 .fp-choice-img{max-height:2.5em;width:auto;vertical-align:middle;}
+/* faithful math (#35): stacked fraction with a bar, and a radical with an overline */
+.fp-frac{display:inline-flex;flex-direction:column;text-align:center;vertical-align:middle;margin:0 .15em;line-height:1.1;}
+.fp-frac-num{padding:0 .25em;}
+.fp-frac-den{padding:0 .25em;border-top:1px solid currentColor;}
+.fp-sqrt{display:inline-flex;align-items:flex-start;}
+.fp-sqrt::before{content:"\\221A";margin-right:.05em;}
+.fp-sqrt-rad{border-top:1px solid currentColor;padding:0 .15em;}
 .fp-choice.fp-selected{border:2px solid #3b82f6;background:#eff6ff;}
-.fp-choice.fp-selected .fp-pick::after{content:"selected";margin-left:auto;font-size:9px;color:#3b82f6;font-weight:700;}
+.fp-choice.fp-selected .fp-pick::after{content:"selected";flex:none;margin-left:auto;font-size:9px;color:#3b82f6;font-weight:700;align-self:center;}
 .fp-choice.fp-eliminated .fp-pick{color:#9ca3af;text-decoration:line-through;}
 .fp-choice.fp-correct{border:2px solid #16a34a;background:#dcfce7;}
-.fp-choice.fp-correct .fp-pick::after{content:"\\2713 correct";margin-left:auto;font-size:9px;color:#16a34a;font-weight:700;}
+.fp-choice.fp-correct .fp-pick::after{content:"\\2713 correct";flex:none;margin-left:auto;font-size:9px;color:#16a34a;font-weight:700;align-self:center;}
 .fp-choice.fp-wrong{border:2px solid #dc2626;background:#fee2e2;}
-.fp-choice.fp-wrong .fp-pick::after{content:"\\2717 you chose";margin-left:auto;font-size:9px;color:#dc2626;font-weight:700;}
+.fp-choice.fp-wrong .fp-pick::after{content:"\\2717 you chose";flex:none;margin-left:auto;font-size:9px;color:#dc2626;font-weight:700;align-self:center;}
 .fp-gridin-label{display:block;font-size:12px;color:#6b7280;margin-bottom:12px;}
 .fp-gridin{display:block;width:100%;margin-top:5px;padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;font:inherit;box-sizing:border-box;}
 .fp-actions{display:flex;gap:8px;align-items:center;margin-bottom:10px;}
