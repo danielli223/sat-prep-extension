@@ -1053,19 +1053,21 @@ describe('Issue #31 — random mode follows the shuffled order by GUIDED scrolli
 
     const loadedIds = readListQuestionIds(findResultsList(document)!).map((r) => r.id);
 
-    // A spied CB native "Next" (light DOM, like the existing list-mode onNext test) — random mode must
-    // NOT actuate it (clicking it would advance in CB LIST order, defeating the shuffle).
-    const cbNext = document.createElement('button');
-    cbNext.textContent = 'Next';
-    const cbNextClicked = vi.fn();
-    cbNext.addEventListener('click', cbNextClicked);
-    document.body.appendChild(cbNext);
-
     const shadow = await runLoop(document, db, 'dev-1');
     (shadow.querySelector('.fp-start-random') as HTMLElement).click();
 
     document.body.innerHTML += mc;                     // open ab12cd34 → random session forms
     await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    // A spied CB native "Next" (light DOM, like the existing list-mode onNext test) — random mode must
+    // NOT actuate it (clicking it would advance in CB LIST order, defeating the shuffle). Appended AFTER
+    // `+= mc` so the live button keeps its listener (the `+=` idiom re-parses the body and would detach a
+    // node added earlier, making the negative assertion vacuous).
+    const cbNext = document.createElement('button');
+    cbNext.textContent = 'Next';
+    const cbNextClicked = vi.fn();
+    cbNext.addEventListener('click', cbNextClicked);
+    document.body.appendChild(cbNext);
 
     const session = await getSession(db, 'SAT|Math|Algebra|Hard');
     expect(session!.orderMode).toBe('random');
