@@ -990,3 +990,95 @@ describe('content telemetry hand-off', () => {
     expect(ev.event.props.duration_bucket).toBeDefined();
   });
 });
+
+// --- Issue #31: Randomize (loaded results) — GUIDED shuffle navigation -----------------------------
+// Random mode must FOLLOW shuffleIds(loadedIds, seed) by scrolling the next row into view (the Resume
+// posture), NEVER by auto-loading or id-navigating CB (bright lines #1 & #4). It must NOT click CB's
+// native "Next" (that yields CB list order). The seed is read back from the persisted session so the
+// expected order is computed from the REAL minted seed — deterministic and seed-agnostic.
+import { shuffleIds } from '../order';
+import { readListQuestionIds } from '../cb/list-reader';
+
+// A real cb-table-react results list with MULTIPLE real-8-hex rows so shuffleIds actually permutes and
+// readListQuestionIds finds every row. ab12cd34 is the MC fixture's question id, so opening that
+// fixture forms the session over THIS loaded set. Synthetic ids only — no CB content.
+const RANDOM_LIST = `<table class="cb-table-react"><tbody>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ab12cd34</button></td></tr>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ef56ab78</button></td></tr>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">99ff00aa</button></td></tr>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">dead0001</button></td></tr>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">beef0002</button></td></tr>
+</tbody></table>`;
+
+// The <tr> node for a given id within the on-page list (the same node readListQuestionIds/scrollToResume
+// targets), so we can spy scrollIntoView on the EXACT row the extension should guide to.
+function rowFor(id: string): Element {
+  const row = readListQuestionIds(findResultsList(document)!).find((r) => r.id === id);
+  expect(row, `expected loaded row for ${id}`).toBeTruthy();
+  return row!.node;
+}
+
+describe('Issue #31 — random mode follows the shuffled order by GUIDED scrolling', () => {
+  beforeEach(() => { document.body.innerHTML = ''; history.replaceState({}, '', '/digital/results'); });
+
+  it('random START scrolls the FIRST shuffled-order row into view (computed from the persisted seed)', async () => {
+    const db = await freshDb();
+    document.body.innerHTML += RANDOM_LIST;            // loaded results present BEFORE Start
+
+    // Spy scrollIntoView on EVERY loaded row up front: we can't know which is first-in-order until the
+    // seed is minted, so we instrument all of them, then assert only the shuffled-order[0] row scrolled.
+    const loadedIds = readListQuestionIds(findResultsList(document)!).map((r) => r.id);
+    const spies = new Map(loadedIds.map((id) => [id, vi.spyOn(rowFor(id), 'scrollIntoView').mockImplementation(() => {})]));
+
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-random') as HTMLElement).click();   // RANDOM start
+
+    document.body.innerHTML += mc;                     // CB renders question ab12cd34 → session forms
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    // Read the REAL minted seed back from the persisted random session.
+    const session = await getSession(db, 'SAT|Math|Algebra|Hard');
+    expect(session!.orderMode).toBe('random');
+    expect(session!.shuffleSeed).not.toBe(0);
+    const order = shuffleIds(loadedIds, session!.shuffleSeed);
+
+    // The extension must have guided the student to the FIRST question of the shuffled order — by
+    // scrolling that row into view, never by opening it.
+    await vi.waitFor(() => expect(spies.get(order[0]!)!).toHaveBeenCalled());
+  });
+
+  it('random NEXT scrolls the NEXT shuffled-order row into view and does NOT click CB\'s native Next', async () => {
+    const db = await freshDb();
+    document.body.innerHTML += RANDOM_LIST;
+
+    const loadedIds = readListQuestionIds(findResultsList(document)!).map((r) => r.id);
+
+    // A spied CB native "Next" (light DOM, like the existing list-mode onNext test) — random mode must
+    // NOT actuate it (clicking it would advance in CB LIST order, defeating the shuffle).
+    const cbNext = document.createElement('button');
+    cbNext.textContent = 'Next';
+    const cbNextClicked = vi.fn();
+    cbNext.addEventListener('click', cbNextClicked);
+    document.body.appendChild(cbNext);
+
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-random') as HTMLElement).click();
+
+    document.body.innerHTML += mc;                     // open ab12cd34 → random session forms
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    const session = await getSession(db, 'SAT|Math|Algebra|Hard');
+    expect(session!.orderMode).toBe('random');
+    const order = shuffleIds(loadedIds, session!.shuffleSeed);
+
+    // Spy the NEXT shuffled-order row (position 1 — start guided position 0). On our Next, random mode
+    // must scroll THIS row into view, returning the student to the list to click it themselves.
+    const nextRow = rowFor(order[1]!);
+    const nextScroll = vi.spyOn(nextRow, 'scrollIntoView').mockImplementation(() => {});
+
+    (inOverlay('.fp-next') as HTMLElement).click();    // our Next, in random mode
+
+    await vi.waitFor(() => expect(nextScroll).toHaveBeenCalled());   // guided to the next shuffled row
+    expect(cbNextClicked).not.toHaveBeenCalled();                    // CB's native Next NOT actuated
+  });
+});
