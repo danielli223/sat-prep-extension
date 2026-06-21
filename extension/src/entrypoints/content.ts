@@ -8,7 +8,7 @@ import { mountHost, cardSlot } from '../ui/host';
 import { toCardVM } from '../ui/view-model';
 import {
   findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, renderVerdict, renderNeedAnswer,
-  renderStaleCard, revealRationale, type AnswerHandlers,
+  renderStaleCard, revealRationale, morphCheckToExplain, type AnswerHandlers,
 } from '../ui/answer-overlay';
 import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
@@ -383,6 +383,10 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     }));
     if (!result.graded) emit({ event: UNSCORED_FALLBACK, props: { session_id: session?.sessionId ?? '', question_id: view.id } });
     if (overlay) renderVerdict(overlay, { pick, result });   // graded===false → non-verdict state (contract §2.4)
+    // Issue #26: a real grade attempt happened (correct/wrong/ungraded) — morph the inline Check into
+    // "Explain" (relabel + reroute to the existing reveal of CB's own rationale; never a model). NOT
+    // reached on the renderNeedAnswer / renderStaleCard early-returns above.
+    if (overlay) morphCheckToExplain(overlay);
   }
 
   async function onNext(view: QuestionView): Promise<void> {

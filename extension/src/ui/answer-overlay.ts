@@ -44,14 +44,20 @@ function choiceBody(c: ChoiceVM): string {
 }
 
 function renderBody(vm: CardVM): string {
+  // The single .fp-check button (issue #26): for MC it starts hidden and is MOVED beside the selected
+  // choice on pick (see wire()); for grid there are no choice rows, so it sits beside the input and is
+  // shown from the start. Render it inside the answer body so the hidden home (mc) / visible spot
+  // (grid) is local to the answer, not the bottom actions row.
   const answerBody = vm.kind === 'mc'
     ? `<ul class="fp-choices">${vm.choices.map((c) => `
         <li class="fp-choice" data-letter="${esc(c.letter)}">
           <button class="fp-eliminate" aria-label="Cross off ${esc(c.letter)}">⊘</button>
           <button class="fp-pick"><span class="fp-letter">${esc(c.letter)}</span> ${choiceBody(c)}</button>
-        </li>`).join('')}</ul>`
+        </li>`).join('')}</ul>
+       <button class="fp-check" hidden>Check</button>`
     : `<label class="fp-gridin-label">Your answer
-         <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>`;
+         <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>
+       <button class="fp-check">Check</button>`;
   return `<div class="fp-answer">
     <div class="fp-answer-head">
       <button class="fp-overlay-close" aria-label="Close">✕</button>
@@ -59,7 +65,6 @@ function renderBody(vm: CardVM): string {
     <div class="fp-progress">${esc(vm.skill)} › ${esc(vm.difficulty)} · Q ${vm.position.index} of ${vm.position.total}</div>
     ${answerBody}
     <div class="fp-actions">
-      <button class="fp-check">Check</button>
       <button class="fp-reveal">Reveal explanation</button>
       <button class="fp-next">Next</button>
     </div>
@@ -79,12 +84,17 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
   const pickValue = () => vm.kind === 'grid'
     ? (shadow.querySelector('.fp-gridin') as HTMLInputElement)?.value.trim() ?? ''
     : pick ?? '';
+  const checkBtn = shadow.querySelector('.fp-check') as HTMLButtonElement;
   shadow.querySelectorAll('.fp-choice').forEach((li) => {
     const letter = (li as HTMLElement).dataset.letter!;
     li.querySelector('.fp-pick')!.addEventListener('click', () => {
       pick = letter;
       shadow.querySelectorAll('.fp-choice').forEach((x) => x.classList.remove('fp-selected'));
       li.classList.add('fp-selected');
+      // Issue #26: move the SINGLE Check button beside the selected answer and reveal it. appendChild
+      // re-parents the same node, so it naturally leaves any previously-selected row — never one-per-row.
+      li.appendChild(checkBtn);
+      checkBtn.hidden = false;
       h.onSelect(letter);
     });
     li.querySelector('.fp-eliminate')!.addEventListener('click', () => {
@@ -92,7 +102,11 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
     });
   });
   shadow.querySelector('.fp-overlay-close')!.addEventListener('click', () => h.onClose());
-  shadow.querySelector('.fp-check')!.addEventListener('click', () => h.onCheck(pickValue()));
+  // Single state-aware listener: default state grades the pick; once morphed to "Explain"
+  // (fp-explain present) it un-hides CB's own rationale via the existing onReveal path. No second
+  // listener — the branch is on the button's own class (invariant #3: reveal never feeds a model).
+  checkBtn.addEventListener('click', () =>
+    checkBtn.classList.contains('fp-explain') ? h.onReveal() : h.onCheck(pickValue()));
   shadow.querySelector('.fp-reveal')!.addEventListener('click', () => h.onReveal());
   shadow.querySelector('.fp-next')!.addEventListener('click', () => h.onNext());
   shadow.querySelector('.fp-note')!.addEventListener('change', (e) =>
@@ -191,6 +205,20 @@ export function revealRationale(answerContent: HTMLElement): boolean {
   return true;
 }
 
+// Issue #26: after a real grade attempt, morph the inline Check into "Explain" — a relabel + reroute
+// of the SAME button to the existing reveal path. It un-hides CB's OWN native .rationale (via the
+// onReveal handler / revealRationale); it NEVER generates or summarizes text (invariant #3). Also
+// hides the standalone .fp-reveal button so there's only one reveal control at a time (it stays in
+// the DOM — the pre-check peek path still needs it). No-op if there is no .fp-check.
+export function morphCheckToExplain(shadow: ShadowRoot): void {
+  const check = shadow.querySelector('.fp-check') as HTMLButtonElement | null;
+  if (!check) return;
+  check.textContent = 'Explain';
+  check.classList.add('fp-explain');
+  const reveal = shadow.querySelector('.fp-reveal') as HTMLButtonElement | null;
+  if (reveal) reveal.hidden = true;
+}
+
 export function renderVerdict(shadow: ShadowRoot, v: Verdict): void {
   const verdict = shadow.querySelector('.fp-verdict') as HTMLElement;
   if (!v.result.graded) {
@@ -243,6 +271,12 @@ const ANSWER_CSS = `
 .fp-gridin{display:block;width:100%;margin-top:5px;padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;font:inherit;box-sizing:border-box;}
 .fp-actions{display:flex;gap:8px;align-items:center;margin-bottom:10px;}
 .fp-check{background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:9px 18px;font-weight:700;cursor:pointer;font:inherit;}
+/* Issue #26: the inline Check sits beside the selected choice (mc) — compact, tucked to the row's
+   right edge — and beside the grid-in input (grid). Once morphed it reads "Explain" (a neutral tone,
+   it only un-hides CB's own rationale). */
+.fp-choice .fp-check{flex:none;margin-left:auto;margin-right:8px;padding:6px 14px;font-size:13px;}
+.fp-gridin-label .fp-check,.fp-gridin-label + .fp-check{margin-bottom:12px;}
+.fp-check.fp-explain{background:#f1f5f9;color:#334155;}
 .fp-reveal{background:#f1f5f9;color:#334155;border:none;border-radius:8px;padding:9px 14px;cursor:pointer;font:inherit;}
 .fp-next{margin-left:auto;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;font:inherit;}
 .fp-verdict{margin-bottom:10px;font-weight:700;}
