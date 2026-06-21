@@ -113,3 +113,58 @@ describe('readQuestion', () => {
     expect(v.choices[1]!.imgSrc).toBe('https://cb.org/b.png');
   });
 });
+
+// Issue #36: parabola questions render each answer choice as an inline <svg> graph. The choice
+// reader read raw li.textContent, leaking the SVG's <style> CSS, its <title>/<desc> a11y prose,
+// and MathJax-verbalized math into choice.text. The fix must (1) strip that noise from the text and
+// (2) surface the real graph via choice.imgSrc as a serialized data:image/svg+xml URL (the overlay
+// renders imgSrc as an inert <img>). Synthetic fixture only; no LLM, no CB network.
+describe('readQuestion — inline-SVG (parabola) answer choices [issue #36]', () => {
+  it('reads four lettered choices A–D from the SVG-choice fixture', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    expect(v.choices).toHaveLength(4);
+    expect(v.choices.map((c) => c.letter)).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('does NOT leak the SVG <style> CSS into choice.text', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    for (const c of v.choices) {
+      expect(c.text).not.toContain('stroke-linecap');
+      expect(c.text).not.toContain('*{');
+    }
+  });
+
+  it('does NOT leak the <desc>/<title> graph prose or verbalized math into choice.text', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    for (const c of v.choices) {
+      expect(c.text).not.toContain('The parabola opens upward');
+      expect(c.text).not.toContain('StartFraction');
+      expect(c.text).not.toContain('EndFraction');
+    }
+  });
+
+  it('surfaces each inline-SVG graph as a data:image/svg+xml imgSrc', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    for (const c of v.choices) {
+      expect(c.imgSrc).toBeDefined();
+      expect(c.imgSrc!).toMatch(/^data:image\/svg\+xml/);
+    }
+  });
+
+  it('strips inert <script> nodes out of the serialized SVG imgSrc (safety)', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    for (const c of v.choices) {
+      // Safety is only meaningful once the graph is actually surfaced as a data: URL.
+      expect(c.imgSrc).toBeDefined();
+      const imgSrc = c.imgSrc!;
+      // The serialized SVG (raw or URL/base64-encoded) must never carry a <script> element.
+      expect(imgSrc).not.toContain('<script');
+      expect(decodeURIComponent(imgSrc)).not.toContain('<script');
+    }
+  });
+
+  it('still reads the correct answer from the rationale', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    expect(v.correctAnswer).toBe('B');
+  });
+});

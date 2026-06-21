@@ -1,0 +1,84 @@
+<!-- SYNTHETIC fixture for inline-SVG answer choices (parabola graphs), calibrated to mirror the
+     LIVE CB Educator Question Bank DOM. Some CB Math questions render each choice as an inline
+     SVG graph rather than text. That SVG carries a CSS style block plus title/desc accessibility
+     prose (with MathJax-verbalized math), all of which leak into li.textContent today.
+     Structure is real; ALL graph descriptions/prose are fabricated and marked [SYNTHETIC].
+     Never commit real CB question text. -->
+<div role="dialog" class="cb-modal-container export-modal-container">
+  <div class="cb-dialog-container">
+    <div class="cb-dialog-header">
+      <h4 class="cb-roboto cb-font-weight-black">Question ID: a1b2c3d4</h4>
+      <button class="cb-btn cb-btn-square"><span class="sr-only">Copy</span></button>
+    </div>
+    <div class="cb-dialog-content">
+      <div class="question-info">
+        <div class="question-detail-info">
+          <div class="question-banner">
+            <table class="cb-table">
+              <tbody>
+                <tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>
+                <tr><td>SAT</td><td>Math</td><td>Algebra</td><td>Linear and quadratic graphs</td><td>Medium</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="row">
+          <div class="question-content col-xs-12">
+            <h5 class="text">Math</h5>
+            <div class="question">Which graph represents the given parabola? [SYNTHETIC]</div>
+          </div>
+          <div class="answer-content col-xs-12">
+            <!-- CB renders each choice as an inline SVG parabola graph. The list item has no real
+                 text nodes; its only "text" is leaked CSS (style block) and a11y prose (title/desc). -->
+            <div class="answer-choices">
+              <ul>
+                <li>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                    <style>*{stroke-linecap:butt;stroke-linejoin:round;}</style>
+                    <title>Graph A [SYNTHETIC]</title>
+                    <desc>The parabola opens upward. The vertex is at the point (1 comma 1). It passes through StartFraction 31 Over 10 EndFraction on the y axis. [SYNTHETIC]</desc>
+                    <path d="M10 90 Q50 10 90 90" fill="none" stroke="black" />
+                    <circle cx="50" cy="50" r="2" />
+                  </svg>
+                </li>
+                <li>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                    <style>*{stroke-linecap:butt;stroke-linejoin:round;}</style>
+                    <title>Graph B [SYNTHETIC]</title>
+                    <desc>The parabola opens upward. The vertex is at the point (2 comma 2). It passes through StartFraction 17 Over 5 EndFraction on the y axis. [SYNTHETIC]</desc>
+                    <path d="M10 80 Q50 20 90 80" fill="none" stroke="black" />
+                    <circle cx="50" cy="40" r="2" />
+                    <!-- CB SVGs can carry inert script-ish nodes; the reader must strip these before serializing. -->
+                    <script>/* inert [SYNTHETIC] */ void 0;</script>
+                  </svg>
+                </li>
+                <li>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                    <style>*{stroke-linecap:butt;stroke-linejoin:round;}</style>
+                    <title>Graph C [SYNTHETIC]</title>
+                    <desc>The parabola opens upward. The vertex is at the point (3 comma 3). It passes through StartFraction 22 Over 7 EndFraction on the y axis. [SYNTHETIC]</desc>
+                    <path d="M10 70 Q50 30 90 70" fill="none" stroke="black" />
+                    <line x1="0" y1="60" x2="100" y2="60" />
+                  </svg>
+                </li>
+                <li>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                    <style>*{stroke-linecap:butt;stroke-linejoin:round;}</style>
+                    <title>Graph D [SYNTHETIC]</title>
+                    <desc>The parabola opens upward. The vertex is at the point (4 comma 4). It passes through StartFraction 9 Over 4 EndFraction on the y axis. [SYNTHETIC]</desc>
+                    <path d="M10 60 Q50 40 90 60" fill="none" stroke="black" />
+                    <circle cx="50" cy="30" r="2" />
+                  </svg>
+                </li>
+              </ul>
+            </div>
+            <div class="rationale">
+              <p class="cb-margin-bottom-16 cb-font-weight-bold">Correct Answer: B</p>
+              <div>Match the vertex to the given form. [SYNTHETIC]</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
