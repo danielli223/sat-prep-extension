@@ -58,7 +58,6 @@ const BASE_CSS = `
   border-bottom:1px solid #e5e7eb;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#475569;}
 .fp-geogebra-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:26px;height:26px;cursor:pointer;font-size:12px;line-height:1;}
 .fp-geogebra-frame{flex:1;width:100%;border:0;}
-.fp-onboarding{font-size:12px;color:#0c4a6e;line-height:1.5;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px;margin-bottom:14px;}
 .fp-start-title{font-size:17px;margin:0 0 12px;color:#0f172a;}
 .fp-start>button{display:block;width:100%;margin-bottom:8px;padding:11px;border-radius:9px;border:1px solid #cbd5e1;
   background:#fff;cursor:pointer;font:inherit;font-weight:600;color:#0f172a;}
