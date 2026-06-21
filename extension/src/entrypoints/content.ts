@@ -4,7 +4,7 @@ import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
 import { observeQuestions, observeQuestionPresence, QUESTION_MODAL_SELECTOR } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
-import { mountHost, cardSlot, HOST_ID } from '../ui/host';
+import { mountHost, cardSlot, HOST_ID, stopPointerPropagation } from '../ui/host';
 import { toCardVM } from '../ui/view-model';
 import {
   findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, mountCurtain, renderVerdict,
@@ -187,8 +187,9 @@ export async function guardedStart(doc: Document, runner: () => Promise<void>): 
   // isEnabled() fetches OUR config host only (never CB) — so a takedown flag wins over a block, and
   // the §8.3 "never call the API" rule is intact: the only network here is to our own kill-switch.
   if (!(await isEnabled())) { emit({ event: KILLSWITCH_ACTIVATED, props: {} }); return; } // §2.5: hosted kill-switch off
-  if (detectBlock(doc) !== null) {                  // §8.3: CB block — pure DOM read, no network
-    emit({ event: BLOCK_DETECTED, props: { block_reason: detectBlock(doc) ?? 'forbidden' } });
+  const block = detectBlock(doc);                   // §8.3: CB block — pure DOM read, no network
+  if (block !== null) {
+    emit({ event: BLOCK_DETECTED, props: { block_reason: block } });
     renderBlockNotice(mountHost(doc));              // disable AND point the student to CB
     return;
   }
@@ -243,8 +244,6 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   let sessionStartMs = 0;
   let attempted = 0;
   let correct = 0;
-
-  const revealedFor = (id: string) => revealedIds.has(id);
 
   // session_ended fires once, when the page goes away (pagehide), if a session was active this sitting.
   // pagehide is the reliable MV3/bfcache-safe teardown signal (unload is unreliable). Best-effort emit.
@@ -420,7 +419,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     }
     emit(buildQuestionAttempted({
       sessionId: session?.sessionId ?? '', questionId: view.id, choicesLength: view.choices.length,
-      result, revealUsed: revealedFor(view.id), section: view.section, domain: view.domain,
+      result, revealUsed: revealedIds.has(view.id), section: view.section, domain: view.domain,
       skill: view.skill, difficulty: view.difficulty,
     }));
     if (!result.graded) emit({ event: UNSCORED_FALLBACK, props: { session_id: session?.sessionId ?? '', question_id: view.id } });
@@ -532,9 +531,7 @@ export function mountStatsWidget(doc: Document, onOpen: () => void = () => {}): 
   // (host.ts). CB closes its open question modal on an outside pointer-down/click, so a real click here
   // would bubble to the document and trip that close, dismissing the open problem page (reported
   // 2026-06-18). Swallow our own pointer events at the button, exactly as the host does for the overlay.
-  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
-    btn.addEventListener(t, (e) => e.stopPropagation());
-  }
+  stopPointerPropagation(btn);
   btn.addEventListener('click', onOpen);   // stopPropagation above stops the BUBBLE, not our own handler
   doc.body.appendChild(btn);
   return btn;

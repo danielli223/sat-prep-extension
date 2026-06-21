@@ -8,7 +8,6 @@ export const PRACTICE_RESUMED = 'practice_resumed';
 export const NOTE_ADDED = 'note_added';
 export const CALCULATOR_OPENED = 'calculator_opened';
 export const JOURNAL_OPENED = 'journal_opened';
-export const BADGE_CLICKED = 'badge_clicked';
 export const SESSION_ENDED = 'session_ended';
 export const DOM_CONTRACT_FAILED = 'dom_contract_failed';
 export const UNSCORED_FALLBACK = 'unscored_fallback';

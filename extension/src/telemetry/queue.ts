@@ -1,14 +1,12 @@
 import { sendBatch, type QueuedEvent } from './transport';
+import { getLocal } from '../storage';
 
 export const QUEUE_KEY = 'telemetry.queue';
 const MAX_QUEUE = 500; // backstop so an offline device can't grow storage unbounded
 
 export async function readQueue(): Promise<QueuedEvent[]> {
-  try {
-    const g = await chrome.storage.local.get(QUEUE_KEY);
-    const q = (g as Record<string, unknown>)[QUEUE_KEY];
-    return Array.isArray(q) ? (q as QueuedEvent[]) : [];
-  } catch { return []; }
+  const q = await getLocal<unknown>(QUEUE_KEY);
+  return Array.isArray(q) ? (q as QueuedEvent[]) : [];
 }
 
 async function writeQueue(q: QueuedEvent[]): Promise<void> {
