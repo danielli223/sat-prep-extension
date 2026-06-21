@@ -38,10 +38,24 @@ Educator overlay unaffected (predicate true on `/digital/*`; educator tests gree
 `/dashboard`/`/login`, on `/questionbank/*`; broadened allowlist still strict; idempotent activate +
 teardown; no bright line; scope = 3 manifests + content.ts + packaging.test.
 
-## Step 4 — live verify (human-gated, real gate)
+## Two corrections found during review/verify (both genuine, both caught here)
 
-`/verify-overlay`: log out → log in → overlay appears on `/questionbank/results` **without** a hard
-reload; UI **absent** on `/dashboard`; **educator** bank still mounts/grades (no regression). Content-free.
+1. **SPA detection (checker, round 1→2):** the first cut patched `history.pushState` from the content
+   script — dead code in the isolated world (it never sees the page's main-world router calls), same trap
+   as [[cb-react-isolated-world-reveal]]. Replaced with an always-on `location.href` poller
+   (`checkForRouteChange`, ~400ms) + `popstate`; `location` *is* shared across worlds.
+2. **Lingering-UI race (live verify, round 2→3):** the poller was href-change-gated and baselined at
+   `/login` when CB's auth redirect beat the first tick → `teardown` never fired → the Journal toggle
+   lingered on `/login` (an expired-session student hitting a `/questionbank` bookmark). Fixed by making
+   the poll **reconcile by QB-status** every tick (`isQuestionBankPage(location)` vs the active state) —
+   timing-independent. Locked by a regression test that reproduces the race; verified live (UI gone on
+   `/login`).
+
+## Step 4 — live verify (human-gated, real gate) — DONE 2026-06-20, all green
+
+`/verify-overlay` on the real student bank (content-free): ✅ after login the overlay activates on
+`/questionbank/*` with **no hard reload**; ✅ UI **absent** on `/login` and `/dashboard`; ✅ **educator**
+bank still boots (no regression).
 
 ## Sequencing
 
