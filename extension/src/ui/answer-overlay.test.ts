@@ -51,7 +51,7 @@ describe('renders interactive UI', () => {
     expect(checked).toBe('42');
   });
 
-  it('wires the remaining controls to their handlers', () => {
+  it('wires the remaining controls to their handlers (interaction shadow + extras shadow)', () => {
     const ac = cbAnswerContent();
     const calls: string[] = [];
     const shadow = mountAnswerOverlay(ac, vm, { ...noop(),
@@ -59,13 +59,20 @@ describe('renders interactive UI', () => {
       onNext: () => calls.push('next'), onClose: () => calls.push('close'),
       onToggleCalc: () => calls.push('calc'), onOpenDesmos: () => calls.push('desmos'),
       onNote: (t) => calls.push('note:' + t) });
+    // Choices / actions / close stay in the RETURNED (interaction) shadow.
     (shadow.querySelector('.fp-choice[data-letter="A"] .fp-eliminate') as HTMLElement).click();
     (shadow.querySelector('.fp-reveal') as HTMLElement).click();
     (shadow.querySelector('.fp-next') as HTMLElement).click();
     (shadow.querySelector('.fp-overlay-close') as HTMLElement).click();
-    (shadow.querySelector('.fp-calc-pin') as HTMLElement).click();
-    (shadow.querySelector('.fp-desmos') as HTMLElement).click();
-    const note = shadow.querySelector('.fp-note') as HTMLTextAreaElement;
+    // Note / Calculator / Desmos now live in the SEPARATE extras shadow (the LAST direct child).
+    const extras = (ac.querySelector('.fp-extras-host') as HTMLElement).shadowRoot!;
+    // They must NOT also be present in the returned interaction shadow after the split.
+    expect(shadow.querySelector('.fp-note')).toBeNull();
+    expect(shadow.querySelector('.fp-calc-pin')).toBeNull();
+    expect(shadow.querySelector('.fp-desmos')).toBeNull();
+    (extras.querySelector('.fp-calc-pin') as HTMLElement).click();
+    (extras.querySelector('.fp-desmos') as HTMLElement).click();
+    const note = extras.querySelector('.fp-note') as HTMLTextAreaElement;
     note.value = '  forgot to distribute  ';
     note.dispatchEvent(new Event('change'));
     expect(calls).toEqual(['eliminate','reveal','next','close','calc','desmos','note:forgot to distribute']);
@@ -73,21 +80,52 @@ describe('renders interactive UI', () => {
 });
 
 describe('mountAnswerOverlay', () => {
-  it('mounts a shadow host inside .answer-content and hides CB\'s native choices (whitelist: everything but our host)', () => {
+  it('mounts a shadow host inside .answer-content and hides CB\'s native choices (whitelist: everything but our hosts)', () => {
     const ac = cbAnswerContent();
     const shadow = mountAnswerOverlay(ac, vm, noop());
     expect(ac.querySelector('.fp-answer-host')!.shadowRoot).toBe(shadow);
-    // Whitelist masking: every CB direct child is hidden; our host is the only visible one.
+    // Whitelist masking: every CB direct child is hidden; BOTH of our hosts stay visible.
     expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
     expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('none');
     expect((ac.querySelector('.fp-answer-host') as HTMLElement).style.display).toBe('');
+    // The extras host (note + calc, appended last) must be exempt from the sweep too.
+    expect((ac.querySelector('.fp-extras-host') as HTMLElement).style.display).toBe('');
   });
 
-  it('re-mounting reuses the single host (no duplicate overlays)', () => {
+  it('places the extras host AFTER CB\'s .rationale in DOM order (the whole point: note/calc render below the explanation), before and after reveal', () => {
+    const ac = cbAnswerContent();
+    mountAnswerOverlay(ac, vm, noop());
+    const rationale = ac.querySelector('.rationale') as HTMLElement;
+    const extras = ac.querySelector('.fp-extras-host') as HTMLElement;
+    // Both are direct children of .answer-content.
+    expect(extras.parentElement).toBe(ac);
+    expect(rationale.parentElement).toBe(ac);
+    // Extras follows the rationale in document order — structural, independent of reveal state.
+    expect(rationale.compareDocumentPosition(extras) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Revealing the rationale does not change the relative order.
+    revealRationale(ac);
+    expect(rationale.compareDocumentPosition(extras) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // And the interaction host stays the FIRST child, before the rationale.
+    const answerHost = ac.querySelector('.fp-answer-host') as HTMLElement;
+    expect(answerHost.compareDocumentPosition(rationale) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('the extras shadow holds the note textarea + prompt (the note is kept, not removed)', () => {
+    const ac = cbAnswerContent();
+    mountAnswerOverlay(ac, vm, noop());
+    const extras = (ac.querySelector('.fp-extras-host') as HTMLElement).shadowRoot!;
+    expect(extras.querySelector('.fp-note')).not.toBeNull();
+    expect(extras.querySelector('.fp-note-label')!.textContent).toContain('Why did you miss it?');
+    expect(extras.querySelector('.fp-calc-pin')).not.toBeNull();
+    expect(extras.querySelector('.fp-desmos')).not.toBeNull();
+  });
+
+  it('re-mounting reuses both hosts (no duplicate overlays)', () => {
     const ac = cbAnswerContent();
     mountAnswerOverlay(ac, vm, noop());
     mountAnswerOverlay(ac, vm, noop());
     expect(ac.querySelectorAll('.fp-answer-host')).toHaveLength(1);
+    expect(ac.querySelectorAll('.fp-extras-host')).toHaveLength(1);
   });
 
   it('hides a CB node injected AFTER mount via the MutationObserver (async-injected .rationale leak)', async () => {
@@ -116,7 +154,7 @@ describe('mountAnswerOverlay', () => {
 });
 
 describe('unmountAnswerOverlay', () => {
-  it('restores the CB nodes WE hid and removes the host (no blanked CB question on teardown)', () => {
+  it('restores the CB nodes WE hid and removes BOTH hosts (no blanked CB question on teardown)', () => {
     const ac = cbAnswerContent();
     mountAnswerOverlay(ac, vm, noop());
     expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
@@ -124,7 +162,8 @@ describe('unmountAnswerOverlay', () => {
 
     unmountAnswerOverlay(ac);
 
-    expect(ac.querySelector('.fp-answer-host')).toBeNull();                          // our host gone
+    expect(ac.querySelector('.fp-answer-host')).toBeNull();                          // interaction host gone
+    expect(ac.querySelector('.fp-extras-host')).toBeNull();                          // extras host gone
     expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('');  // CB content back
     expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('');
     // Our marker is cleared so a later re-mount + re-teardown stays correct.
