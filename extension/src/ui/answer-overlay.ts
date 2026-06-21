@@ -13,6 +13,10 @@ const HOST_CLASS = 'fp-answer-host';
 // Marker on the CB-native nodes WE hid, so teardown restores exactly those (and never un-hides a node
 // CB itself had hidden). Also lets the MutationObserver and revealRationale find our own work.
 const HIDDEN_ATTR = 'data-fp-hidden';
+// Marker on a CB-native node we DELIBERATELY revealed + repositioned (the rationale, on reveal). The
+// masking observer treats the move as an addedNode and would re-hide it; this flags "hands off — the
+// student asked to see this" so hideCbNode skips it. Only the explicitly-revealed node is exempt.
+const REVEALED_ATTR = 'data-fp-revealed';
 
 // One MutationObserver per .answer-content, keyed by the container so re-mount can disconnect the
 // previous one (no stacked observers across CB's in-place re-renders). WeakMap → GC'd with the node.
@@ -27,6 +31,7 @@ export function findAnswerContent(modal: Element): HTMLElement | null {
 // Idempotent: re-hiding a node we already marked is a no-op.
 function hideCbNode(el: HTMLElement): void {
   if (el.classList.contains(HOST_CLASS)) return;   // never touch our own host
+  if (el.hasAttribute(REVEALED_ATTR)) return;      // a deliberate reveal/move — observer must not re-hide it
   if (el.hasAttribute(HIDDEN_ATTR)) return;
   el.setAttribute(HIDDEN_ATTR, '');
   el.style.display = 'none';
@@ -168,9 +173,12 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
 export function unmountAnswerOverlay(answerContent: HTMLElement): void {
   hideObservers.get(answerContent)?.disconnect();
   hideObservers.delete(answerContent);
-  for (const el of Array.from(answerContent.querySelectorAll<HTMLElement>(`[${HIDDEN_ATTR}]`))) {
+  // Restore both the nodes WE hid and the one we deliberately revealed, clearing both markers so a
+  // later re-mount + re-teardown starts from a clean slate.
+  for (const el of Array.from(answerContent.querySelectorAll<HTMLElement>(`[${HIDDEN_ATTR}],[${REVEALED_ATTR}]`))) {
     el.style.display = '';
     el.removeAttribute(HIDDEN_ATTR);
+    el.removeAttribute(REVEALED_ATTR);
   }
   answerContent.querySelector('.fp-answer-host')?.remove();
 }
@@ -186,6 +194,14 @@ export function revealRationale(answerContent: HTMLElement): boolean {
   const r = Array.from(answerContent.children)
     .find((c) => c.classList.contains('rationale')) as HTMLElement | undefined;
   if (!r) return false;
+  // #20: move CB's explanation ABOVE our interaction host so it renders directly under the question —
+  // co-visible with our (tall) UI rather than buried below it. Reposition CB's own node; never copy
+  // its text into our shadow root. The move is a childList mutation, so flag REVEALED_ATTR before
+  // un-hiding so the masking observer's hideCbNode doesn't re-hide this deliberate reveal.
+  const host = Array.from(answerContent.children)
+    .find((c) => c.classList.contains(HOST_CLASS)) as HTMLElement | undefined;
+  if (host && r.nextSibling !== host) answerContent.insertBefore(r, host);
+  r.setAttribute(REVEALED_ATTR, '');
   r.style.display = '';
   r.removeAttribute(HIDDEN_ATTR);
   return true;
