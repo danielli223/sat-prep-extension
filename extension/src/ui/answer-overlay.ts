@@ -177,14 +177,24 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
   // ordering, the async .rationale injection that lands at ~the same time as the debounced re-mount
   // intermittently leaked through the disconnect gap — live-race flake.)
   hideObservers.get(answerContent)?.disconnect();
+  const reanchorTo = extrasHost;   // capture for the observer closure (moving it preserves its shadow + wiring)
   const observer = new MutationObserver((records) => {
+    let cbNodeAdded = false;
     for (const rec of records) {
       for (const node of Array.from(rec.addedNodes)) {
         // childList (non-subtree) only reports direct children; guard is belt-and-suspenders — do NOT add subtree:true (would hide CB's nested nodes)
         if (node.nodeType === 1 && (node as Element).parentElement === answerContent) {
-          hideCbNode(node as HTMLElement);
+          const el = node as HTMLElement;
+          if (isOurHost(el)) continue;   // our own host (e.g. the re-anchor move below) — ignore, no re-anchor (prevents an infinite observer loop)
+          hideCbNode(el);
+          cbNodeAdded = true;
         }
       }
+    }
+    // Keep the extras host LAST so it stays BELOW any CB node injected after mount — critically CB's
+    // async .rationale (~150ms), which lands as a fresh last child AFTER our mount-time append (issue #22).
+    if (cbNodeAdded && answerContent.lastElementChild !== reanchorTo) {
+      answerContent.appendChild(reanchorTo);
     }
   });
   observer.observe(answerContent, { childList: true });
