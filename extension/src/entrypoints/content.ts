@@ -201,6 +201,12 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   // overlay host from .answer-content directly, leaving CB's own question intact.
   const shadow = mountHost(doc);
 
+  // Issue #28: snapshot the seen-before map ONCE, up front, from the student's own attempt journal
+  // (a pure READ — no new persisted field). Held stable for the whole sitting so the badge doesn't
+  // flicker across CB's in-place re-renders; a question answered THIS session reads its pre-session
+  // status until the next sitting.
+  const priorSeen = await getSeen(db);
+
   // Probe an already-present question so the start panel can offer Resume when a session exists.
   let probedFilter: string | null = null;
   const probeStop = observeQuestions(doc, (v) => { probedFilter ??= filterContextOf(v); });
@@ -344,7 +350,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     let mounted = false;   // set inside the thunk; stays false on the degrade path (contract failed)
     void handleQuestion(shadow, view, () => {
       mounted = true;
-      mountAnswerOverlay(answerContent, toCardVM(view, index, total), handlers);
+      mountAnswerOverlay(answerContent, toCardVM(view, index, total, priorSeen[view.id] ?? 'new'), handlers);
       // Trigger CB's reveal ONLY after the overlay is mounted (S1): so (a) a failed contract never
       // reveals CB's answer un-masked, and (b) the hide-observer installed by mount is live BEFORE CB
       // injects .rationale (~150ms later) → the late node gets hidden, not leaked inline. Scoring

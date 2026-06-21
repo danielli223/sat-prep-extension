@@ -39,6 +39,15 @@ describe('toCardVM', () => {
     expect(toCardVM({ ...mc, correctAnswer: null }, 0, 1).answerKnown).toBe(false);
   });
 
+  it('threads the 4th priorStatus arg into the VM (issue #28 seen-before indicator)', () => {
+    expect(toCardVM(mc, 0, 10, 'missed').priorStatus).toBe('missed');
+    expect(toCardVM(mc, 0, 10, 'done').priorStatus).toBe('done');
+  });
+
+  it('defaults priorStatus to "new" when the 4th arg is omitted', () => {
+    expect(toCardVM(mc, 0, 10).priorStatus).toBe('new');
+  });
+
   it('threads a choice math AST through (RAM-only, like imgSrc)', () => {
     const math: MathNode = { kind: 'frac', num: { kind: 'text', value: '1' }, den: { kind: 'text', value: 'x' } };
     const withMath: QuestionView = {
