@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard, maskAnswerContent, mountCurtain } from './answer-overlay';
 import { score } from '../scoring';
 import type { CardVM } from './view-model';
+import type { MathNode } from '../cb/reader';
 
 const vm: CardVM = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear', difficulty: 'Hard',
@@ -329,6 +330,102 @@ it('escapes hostile choice text — no live <img>/<script> reaches the shadow (e
   expect(shadow.querySelector('.fp-choice i')).toBeNull();
   // The hostile choice text survives as TEXT (escaped), so it's visible/inert, not dropped:
   expect(shadow.querySelector('.fp-choice[data-letter="A"]')!.textContent).toContain('<img src=x onerror=steal()>');
+});
+
+describe('faithful math rendering in choices (#35)', () => {
+  const t = (value: string): MathNode => ({ kind: 'text', value });
+  // w = (−150v) / x
+  const fracMath: MathNode = {
+    kind: 'row',
+    items: [
+      t('w'), t('='),
+      { kind: 'frac', num: { kind: 'row', items: [t('−'), t('150'), t('v')] }, den: t('x') },
+    ],
+  };
+  // m^4 q^20 z^-3
+  const supMath: MathNode = {
+    kind: 'row',
+    items: [
+      { kind: 'sup', base: t('m'), sup: t('4') },
+      { kind: 'sup', base: t('q'), sup: t('20') },
+      { kind: 'sup', base: t('z'), sup: t('-3') },
+    ],
+  };
+
+  it('renders a fraction choice as .fp-frac with .fp-frac-num and .fp-frac-den (the bar/structure survives)', () => {
+    const ac = cbAnswerContent();
+    const mathVm: CardVM = { ...vm, choices: [
+      { letter: 'A', text: 'w=-150v/x', math: fracMath },
+      { letter: 'B', text: '5' },
+    ] };
+    const shadow = mountAnswerOverlay(ac, mathVm, noop());
+    const a = shadow.querySelector('.fp-choice[data-letter="A"]')!;
+    const frac = a.querySelector('.fp-frac');
+    expect(frac).not.toBeNull();
+    expect(frac!.querySelector('.fp-frac-num')!.textContent).toContain('150');
+    expect(frac!.querySelector('.fp-frac-den')!.textContent).toContain('x');
+    // The leading minus is rendered, not dropped/garbled.
+    expect(frac!.querySelector('.fp-frac-num')!.textContent).toMatch(/[−-]/);
+  });
+
+  it('renders an exponent choice with a <sup> (superscript survives)', () => {
+    const ac = cbAnswerContent();
+    const mathVm: CardVM = { ...vm, choices: [
+      { letter: 'A', text: 'm4q20z-3', math: supMath },
+      { letter: 'B', text: '5' },
+    ] };
+    const shadow = mountAnswerOverlay(ac, mathVm, noop());
+    const a = shadow.querySelector('.fp-choice[data-letter="A"]')!;
+    const sups = a.querySelectorAll('sup');
+    expect(sups.length).toBeGreaterThanOrEqual(3);
+    expect([...sups].map((s) => s.textContent)).toContain('20');
+  });
+
+  it('XSS: a hostile text value inside a math AST is ESCAPED — no live <img onerror>/<script> reaches the shadow', () => {
+    const ac = cbAnswerContent();
+    const hostile: MathNode = {
+      kind: 'row',
+      items: [
+        { kind: 'text', value: '<img src=x onerror=alert(1)>' },
+        { kind: 'frac', num: { kind: 'text', value: '<script>steal()</script>' }, den: { kind: 'text', value: '"\'>x' } },
+      ],
+    };
+    const mathVm: CardVM = { ...vm, choices: [
+      { letter: 'A', text: 'safe', math: hostile },
+      { letter: 'B', text: '5' },
+    ] };
+    const shadow = mountAnswerOverlay(ac, mathVm, noop());
+    // No executable / markup nodes were created from the hostile strings.
+    expect(shadow.querySelector('img')).toBeNull();
+    expect(shadow.querySelector('script')).toBeNull();
+    // The hostile markup survives only as INERT escaped text (visible, not executed).
+    const a = shadow.querySelector('.fp-choice[data-letter="A"]')!;
+    expect(a.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(a.textContent).toContain('<script>steal()</script>');
+    // Our own structural tags ARE present (proves the math path ran, not a plain-text fallback).
+    expect(a.querySelector('.fp-frac')).not.toBeNull();
+  });
+
+  it('regression: a choice with NO math still renders plain escaped text (unchanged)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    const a = shadow.querySelector('.fp-choice[data-letter="A"]')!;
+    expect(a.querySelector('.fp-frac')).toBeNull();
+    expect(a.querySelector('sup')).toBeNull();
+    expect(a.textContent).toContain('3');
+  });
+
+  it('regression: an image choice still renders <img> (math path does not interfere)', () => {
+    const ac = cbAnswerContent();
+    const imgVm: CardVM = { ...vm, choices: [
+      { letter: 'A', text: '', imgSrc: 'https://example-cb.org/img/choice-a.png' },
+      { letter: 'B', text: '5' },
+    ] };
+    const shadow = mountAnswerOverlay(ac, imgVm, noop());
+    const img = shadow.querySelector('.fp-choice[data-letter="A"] img.fp-choice-img') as HTMLImageElement;
+    expect(img).not.toBeNull();
+    expect(img.getAttribute('src')).toBe('https://example-cb.org/img/choice-a.png');
+  });
 });
 
 // Issue #2 — answer choices were rendered with the answer text as a loose text node directly

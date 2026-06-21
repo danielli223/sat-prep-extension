@@ -1,5 +1,6 @@
 import { html } from './host';
 import type { CardVM, ChoiceVM } from './view-model';
+import type { MathNode } from '../cb/reader';
 import type { ScoreResult } from '../scoring';
 
 export interface AnswerHandlers {
@@ -41,10 +42,26 @@ const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+// Render a neutral math AST (issue #35) into OUR OWN tags. esc() runs on every text value — this is
+// the sole XSS boundary (host.ts's TrustedTypes policy is identity, no sanitization). We never emit
+// CB markup; only our own structural tags carry the AST's structure.
+function renderMath(n: MathNode): string {
+  switch (n.kind) {
+    case 'text': return esc(n.value);
+    case 'row': return n.items.map(renderMath).join('');
+    case 'sup': return `${renderMath(n.base)}<sup>${renderMath(n.sup)}</sup>`;
+    case 'sub': return `${renderMath(n.base)}<sub>${renderMath(n.sub)}</sub>`;
+    case 'subsup': return `${renderMath(n.base)}<sub>${renderMath(n.sub)}</sub><sup>${renderMath(n.sup)}</sup>`;
+    case 'frac': return `<span class="fp-frac"><span class="fp-frac-num">${renderMath(n.num)}</span><span class="fp-frac-den">${renderMath(n.den)}</span></span>`;
+    case 'sqrt': return `<span class="fp-sqrt"><span class="fp-sqrt-rad">${renderMath(n.radicand)}</span></span>`;
+  }
+}
+
 function choiceBody(c: ChoiceVM): string {
   if (c.imgSrc) {
     return `<img src="${esc(c.imgSrc)}" alt="${esc(c.text || c.letter)}" class="fp-choice-img" />`;
   }
+  if (c.math) return renderMath(c.math);
   return esc(c.text);
 }
 
@@ -289,6 +306,13 @@ const ANSWER_CSS = `
 .fp-choice .fp-letter{flex:none;font-weight:700;}
 .fp-choice .fp-choice-text{flex:1;min-width:0;}
 .fp-choice-img{max-height:2.5em;width:auto;vertical-align:middle;}
+/* faithful math (#35): stacked fraction with a bar, and a radical with an overline */
+.fp-frac{display:inline-flex;flex-direction:column;text-align:center;vertical-align:middle;margin:0 .15em;line-height:1.1;}
+.fp-frac-num{padding:0 .25em;}
+.fp-frac-den{padding:0 .25em;border-top:1px solid currentColor;}
+.fp-sqrt{display:inline-flex;align-items:flex-start;}
+.fp-sqrt::before{content:"\\221A";margin-right:.05em;}
+.fp-sqrt-rad{border-top:1px solid currentColor;padding:0 .15em;}
 .fp-choice.fp-selected{border:2px solid #3b82f6;background:#eff6ff;}
 .fp-choice.fp-selected .fp-pick::after{content:"selected";flex:none;margin-left:auto;font-size:9px;color:#3b82f6;font-weight:700;align-self:center;}
 .fp-choice.fp-eliminated .fp-pick{color:#9ca3af;text-decoration:line-through;}
