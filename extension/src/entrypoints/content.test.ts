@@ -578,7 +578,7 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
 });
 
 // --- Plan 3 additions (badger + panel toggle + coachmark + resume) ---
-import { refreshBadges, mountPanelToggle, bindPanelCoachmarks, resumeFor, handleMessage, findResultsList, watchResultsList } from './content';
+import { refreshBadges, mountPanelToggle, resumeFor, handleMessage, findResultsList, watchResultsList } from './content';
 import { HOST_ID } from '../ui/host';
 import { recordAttempt, saveSession } from '../store';
 import { makeAttempt, makeSession } from '../model';
@@ -635,21 +635,6 @@ describe('content wiring (Plan 3)', () => {
     document.removeEventListener('pointerdown', onDocPointerdown);
     document.removeEventListener('mousedown', onDocMousedown);
     document.removeEventListener('click', onDocClick);
-  });
-
-  it('bindPanelCoachmarks: clicking a Practice link drops a coachmark whose confirm re-badges', async () => {
-    const db = await freshDb();
-    document.body.innerHTML = LIST;
-    const hostEl = document.createElement('div'); document.body.appendChild(hostEl);
-    const host = hostEl.attachShadow({ mode: 'open' });
-    host.innerHTML = '<a class="fp-practice-link" data-skill="Inferences" href="#">Practice Inferences on CB</a>';
-
-    bindPanelCoachmarks(host, db, document.querySelector('.results-page')!);
-    (host.querySelector('a.fp-practice-link') as HTMLElement).click();
-    const mark = host.querySelector('.fp-coachmark')!;
-    expect(mark.textContent).toContain('Inferences');             // coachmark names the skill to filter
-    (host.querySelector('.fp-coachmark-confirm') as HTMLElement).click();
-    expect(document.querySelectorAll('.fp-badge').length).toBe(2); // confirm re-ran the badger (highlight)
   });
 
   it('resumeFor reads getSession and scrolls to lastQuestionId (contract §2.3)', async () => {
@@ -710,22 +695,20 @@ describe('content wiring against the LIVE cb-table-react DOM (no .results-page w
     expect(chips[1]!.getAttribute('data-state')).toBe('new');      // ef56ab78 unseen
   });
 
-  it('handleMessage renders the panel and binds a real .fp-practice-link → coachmark → re-badge', async () => {
+  it('handleMessage mounts the panel with NO dead .fp-practice-link / coachmark hand-off (#33)', async () => {
     const db = await freshDb();
-    // One missed attempt → a weak-area row is rendered with a real a.fp-practice-link for its skill.
+    // One missed attempt → a weak-area row IS rendered for its skill; #33 just strips the dead links.
     await recordAttempt(db, makeAttempt({ deviceId: 'd', questionId: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Inferences', difficulty: 'Hard', pick: 'B', correct: false }));
     document.body.innerHTML = LIVE_LIST;
 
-    await handleMessage(db, { type: 'open-journal' });   // mounts panel AND binds its coachmark links
+    await handleMessage(db, { type: 'open-journal' });   // mounts the panel
     const host = document.getElementById(HOST_ID)!.shadowRoot!;
-    const link = host.querySelector('a.fp-practice-link') as HTMLElement;
-    expect(link).not.toBeNull();   // the panel actually rendered a Practice link
-
-    link.click();                                                  // bound by handleMessage, not boot
-    const mark = host.querySelector('.fp-coachmark')!;
-    expect(mark.textContent).toContain('Inferences');
-    (host.querySelector('.fp-coachmark-confirm') as HTMLElement).click();
-    expect(document.querySelectorAll('.fp-badge').length).toBe(2); // confirm re-ran the badger
+    expect(host.querySelector('.fp-panel')).not.toBeNull();        // panel mounted
+    expect(host.querySelector('.fp-weak-area')).not.toBeNull();    // weak-area row still rendered
+    // Issue #33: the bare-/search links and their coachmark hand-off are gone — nothing to bind.
+    expect(host.querySelector('a.fp-practice-link')).toBeNull();
+    expect(host.querySelector('a.fp-find-link')).toBeNull();
+    expect(host.querySelector('.fp-coachmark')).toBeNull();
   });
 
   it('resumeFor scrolls to lastQuestionId using the live cb-table-react container (D9)', async () => {
