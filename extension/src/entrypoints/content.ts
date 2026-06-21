@@ -573,6 +573,23 @@ export function handleRouteChange(doc: Document): void {
   else teardown(doc);
 }
 
+// Issue #70 round 2: the per-tick body of the always-on `location.href` poller. Patching
+// history.pushState/replaceState from the content script's ISOLATED world is dead code — it never
+// intercepts the page's main-world router calls, so the overlay never activated after CB's login→bank
+// SPA route (the cross-world boundary of the cb-react-isolated-world-reveal memo). `location.href` DOES
+// reflect the page URL across worlds, so we poll it instead. Compare against a module-level baseline:
+// the FIRST call ever only seeds the cursor (no activation, even on a QB page); a LATER call where the
+// href CHANGED updates the cursor and delegates to handleRouteChange (which gates activate/teardown);
+// an unchanged href is a no-op (keeps the continuous poll cheap and avoids re-running activation).
+let lastHref: string | undefined;
+export function checkForRouteChange(doc: Document): void {
+  const href = doc.location.href;
+  if (lastHref === undefined) { lastHref = href; return; }   // first tick → baseline only, never activate
+  if (href === lastHref) return;                              // quiet tick → nothing changed
+  lastHref = href;
+  handleRouteChange(doc);
+}
+
 // Boot (skipped under test: no chrome runtime). Plan 2 runs the scored loop; Plan 3 adds the badger +
 // journal panel toggle + coachmark binding + the open-journal message listener; issue #70 makes the
 // boot path-aware + SPA-reactive so the broadened portal-wide student match never splatters our UI off
@@ -580,16 +597,12 @@ export function handleRouteChange(doc: Document): void {
 if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
   self.addEventListener?.('unhandledrejection', () => emit({ event: JS_ERROR, props: { component: 'unhandledrejection', error_code: 'BOOT_FAILURE' } }));
   handleRouteChange(document);   // mount now iff this is a QB page (direct load / hard reload)
-  // SPA routes commit WITHOUT a fresh document load, so re-evaluate on every client-side navigation:
-  // patch history.pushState/replaceState (the app's router calls these) and listen for popstate.
-  const reactToRoute = (): void => handleRouteChange(document);
-  for (const m of ['pushState', 'replaceState'] as const) {
-    const orig = history[m];
-    history[m] = function (this: History, ...args: Parameters<History['pushState']>) {
-      const r = orig.apply(this, args);
-      reactToRoute();
-      return r;
-    };
-  }
-  window.addEventListener('popstate', reactToRoute);
+  // SPA routes commit WITHOUT a fresh document load. We CANNOT detect them by patching
+  // history.pushState/replaceState: the content script runs in an ISOLATED world, so that patch never
+  // intercepts the page's main-world router calls (same cross-world boundary as the React reveal). We
+  // poll `location.href` — which DOES reflect the page URL across worlds — to catch the login→bank
+  // route. Polling (vs chrome.webNavigation) deliberately avoids a "read browsing history" permission
+  // on a privacy-focused extension. popstate is the fast path for back/forward.
+  setInterval(() => checkForRouteChange(document), 400);
+  window.addEventListener('popstate', () => handleRouteChange(document));
 }
