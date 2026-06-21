@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard } from './answer-overlay';
+import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard, maskAnswerContent, mountCurtain } from './answer-overlay';
 import { score } from '../scoring';
 import type { CardVM } from './view-model';
 
@@ -25,14 +25,15 @@ function cbAnswerContent(): HTMLElement {
 }
 
 describe('renders interactive UI', () => {
-  it('renders A–D choices, controls, and fires handlers (no trust badge — the student is on CB itself)', () => {
+  it('renders A–D choices, controls, and fires handlers (no trust badge and no taxonomy/position banner — the student is on CB itself)', () => {
     const ac = cbAnswerContent();
     let picked = ''; let checked = '';
     const shadow = mountAnswerOverlay(ac, vm, { ...noop(),
       onSelect: (l) => { picked = l; }, onCheck: (p) => { checked = p; } });
     expect(shadow.querySelector('.fp-trust')).toBeNull();
     expect(shadow.querySelectorAll('.fp-choice')).toHaveLength(2);
-    expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 10');
+    // Issue #19: the "Skill › Difficulty · Q n of N" banner is removed — distracting chrome.
+    expect(shadow.querySelector('.fp-progress')).toBeNull();
     (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
     expect(picked).toBe('B');
     (shadow.querySelector('.fp-check') as HTMLElement).click();
@@ -144,6 +145,92 @@ describe('unmountAnswerOverlay', () => {
   });
 });
 
+// Issue #38: the FOUC fix masks CB's `.answer-content` children EARLY — the moment the modal is observed,
+// BEFORE (and decoupled from) the 150ms-debounced overlay mount — so CB's raw choices never flash. That
+// early mask is a standalone primitive (maskAnswerContent) that hides exactly the same way the mount does
+// (display:none + the data-fp-hidden marker) but mounts NO host.
+//
+// Fail-safe (invariant #6): on the degrade path the contract fails and NO overlay ever mounts on the
+// early-masked container. The mask MUST still be reversible — closing/tearing down restores CB's own
+// native content (visible), never leaving it stuck blank at display:none. This locks that reversibility
+// WITHOUT a host having been mounted: mask, then unmount, and assert CB's content is back.
+describe('maskAnswerContent (#38 early mask) — fail-safe, host-less reversibility', () => {
+  it('masks CB\'s native choices + rationale with no host mounted (the early, pre-overlay state)', () => {
+    const ac = cbAnswerContent();
+    maskAnswerContent(ac);
+    // CB's own nodes are hidden — exactly the masking the overlay mount would apply...
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
+    expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('none');
+    // ...but NO overlay host was mounted (the mask is decoupled from the mount).
+    expect(ac.querySelector('.fp-answer-host')).toBeNull();
+  });
+
+  it('unmount restores an early-masked container even though no overlay host was ever mounted (degrade path)', () => {
+    const ac = cbAnswerContent();
+    maskAnswerContent(ac);   // early mask fires; the contract then fails so the overlay NEVER mounts
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
+
+    unmountAnswerOverlay(ac); // fail-safe teardown on the degrade path
+
+    // CB's native content is RESTORED (visible), not stranded blank at display:none (invariant #6)...
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('');
+    expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('');
+    // ...and our hide markers are cleared so a later real mount + teardown stays correct.
+    expect(ac.querySelector('[data-fp-hidden]')).toBeNull();
+  });
+});
+
+// Issue #38 (curtain): the FOUC fix is an OPAQUE host ("white rectangle") dropped the instant CB's
+// answer region appears — it both hides CB's raw content AND covers the area with white, so the student
+// never sees raw choices before the real overlay fills the SAME host.
+describe('mountCurtain (#38 white-rectangle FOUC curtain)', () => {
+  it('hides CB\'s raw content and drops an opaque white rectangle, with NO overlay host yet', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    // CB's native content is masked...
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
+    expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('none');
+    // ...and the white rectangle is the FIRST child (covering the region)...
+    const curtain = ac.querySelector('.fp-curtain') as HTMLElement;
+    expect(curtain).not.toBeNull();
+    expect(ac.firstElementChild).toBe(curtain);
+    // ...but the real interactive overlay host is NOT mounted yet.
+    expect(ac.querySelector('.fp-answer-host')).toBeNull();
+  });
+
+  it('is idempotent — repeated calls keep a single curtain', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    mountCurtain(ac);
+    expect(ac.querySelectorAll('.fp-curtain')).toHaveLength(1);
+  });
+
+  it('mountAnswerOverlay removes the rectangle and mounts the real overlay over it', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    expect(ac.querySelector('.fp-curtain')).toBeNull();              // white rectangle gone
+    expect(ac.querySelectorAll('.fp-answer-host')).toHaveLength(1);   // real overlay up (single host)
+    expect(shadow.querySelector('.fp-actions')).not.toBeNull();
+  });
+
+  it('does not add a curtain once the real overlay is already mounted', () => {
+    const ac = cbAnswerContent();
+    mountAnswerOverlay(ac, vm, noop());
+    mountCurtain(ac);   // e.g. a late early-mask mutation after the overlay already mounted
+    expect(ac.querySelector('.fp-curtain')).toBeNull();
+  });
+
+  it('unmount tears the curtain down and restores CB\'s content (fail-safe, no real mount)', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    unmountAnswerOverlay(ac);
+    expect(ac.querySelector('.fp-curtain')).toBeNull();
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('');
+    expect(ac.querySelector('[data-fp-hidden]')).toBeNull();
+  });
+});
+
 it('revealRationale un-hides CB\'s native .rationale', () => {
   const ac = cbAnswerContent();
   mountAnswerOverlay(ac, vm, noop());
@@ -151,6 +238,35 @@ it('revealRationale un-hides CB\'s native .rationale', () => {
   const ok = revealRationale(ac);
   expect(ok).toBe(true);
   expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('');
+});
+
+// #20: in Reading, the revealed explanation must sit directly UNDER the question (above our tall
+// interaction UI) so the student can read both at once — not be buried below our host. revealRationale
+// must move CB's native .rationale ABOVE .fp-answer-host in document order, keep it visible even after
+// the masking observer flushes, and NEVER copy its text into our shadow root (CB's node, repositioned).
+it('revealRationale repositions CB\'s native .rationale above our interaction host (#20)', async () => {
+  const ac = cbAnswerContent();
+  const shadow = mountAnswerOverlay(ac, vm, noop());
+
+  expect(revealRationale(ac)).toBe(true);
+
+  const kids = Array.from(ac.children);
+  const rationaleIdx = kids.findIndex((c) => c.classList.contains('rationale'));
+  const hostIdx = kids.findIndex((c) => c.classList.contains('fp-answer-host'));
+  expect(rationaleIdx).toBeGreaterThanOrEqual(0);
+  expect(hostIdx).toBeGreaterThanOrEqual(0);
+  // The explanation now precedes our interaction UI, so it renders directly beneath the question.
+  expect(rationaleIdx).toBeLessThan(hostIdx);
+
+  // Moving a node is a childList mutation — the masking observer must NOT re-hide the node we just
+  // deliberately revealed. Flush the (async, happy-dom) observer callback, then assert still visible.
+  const rationale = ac.querySelector('.rationale') as HTMLElement;
+  await new Promise((r) => setTimeout(r, 0));
+  expect(rationale.style.display).toBe('');
+
+  // Invariant: CB's rationale stays CB's own node — its text is repositioned, never re-rendered as
+  // ours. The synthetic rationale text must not have leaked into our shadow root.
+  expect(shadow.textContent).not.toContain('Correct Answer: B');
 });
 
 it('renderVerdict lights the correct choice green and the wrong pick red', () => {
@@ -196,10 +312,9 @@ it('revealRationale returns false when CB has not injected a .rationale', () => 
   expect(revealRationale(bare)).toBe(false);
 });
 
-it('escapes hostile choice text / taxonomy — no live <img>/<script> reaches the shadow (esc is the XSS boundary)', () => {
+it('escapes hostile choice text — no live <img>/<script> reaches the shadow (esc is the XSS boundary for the rendered choices)', () => {
   const ac = cbAnswerContent();
   const hostileVm = { ...vm,
-    skill: '<script>steal()</script>',
     choices: [
       { letter: 'A', text: '<img src=x onerror=steal()>' },
       { letter: 'B', text: '<b>ok</b> & <i>stuff</i>' },
@@ -212,9 +327,66 @@ it('escapes hostile choice text / taxonomy — no live <img>/<script> reaches th
   // No raw HTML elements from the injected markup (b/i inside the choice text):
   expect(shadow.querySelector('.fp-choice b')).toBeNull();
   expect(shadow.querySelector('.fp-choice i')).toBeNull();
-  // The hostile text survives as TEXT (escaped), so it's visible/inert, not dropped:
-  expect(shadow.querySelector('.fp-progress')!.textContent).toContain('<script>steal()</script>');
+  // The hostile choice text survives as TEXT (escaped), so it's visible/inert, not dropped:
   expect(shadow.querySelector('.fp-choice[data-letter="A"]')!.textContent).toContain('<img src=x onerror=steal()>');
+});
+
+// Issue #2 — answer choices were rendered with the answer text as a loose text node directly
+// inside the .fp-pick button, beside the letter span:
+//   <button class="fp-pick"><span class="fp-letter">A</span> 3</button>
+// That cramped layout has no element to lay out the text independently from the letter. The fix
+// gives the answer text its OWN element (.fp-choice-text), a sibling of .fp-letter, so the two can
+// be laid out cleanly. These tests lock that STRUCTURE (happy-dom computes no geometry, so we cannot
+// assert wrapping/lines — we assert the queryable element separation the CSS fix depends on).
+describe('issue #2 — answer text gets its own element (compact MC choice formatting)', () => {
+  it('puts the choice answer TEXT in a dedicated .fp-choice-text element, not loose in the button', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    const choiceA = shadow.querySelector('.fp-choice[data-letter="A"]')!;
+
+    const textEl = choiceA.querySelector('.fp-choice-text');
+    expect(textEl).not.toBeNull();                       // dedicated wrapper exists
+    expect(textEl!.textContent).toBe('3');               // it holds exactly the answer text (vm choice A is '3')
+
+    // The text must NOT be a loose text-node sibling of .fp-letter inside the button. Once it lives in
+    // .fp-choice-text, the button's only own (non-whitespace) direct text content is empty.
+    const pick = choiceA.querySelector('.fp-pick')!;
+    const looseText = Array.from(pick.childNodes)
+      .filter((n) => n.nodeType === 3)                   // text nodes only
+      .map((n) => n.textContent ?? '')
+      .join('')
+      .trim();
+    expect(looseText).toBe('');                          // no answer text directly inside the button
+  });
+
+  it('keeps .fp-letter as a SEPARATE element from the answer-text wrapper (letter not inside text, text not inside letter)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    const choiceA = shadow.querySelector('.fp-choice[data-letter="A"]')!;
+
+    const letterEl = choiceA.querySelector('.fp-letter')!;
+    const textEl = choiceA.querySelector('.fp-choice-text')!;
+    expect(letterEl).not.toBeNull();
+    expect(letterEl.textContent).toBe('A');              // letter still carries the letter
+
+    // The two are distinct, neither nested in the other.
+    expect(letterEl).not.toBe(textEl);
+    expect(letterEl.contains(textEl)).toBe(false);       // text wrapper is not inside the letter
+    expect(textEl.contains(letterEl)).toBe(false);       // letter is not inside the text wrapper
+    expect(textEl.querySelector('.fp-letter')).toBeNull();
+  });
+
+  it('escapes hostile choice text INSIDE the new .fp-choice-text wrapper (no live <img> reaches the shadow)', () => {
+    const ac = cbAnswerContent();
+    const hostileVm = { ...vm,
+      choices: [{ letter: 'A', text: '<img src=x onerror=steal()>' }],
+    };
+    const shadow = mountAnswerOverlay(ac, hostileVm, noop());
+    const textEl = shadow.querySelector('.fp-choice[data-letter="A"] .fp-choice-text')!;
+    expect(textEl).not.toBeNull();
+    expect(textEl.querySelector('img')).toBeNull();      // not parsed into a live element
+    expect(textEl.textContent).toContain('<img src=x onerror=steal()>');  // survives as inert escaped text
+  });
 });
 
 it('renderVerdict writes "Correct" for a correct result and "Not quite" for a wrong result', () => {
