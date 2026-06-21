@@ -50,46 +50,51 @@ Next button: a `<button>` whose text is `Next` — `clickCbNext` already handles
 Results list: `table.cb-table-react` — **shared** with the educator bank (the badger /
 list-reader already work).
 
-### Educator vs student — what differs
+### Educator vs student — what differs (REFINED after deeper spike)
 
-| Concern | Educator bank | Student bank |
-|---|---|---|
-| Question modal | `.cb-dialog-container` | `.cb-modal.cb-open` **containing question chrome** |
-| Stem location | within the dialog | `.question-content.col-md-6` |
-| MC choices | (educator markup) | `.answer-content ul > li` (bare, click-driven, letter by position) |
-| Reveal trigger | `.hide-rationale-checkbox input` | `.cb-checkbox.inline-rationale-toggle input` |
-| Rationale / correct answer | `.rationale` | `.rationale` (**same**) — injected into `.answer-content` |
-| Taxonomy | (educator source) | `.question-banner table.cb-table` (cols Assessment/Section/Domain/Skill/Difficulty) |
-| Question ID | `Question ID: <8hex>` | `Question ID: <8hex>` (**same**) |
-| Overlay mount target | `.answer-content` | `.answer-content` (**same** — mount strategy unchanged) |
-| Results list | `table.cb-table-react` | `table.cb-table-react` (**same**) |
+**The two banks share the entire INNER question DOM.** `readQuestion` already reads the
+exact structures the student bank uses, so **`reader.ts` needs no change** — it just needs
+to be handed the right modal root. Only the outer modal wrapper, the reveal trigger, and
+the observer's path gate differ.
+
+| Concern | Educator bank | Student bank | Change? |
+|---|---|---|---|
+| Question-modal **root** (passed to `readQuestion`) | `.cb-dialog-container` | `.cb-modal-container` (the `[role=dialog]`; contains the ID `h4` in `.cb-modal-header > .question-modal-header` **and** the content) | **observer + currentModal** |
+| Results-page **path gate** (observer line 12) | `/digital/results` | `/questionbank/results` | **observer** |
+| Reveal trigger | `.hide-rationale-checkbox input` | `.cb-checkbox.inline-rationale-toggle input` (class-less checkbox) | **ensureAnswerRevealed** |
+| Stem | `.question-content .question` | `.question-content .question` | **same** |
+| MC choices | `.answer-choices ul > li` (letter by index) | `.answer-choices ul > li` (letter by index) | **same** |
+| Taxonomy | `table.cb-table` rows, cols [Assessment, Section, Domain, Skill, Difficulty] | identical | **same** |
+| Rationale / correct answer | `.rationale` → "Correct Answer:" | identical | **same** |
+| Question ID | `h4` "Question ID: `<8hex>`" | `h4` "Question ID: `<8hex>`" (in the modal header) | **same** |
+| Overlay mount target | `.answer-content` | `.answer-content` | **same** |
+| Results list | `table.cb-table-react` | `table.cb-table-react` | **same** |
+| Block detection | `[role=dialog]` chrome | `.cb-modal-container` has `[role=dialog]` | **same (already covered)** |
 
 ### Modal detection — the important subtlety
 
 The student bank also opens a **separate** `.cb-modal.cb-open` for an **inactivity-timer
-warning** (`.remaining-time`, `.cb-exclamation-circle`, no `.answer-content`). So student
-modal detection must match "`.cb-modal.cb-open` **that contains question chrome**" (e.g.
-`.answer-content` / `.question-info`), **not** any `.cb-modal.cb-open` — or it binds to
-the timer popup. Same care must extend to `block-detect.ts`'s `hasQuestionChrome`.
+warning** (`.remaining-time`, `.cb-exclamation-circle`, no question content). The existing
+observer/`currentModal` discipline — *match the container that holds `"Question ID:"`* —
+already excludes it, **so keep that filter** when generalizing the selector to
+`.cb-dialog-container, .cb-modal-container`. Do not match a bare `.cb-modal.cb-open`.
 
-## Approach (all within `src/cb/` + the `content.ts` modal/reveal helpers)
+## Approach (minimal — `src/cb/observer.ts` + the `content.ts` modal/reveal helpers)
 
-Generalize, don't replace — both banks must keep working.
+Generalize, don't replace — both banks must keep working. `reader.ts` is **unchanged**.
 
-1. **One shared selector module** (extend `src/cb/fingerprint.ts` or add to the cb layer):
-   name the question-modal selector for both banks and the "is this a question modal"
-   predicate (has question chrome). Everything else imports it — no scattered OR-selectors.
-2. **`reader.ts`**: add a student read path — stem from `.question-content .question`,
-   choices from `.answer-content ul > li` (letters by position), correct answer from
-   `.rationale`, taxonomy from `.question-banner table.cb-table` (by column), ID from the
-   `Question ID:` text. Dispatch on which shape the passed modal is.
-3. **`observer.ts` / `content.ts` helpers** (`currentModal`, `overlayShadow`,
-   `currentCorrectAnswer`): recognize the student modal in addition to `.cb-dialog-container`.
-4. **`ensureAnswerRevealed`** (`content.ts`): also drive the student reveal
-   (`.inline-rationale-toggle input[type=checkbox]`) — real click only, never `box.checked=`
-   (the isolated-world React-tracker trap — see [[cb-react-isolated-world-reveal]]).
-5. **`block-detect.ts`**: `hasQuestionChrome` recognizes the student modal too (§6 fail-safe).
-6. **Overlay mount**: unchanged — `.answer-content` is the target on both banks.
+1. **`observer.ts`**: (a) the path gate (line 12) accepts the student results path
+   (`/questionbank/results`) in addition to `/digital/results`; (b) the modal lookup (line 13)
+   matches `.cb-dialog-container, .cb-modal-container`, keeping the `"Question ID:"` filter
+   (which rejects the timer popup). `readQuestion(modal)` then works as-is.
+2. **`content.ts` `currentModal`**: match `.cb-dialog-container, .cb-modal-container` (still
+   keyed by `Question ID: <id>`). `overlayShadow` / `currentCorrectAnswer` ride on it.
+3. **`ensureAnswerRevealed`** (`content.ts`): also drive `.inline-rationale-toggle
+   input[type=checkbox]` — real click only, never `box.checked=` (the isolated-world
+   React-tracker trap — see [[cb-react-isolated-world-reveal]]).
+4. **`reader.ts`, taxonomy, choices, `block-detect.ts`, overlay mount, results list:
+   unchanged.** Prefer a single shared selector constant (`QUESTION_MODAL_SELECTOR =
+   '.cb-dialog-container, .cb-modal-container'`) in the cb layer over scattering the OR.
 
 ## Tests (synthetic fixtures — never real CB text)
 

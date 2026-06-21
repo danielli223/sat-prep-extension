@@ -27,14 +27,16 @@ the timer modal**; a reveal test asserts the student toggle path. **Educator fix
 
 ## Step 2 — implement (maker; may not touch tests)
 
-1. Shared question-modal selector + "has question chrome" predicate (one place — extend `fingerprint.ts`).
-2. `reader.ts`: dispatch educator vs student shape; student path reads stem/choices(ul>li, letters by
-   position)/correctAnswer(.rationale)/taxonomy(.cb-table by column)/id(Question ID text).
-3. `observer.ts` + `content.ts` (`currentModal`, `overlayShadow`, `currentCorrectAnswer`): recognize the
-   student modal (with question chrome), exclude the timer popup.
+Refined scope (deeper spike): the inner question DOM is **shared**, so `reader.ts` is **unchanged**.
+
+1. Shared constant `QUESTION_MODAL_SELECTOR = '.cb-dialog-container, .cb-modal-container'` (one place in the cb layer).
+2. `observer.ts`: (a) path gate accepts `/questionbank/results` as well as `/digital/results`; (b) modal
+   lookup uses the shared selector, **keeping the `"Question ID:"` filter** (rejects the inactivity-timer popup).
+3. `content.ts` `currentModal`: use the shared selector (still keyed by `Question ID: <id>`).
+   `overlayShadow`/`currentCorrectAnswer` ride on it.
 4. `ensureAnswerRevealed`: also drive `.inline-rationale-toggle input[type=checkbox]` — real click only.
-5. `block-detect.ts`: `hasQuestionChrome` recognizes the student modal.
-6. Mount target `.answer-content` unchanged.
+5. `reader.ts`, taxonomy, choices, `block-detect.ts` (`[role=dialog]` already covers it), overlay mount,
+   results list: **unchanged**.
 
 Keep both banks green; legal guard green (no CB endpoint/host added — banks.ts precedent).
 
