@@ -106,43 +106,31 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
   shadow.querySelector('.fp-desmos')!.addEventListener('click', () => h.onOpenDesmos());
 }
 
-// Mount (or reuse) our shadow host as the FIRST child of CB's .answer-content, masking CB's own
-// content. Idempotent: CB may replace .answer-content on its in-place "Next", so this is called on
-// every question emit and reuses an existing host when present.
+// Mask CB's own .answer-content children (display:none + our marker) WITHOUT mounting a host. This is
+// the FOUC primitive (#38): the orchestrator calls it the moment CB's modal is observed — decoupled
+// from observeQuestions' 150ms read-debounce — so CB's raw choices never flash visible before the
+// overlay mounts on the settled read. mountAnswerOverlay reuses it so the masking is shared and the
+// existing unmountAnswerOverlay (keyed on the same data-fp-hidden marker) already restores it.
 //
 // Masking is whitelist-based, not blacklist-based: we hide EVERY direct child that isn't our host
 // (so a future CB class rename can't leak content), and we install a MutationObserver to hide any
 // node CB injects LATER — critically CB's `.rationale`, which the reveal drives in asynchronously
-// (~150ms) and so does NOT exist at mount time. revealRationale is the sole un-hider.
-export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: AnswerHandlers): ShadowRoot {
-  // Reuse an existing direct-child host (idempotent re-mount). :scope > is unsupported in happy-dom,
-  // so scan children directly.
-  let host = Array.from(answerContent.children)
-    .find((c) => c.classList.contains(HOST_CLASS)) as HTMLElement | undefined ?? null;
-  if (!host) {
-    const doc = answerContent.ownerDocument!;
-    host = doc.createElement('div');
-    host.className = HOST_CLASS;
-    // CB closes its modal on outside pointer-down; stop our events at the host (belt-and-suspenders —
-    // we are inside the modal, but keep parity with the old body host).
-    for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
-      host.addEventListener(t, (e) => e.stopPropagation());
-    }
-    answerContent.insertBefore(host, answerContent.firstChild);
-    host.attachShadow({ mode: 'open' });
-  }
-
-  // Catch async-injected nodes (M1): CB injects .rationale after mount. Hide any NEW non-host direct
-  // child the same way. Disconnect a prior observer first so re-mounts don't stack observers.
+// (~150ms) and so does NOT exist at mask time. revealRationale is the sole un-hider.
+//
+// Idempotent: re-calling disconnects+reinstalls the per-container observer via the WeakMap (no stacked
+// observers across CB's in-place re-renders or an early-mask-then-mount sequence).
+export function maskAnswerContent(answerContent: HTMLElement): void {
+  // Catch async-injected nodes (M1): CB injects .rationale after the mask. Hide any NEW non-host direct
+  // child the same way. Disconnect a prior observer first so re-masks/re-mounts don't stack observers.
   //
   // ORDER MATTERS — install the observer BEFORE the synchronous sweep below, then sweep current
-  // children. This is gap-free across re-mounts: on CB's in-place re-render we disconnect the old
-  // observer and immediately install a fresh one, then sweep. A node injected between the old
-  // observer's disconnect and the new one's observe() would escape the observer — but the post-observe
-  // sweep hides any such already-present node. Conversely, anything injected after the sweep is caught
-  // by the now-active observer. No window is left where a CB node can stay visible. (Without this
-  // ordering, the async .rationale injection that lands at ~the same time as the debounced re-mount
-  // intermittently leaked through the disconnect gap — live-race flake.)
+  // children. This is gap-free across re-masks: on CB's in-place re-render we disconnect the old
+  // observer and immediately install a fresh one, then sweep. A node injected between the old observer's
+  // disconnect and the new one's observe() would escape the observer — but the post-observe sweep hides
+  // any such already-present node. Conversely, anything injected after the sweep is caught by the now-
+  // active observer. No window is left where a CB node can stay visible. (Without this ordering, the
+  // async .rationale injection that lands at ~the same time as the debounced re-mount intermittently
+  // leaked through the disconnect gap — live-race flake.)
   hideObservers.get(answerContent)?.disconnect();
   const observer = new MutationObserver((records) => {
     for (const rec of records) {
@@ -160,7 +148,61 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
   // Whitelist hide: every direct child that ISN'T our host (covers .answer-choices + any present
   // .rationale + anything else CB rendered). :scope > is unsupported in happy-dom, so scan children.
   for (const el of Array.from(answerContent.children)) hideCbNode(el as HTMLElement);
+}
 
+// Create (or reuse) our shadow host as the FIRST child of CB's .answer-content. Idempotent: CB may
+// replace .answer-content on its in-place "Next", so callers re-run this and reuse the existing host.
+// :scope > is unsupported in happy-dom, so scan children directly.
+function ensureHost(answerContent: HTMLElement): HTMLElement {
+  const existing = Array.from(answerContent.children)
+    .find((c) => c.classList.contains(HOST_CLASS)) as HTMLElement | undefined;
+  if (existing) return existing;
+  const doc = answerContent.ownerDocument!;
+  const host = doc.createElement('div');
+  host.className = HOST_CLASS;
+  // CB closes its modal on outside pointer-down; stop our events at the host (belt-and-suspenders —
+  // we are inside the modal, but keep parity with the old body host).
+  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+    host.addEventListener(t, (e) => e.stopPropagation());
+  }
+  answerContent.insertBefore(host, answerContent.firstChild);
+  host.attachShadow({ mode: 'open' });
+  return host;
+}
+
+// The opaque "white rectangle" we drop over CB's answer region before the real overlay mounts. A plain
+// light-DOM element (NOT the shadow host), so `.fp-answer-host` still means "the real overlay is up".
+const CURTAIN_CLASS = 'fp-curtain';
+
+function removeCurtain(answerContent: HTMLElement): void {
+  Array.from(answerContent.children).find((c) => c.classList.contains(CURTAIN_CLASS))?.remove();
+}
+
+// FOUC curtain (#38): the instant CB's answer region is observed — BEFORE the 150ms-debounced overlay
+// mount — hide CB's raw content AND drop an opaque white rectangle over it, so the student never sees
+// CB's unstyled choices flash. mountAnswerOverlay removes this rectangle when the real UI mounts, so the
+// nice UI loads over the white rectangle. Idempotent and safe to call on every mutation while the modal
+// renders: a no-op once the real overlay host is mounted, and it keeps a single curtain. Teardown
+// (unmountAnswerOverlay, the degrade/close path) removes it and restores CB's nodes.
+export function mountCurtain(answerContent: HTMLElement): void {
+  maskAnswerContent(answerContent);
+  if (answerContent.querySelector(`.${HOST_CLASS}`)) return;   // real overlay already up — no curtain needed
+  if (Array.from(answerContent.children).some((c) => c.classList.contains(CURTAIN_CLASS))) return;  // already curtained
+  const curtain = answerContent.ownerDocument!.createElement('div');
+  curtain.className = CURTAIN_CLASS;
+  curtain.setAttribute('aria-hidden', 'true');
+  curtain.style.cssText = 'min-height:140px;background:#fff;border-radius:8px;';
+  answerContent.insertBefore(curtain, answerContent.firstChild);
+}
+
+// Mount (or reuse) our shadow host as the FIRST child of CB's .answer-content, mask CB's own content,
+// remove the FOUC curtain, and fill the host with the interactive overlay (so the nice UI replaces the
+// white rectangle). Idempotent across CB's in-place "Next". Masking shares maskAnswerContent (the FOUC
+// primitive) so a node hidden before mount stays hidden and unmount restores exactly our marked nodes.
+export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: AnswerHandlers): ShadowRoot {
+  const host = ensureHost(answerContent);
+  maskAnswerContent(answerContent);
+  removeCurtain(answerContent);
   const shadow = host.shadowRoot!;
   shadow.innerHTML = html(`<style>${ANSWER_CSS}</style>` + renderBody(vm)) as unknown as string;
   wire(shadow, vm, h);
@@ -181,6 +223,7 @@ export function unmountAnswerOverlay(answerContent: HTMLElement): void {
     el.removeAttribute(REVEALED_ATTR);
   }
   answerContent.querySelector('.fp-answer-host')?.remove();
+  removeCurtain(answerContent);   // FOUC curtain (#38): drop the white rectangle too, if it's still up
 }
 
 export interface Verdict { pick: string; result: ScoreResult; }
