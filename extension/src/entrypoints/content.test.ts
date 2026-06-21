@@ -1216,3 +1216,163 @@ describe('answer-content FOUC (#38): CB\'s raw choices are masked BEFORE the ove
     expect(document.querySelector('.answer-content .fp-curtain')).not.toBeNull();
   });
 });
+
+// --- Issue #70: login-path-aware boot (student bank SPA-routes into /questionbank/results after a
+// /login redirect with NO fresh document load, so the overlay never injects without a hard reload).
+// The match broadens to *://mypractice.collegeboard.org/* (so the script injects on /login too) and
+// the boot becomes PATH-AWARE: our UI activates only on a question-bank results page and re-evaluates
+// on SPA navigation. These three pure units pin that contract; they need NO chrome and NO IndexedDB.
+import { isQuestionBankPage, setOverlayActive, installOverlayLifecycle } from './content';
+import { mountHost as mountHost70, HOST_ID as HOST_ID70 } from '../ui/host';
+
+describe('Issue #70 — isQuestionBankPage (path-aware activation)', () => {
+  beforeEach(() => { document.body.innerHTML = ''; });
+
+  it('is TRUE on the student question-bank results page (/questionbank/results)', () => {
+    history.replaceState({}, '', '/questionbank/results');
+    expect(isQuestionBankPage(document)).toBe(true);
+  });
+
+  it('is TRUE on /questionbank/results with a trailing query/hash', () => {
+    history.replaceState({}, '', '/questionbank/results?foo=1');
+    expect(isQuestionBankPage(document)).toBe(true);
+  });
+
+  it('is TRUE on the educator results page (/digital/results) — no regression', () => {
+    history.replaceState({}, '', '/digital/results');
+    expect(isQuestionBankPage(document)).toBe(true);
+  });
+
+  it('is FALSE on /login', () => {
+    history.replaceState({}, '', '/login');
+    expect(isQuestionBankPage(document)).toBe(false);
+  });
+
+  it('is FALSE on /dashboard', () => {
+    history.replaceState({}, '', '/dashboard');
+    expect(isQuestionBankPage(document)).toBe(false);
+  });
+
+  it('is FALSE on /details', () => {
+    history.replaceState({}, '', '/details');
+    expect(isQuestionBankPage(document)).toBe(false);
+  });
+
+  it('is FALSE on a bare /questionbank (no /results)', () => {
+    history.replaceState({}, '', '/questionbank');
+    expect(isQuestionBankPage(document)).toBe(false);
+  });
+});
+
+describe('Issue #70 — setOverlayActive (one-call show/hide of all our furniture)', () => {
+  beforeEach(() => { document.body.innerHTML = ''; });
+
+  it('hides BOTH the overlay host and the stats widget when off, restores them when on', () => {
+    mountHost70(document);                 // <div id="focused-practice-root">
+    mountStatsWidget(document);            // .fp-stats-widget
+    const host = document.getElementById(HOST_ID70)!;
+    const widget = document.querySelector<HTMLElement>('.fp-stats-widget')!;
+
+    setOverlayActive(document, false);
+    expect(host.style.display).toBe('none');
+    expect(widget.style.display).toBe('none');
+
+    setOverlayActive(document, true);
+    expect(host.style.display).toBe('');
+    expect(widget.style.display).toBe('');
+  });
+
+  it('is a no-op (no throw) when neither the host nor the widget is mounted', () => {
+    expect(() => setOverlayActive(document, false)).not.toThrow();
+    expect(() => setOverlayActive(document, true)).not.toThrow();
+    expect(document.getElementById(HOST_ID70)).toBeNull();
+    expect(document.querySelector('.fp-stats-widget')).toBeNull();
+  });
+});
+
+describe('Issue #70 — installOverlayLifecycle (path-aware, SPA-navigation-aware boot)', () => {
+  beforeEach(() => { document.body.innerHTML = ''; });
+
+  it('does NOTHING on install when already off a question-bank page (/login)', () => {
+    history.replaceState({}, '', '/login');
+    const activate = vi.fn();
+    const deactivate = vi.fn();
+    const teardown = installOverlayLifecycle(document, activate, deactivate);
+    expect(activate).not.toHaveBeenCalled();      // not a QB page → no activate
+    expect(deactivate).not.toHaveBeenCalled();    // and NOT a spurious deactivate on first eval
+    teardown();
+  });
+
+  it('activates exactly once on install when already on /questionbank/results', () => {
+    history.replaceState({}, '', '/questionbank/results');
+    const activate = vi.fn();
+    const deactivate = vi.fn();
+    const teardown = installOverlayLifecycle(document, activate, deactivate);
+    expect(activate).toHaveBeenCalledTimes(1);
+    expect(deactivate).not.toHaveBeenCalled();
+    teardown();
+  });
+
+  it('CORE REGRESSION: activates on SPA pushState into /questionbank/results WITHOUT a reload', () => {
+    history.replaceState({}, '', '/login');                  // CB's post-login landing — not a QB page
+    const activate = vi.fn();
+    const deactivate = vi.fn();
+    const teardown = installOverlayLifecycle(document, activate, deactivate);
+    expect(activate).not.toHaveBeenCalled();                 // inert on /login
+
+    history.pushState({}, '', '/questionbank/results');      // SPA route in — NO fresh document load
+    expect(activate).toHaveBeenCalledTimes(1);               // overlay must come up anyway (the bug)
+    expect(deactivate).not.toHaveBeenCalled();
+    teardown();
+  });
+
+  it('deactivates on SPA pushState OFF a question-bank page (results → /dashboard)', () => {
+    history.replaceState({}, '', '/questionbank/results');
+    const activate = vi.fn();
+    const deactivate = vi.fn();
+    const teardown = installOverlayLifecycle(document, activate, deactivate);
+    expect(activate).toHaveBeenCalledTimes(1);
+
+    history.pushState({}, '', '/dashboard');                 // SPA route away from the QB
+    expect(deactivate).toHaveBeenCalledTimes(1);
+    teardown();
+  });
+
+  it('does NOT re-fire on a QB→QB navigation (results → results?x=1)', () => {
+    history.replaceState({}, '', '/questionbank/results');
+    const activate = vi.fn();
+    const deactivate = vi.fn();
+    const teardown = installOverlayLifecycle(document, activate, deactivate);
+    expect(activate).toHaveBeenCalledTimes(1);
+
+    history.pushState({}, '', '/questionbank/results?x=1');   // still a QB page → no transition
+    expect(activate).toHaveBeenCalledTimes(1);                // still just the one activate
+    expect(deactivate).not.toHaveBeenCalled();
+    teardown();
+  });
+
+  it('re-evaluates on popstate (browser back/forward into /questionbank/results)', () => {
+    history.replaceState({}, '', '/login');
+    const activate = vi.fn();
+    const deactivate = vi.fn();
+    const teardown = installOverlayLifecycle(document, activate, deactivate);
+    expect(activate).not.toHaveBeenCalled();                  // inert on /login
+
+    history.replaceState({}, '', '/questionbank/results');    // browser changed the URL...
+    window.dispatchEvent(new PopStateEvent('popstate'));      // ...and emitted popstate
+    expect(activate).toHaveBeenCalled();                      // lifecycle re-evaluated → activated
+    teardown();
+  });
+
+  it('teardown unpatches history so a later pushState does NOT activate (and pushState still works)', () => {
+    history.replaceState({}, '', '/login');
+    const activate = vi.fn();
+    const deactivate = vi.fn();
+    const teardown = installOverlayLifecycle(document, activate, deactivate);
+    teardown();
+
+    history.pushState({}, '', '/questionbank/results');       // after teardown → no re-evaluation
+    expect(activate).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe('/questionbank/results');   // ...but pushState still navigates
+  });
+});
