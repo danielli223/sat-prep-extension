@@ -12,7 +12,7 @@
     "https://api.focusedpractice.app/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.geogebra.org"
+    "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "background": { "scripts": ["background.js"] },
   "content_scripts": [
