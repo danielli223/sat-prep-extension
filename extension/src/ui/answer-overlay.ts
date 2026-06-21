@@ -10,9 +10,19 @@ export interface AnswerHandlers {
 }
 
 const HOST_CLASS = 'fp-answer-host';
+// The extras host (issue #22): the note + calculator/Desmos block, appended as the LAST child of
+// .answer-content so it renders BELOW CB's native .rationale. A separate host because a single
+// first-child host can't straddle CB's sibling .rationale node.
+const EXTRAS_HOST_CLASS = 'fp-extras-host';
 // Marker on the CB-native nodes WE hid, so teardown restores exactly those (and never un-hides a node
 // CB itself had hidden). Also lets the MutationObserver and revealRationale find our own work.
 const HIDDEN_ATTR = 'data-fp-hidden';
+
+// True for EITHER of our hosts — masking (sweep + observer) must exempt both so the extras host is
+// never display:none'd.
+function isOurHost(el: Element): boolean {
+  return el.classList.contains(HOST_CLASS) || el.classList.contains(EXTRAS_HOST_CLASS);
+}
 
 // One MutationObserver per .answer-content, keyed by the container so re-mount can disconnect the
 // previous one (no stacked observers across CB's in-place re-renders). WeakMap → GC'd with the node.
@@ -26,7 +36,7 @@ export function findAnswerContent(modal: Element): HTMLElement | null {
 // Hide ONE CB-native direct child (display:none) and mark it as ours so teardown can restore it.
 // Idempotent: re-hiding a node we already marked is a no-op.
 function hideCbNode(el: HTMLElement): void {
-  if (el.classList.contains(HOST_CLASS)) return;   // never touch our own host
+  if (isOurHost(el)) return;   // never touch either of our hosts
   if (el.hasAttribute(HIDDEN_ATTR)) return;
   el.setAttribute(HIDDEN_ATTR, '');
   el.style.display = 'none';
@@ -64,6 +74,13 @@ function renderBody(vm: CardVM): string {
       <button class="fp-next">Next</button>
     </div>
     <div class="fp-verdict" aria-live="polite"></div>
+  </div>`;
+}
+
+// The extras block (issue #22): the note + calculator/Desmos controls. Rendered into the SEPARATE
+// extras host (last child of .answer-content) so it sits BELOW CB's native .rationale.
+function renderExtras(): string {
+  return `<div class="fp-answer">
     <label class="fp-note-label">Why did you miss it?
       <textarea class="fp-note" rows="1" placeholder="one line — your own note"></textarea>
     </label>
@@ -95,6 +112,11 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
   shadow.querySelector('.fp-check')!.addEventListener('click', () => h.onCheck(pickValue()));
   shadow.querySelector('.fp-reveal')!.addEventListener('click', () => h.onReveal());
   shadow.querySelector('.fp-next')!.addEventListener('click', () => h.onNext());
+}
+
+// Wire the extras shadow (note + calc/Desmos). Handler signatures are unchanged from the single-host
+// layout — only their host moved (issue #22).
+function wireExtras(shadow: ShadowRoot, h: AnswerHandlers): void {
   shadow.querySelector('.fp-note')!.addEventListener('change', (e) =>
     h.onNote((e.target as HTMLTextAreaElement).value.trim()));
   shadow.querySelector('.fp-calc-pin')!.addEventListener('click', () => h.onToggleCalc());
@@ -110,21 +132,37 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
 // node CB injects LATER — critically CB's `.rationale`, which the reveal drives in asynchronously
 // (~150ms) and so does NOT exist at mount time. revealRationale is the sole un-hider.
 export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: AnswerHandlers): ShadowRoot {
+  const doc = answerContent.ownerDocument!;
+  // CB closes its modal on outside pointer-down; stop our events at the host (belt-and-suspenders —
+  // we are inside the modal, but keep parity with the old body host).
+  const stopAtHost = (host: HTMLElement) => {
+    for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+      host.addEventListener(t, (e) => e.stopPropagation());
+    }
+  };
+
   // Reuse an existing direct-child host (idempotent re-mount). :scope > is unsupported in happy-dom,
   // so scan children directly.
   let host = Array.from(answerContent.children)
     .find((c) => c.classList.contains(HOST_CLASS)) as HTMLElement | undefined ?? null;
   if (!host) {
-    const doc = answerContent.ownerDocument!;
     host = doc.createElement('div');
     host.className = HOST_CLASS;
-    // CB closes its modal on outside pointer-down; stop our events at the host (belt-and-suspenders —
-    // we are inside the modal, but keep parity with the old body host).
-    for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
-      host.addEventListener(t, (e) => e.stopPropagation());
-    }
+    stopAtHost(host);
     answerContent.insertBefore(host, answerContent.firstChild);
     host.attachShadow({ mode: 'open' });
+  }
+
+  // The extras host (issue #22): reuse if present, else create + append as the LAST child so it sits
+  // AFTER CB's .rationale. Created BEFORE the whitelist sweep so it's already exempt (isOurHost).
+  let extrasHost = Array.from(answerContent.children)
+    .find((c) => c.classList.contains(EXTRAS_HOST_CLASS)) as HTMLElement | undefined ?? null;
+  if (!extrasHost) {
+    extrasHost = doc.createElement('div');
+    extrasHost.className = EXTRAS_HOST_CLASS;
+    stopAtHost(extrasHost);
+    answerContent.appendChild(extrasHost);
+    extrasHost.attachShadow({ mode: 'open' });
   }
 
   // Catch async-injected nodes (M1): CB injects .rationale after mount. Hide any NEW non-host direct
@@ -159,6 +197,12 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
   const shadow = host.shadowRoot!;
   shadow.innerHTML = html(`<style>${ANSWER_CSS}</style>` + renderBody(vm)) as unknown as string;
   wire(shadow, vm, h);
+
+  const extrasShadow = extrasHost.shadowRoot!;
+  extrasShadow.innerHTML = html(`<style>${EXTRAS_CSS}</style>` + renderExtras()) as unknown as string;
+  wireExtras(extrasShadow, h);
+
+  // Contract: return the INTERACTION shadow (choices/verdict live here; renderVerdict etc. target it).
   return shadow;
 }
 
@@ -173,6 +217,7 @@ export function unmountAnswerOverlay(answerContent: HTMLElement): void {
     el.removeAttribute(HIDDEN_ATTR);
   }
   answerContent.querySelector('.fp-answer-host')?.remove();
+  answerContent.querySelector('.fp-extras-host')?.remove();   // extras host (note + calc) — issue #22
 }
 
 export interface Verdict { pick: string; result: ScoreResult; }
@@ -252,6 +297,13 @@ const ANSWER_CSS = `
 .fp-indeterminate{color:#92400e;font-weight:600;font-size:13px;}
 .fp-need-answer{color:#1d4ed8;font-weight:600;font-size:13px;}
 .fp-stale{color:#b45309;font-weight:600;font-size:13px;line-height:1.4;}
+`;
+
+// The extras shadow's own stylesheet. The note + calc rules live here (their nodes moved to the
+// extras host — issue #22). The base .fp-answer font is duplicated minimally so the extras shadow
+// renders with the same typography as the interaction shadow.
+const EXTRAS_CSS = `
+.fp-answer{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;}
 .fp-note-label{display:block;font-size:11px;color:#92400e;margin-bottom:12px;}
 .fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
   padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}
