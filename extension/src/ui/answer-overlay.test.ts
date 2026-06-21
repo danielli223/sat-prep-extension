@@ -8,9 +8,11 @@ const vm: CardVM = {
   kind: 'mc', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
   answerKnown: true, position: { index: 1, total: 10 },
 };
+// The unified calculator: a SINGLE button wired to onOpenDesmos. onToggleCalc (the old GeoGebra
+// in-page toggle) is gone from AnswerHandlers — issue #17 collapses the two controls into one.
 const noop = () => ({
   onSelect(){}, onEliminate(){}, onCheck(){}, onReveal(){}, onNext(){},
-  onToggleCalc(){}, onOpenDesmos(){}, onClose(){}, onNote(){},
+  onOpenDesmos(){}, onClose(){}, onNote(){},
 });
 
 beforeEach(() => { document.body.innerHTML = ''; });
@@ -57,18 +59,46 @@ describe('renders interactive UI', () => {
     const shadow = mountAnswerOverlay(ac, vm, { ...noop(),
       onEliminate: () => calls.push('eliminate'), onReveal: () => calls.push('reveal'),
       onNext: () => calls.push('next'), onClose: () => calls.push('close'),
-      onToggleCalc: () => calls.push('calc'), onOpenDesmos: () => calls.push('desmos'),
+      onOpenDesmos: () => calls.push('desmos'),
       onNote: (t) => calls.push('note:' + t) });
     (shadow.querySelector('.fp-choice[data-letter="A"] .fp-eliminate') as HTMLElement).click();
     (shadow.querySelector('.fp-reveal') as HTMLElement).click();
     (shadow.querySelector('.fp-next') as HTMLElement).click();
     (shadow.querySelector('.fp-overlay-close') as HTMLElement).click();
-    (shadow.querySelector('.fp-calc-pin') as HTMLElement).click();
-    (shadow.querySelector('.fp-desmos') as HTMLElement).click();
     const note = shadow.querySelector('.fp-note') as HTMLTextAreaElement;
     note.value = '  forgot to distribute  ';
     note.dispatchEvent(new Event('change'));
-    expect(calls).toEqual(['eliminate','reveal','next','close','calc','desmos','note:forgot to distribute']);
+    expect(calls).toEqual(['eliminate','reveal','next','close','note:forgot to distribute']);
+  });
+
+  // Issue #17 — the calculator IS Desmos on the real SAT. We unify the old two affordances (an
+  // in-page GeoGebra "Calculator" + a separate "Open real Desmos" button) into ONE button labeled
+  // "Calculator" that opens the real Desmos externally. The contract this locks:
+  //   - exactly ONE button in .fp-calc, visible label "Calculator"
+  //   - clicking it invokes the open-Desmos handler (onOpenDesmos)
+  //   - NO second calculator button and NO "Open real Desmos" button survive
+  it('renders exactly ONE "Calculator" button that opens the real Desmos (no second/embed button)', () => {
+    const ac = cbAnswerContent();
+    let openedDesmos = 0;
+    const shadow = mountAnswerOverlay(ac, vm, { ...noop(),
+      onOpenDesmos: () => { openedDesmos++; } });
+
+    const calcArea = shadow.querySelector('.fp-calc') as HTMLElement;
+    expect(calcArea).not.toBeNull();
+    const calcButtons = calcArea.querySelectorAll('button');
+    expect(calcButtons).toHaveLength(1);                       // exactly one calculator control
+
+    const calcButton = calcButtons[0]! as HTMLButtonElement;
+    expect(calcButton.textContent!.trim()).toBe('Calculator'); // the single visible label
+
+    calcButton.click();
+    expect(openedDesmos).toBe(1);                              // it opens the real Desmos
+
+    // The old two-tool surface is gone: no "Open real Desmos" button, no GeoGebra/embed toggle button.
+    const labels = [...shadow.querySelectorAll('button')].map((b) => b.textContent!.trim());
+    expect(labels).not.toContain('Open real Desmos');
+    expect(shadow.querySelector('.fp-desmos')).toBeNull();     // the old second-button selector is gone
+    expect(shadow.querySelector('.fp-calc-pin')).toBeNull();   // the old GeoGebra-toggle selector is gone
   });
 });
 
