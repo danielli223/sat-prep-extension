@@ -244,3 +244,108 @@ describe('readQuestion — faithful math in answer choices (#35)', () => {
     expect(survives).toContain('9');
   });
 });
+
+// Issue #36: parabola questions render each answer choice as an inline <svg> graph. The choice
+// reader read raw li.textContent, leaking the SVG's <style> CSS, its <title>/<desc> a11y prose,
+// and MathJax-verbalized math into choice.text. The fix must (1) strip that noise from the text and
+// (2) surface the real graph via choice.imgSrc as a serialized data:image/svg+xml URL (the overlay
+// renders imgSrc as an inert <img>). Synthetic fixture only; no LLM, no CB network.
+describe('readQuestion — inline-SVG (parabola) answer choices [issue #36]', () => {
+  it('reads four lettered choices A–D from the SVG-choice fixture', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    expect(v.choices).toHaveLength(4);
+    expect(v.choices.map((c) => c.letter)).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('does NOT leak the SVG <style> CSS into choice.text', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    for (const c of v.choices) {
+      expect(c.text).not.toContain('stroke-linecap');
+      expect(c.text).not.toContain('*{');
+    }
+  });
+
+  it('does NOT leak the <desc>/<title> graph prose or verbalized math into choice.text', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    for (const c of v.choices) {
+      expect(c.text).not.toContain('The parabola opens upward');
+      expect(c.text).not.toContain('StartFraction');
+      expect(c.text).not.toContain('EndFraction');
+    }
+  });
+
+  it('surfaces each inline-SVG graph as a data:image/svg+xml imgSrc', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    for (const c of v.choices) {
+      expect(c.imgSrc).toBeDefined();
+      expect(c.imgSrc!).toMatch(/^data:image\/svg\+xml/);
+    }
+  });
+
+  it('strips inert <script> nodes out of the serialized SVG imgSrc (safety)', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    for (const c of v.choices) {
+      // Safety is only meaningful once the graph is actually surfaced as a data: URL.
+      expect(c.imgSrc).toBeDefined();
+      const imgSrc = c.imgSrc!;
+      // The serialized SVG (raw or URL/base64-encoded) must never carry a <script> element.
+      expect(imgSrc).not.toContain('<script');
+      expect(decodeURIComponent(imgSrc)).not.toContain('<script');
+    }
+  });
+
+  it('still reads the correct answer from the rationale', () => {
+    const v = readQuestion(load('svg-choice.html'))!;
+    expect(v.correctAnswer).toBe('B');
+  });
+});
+
+// Issue #55 — STUDENT bank (mypractice.collegeboard.org/questionbank/results).
+// CHARACTERIZATION: the student bank shares the entire INNER question DOM with the
+// educator bank, so `readQuestion` should work unchanged when handed the student modal
+// root (`.cb-modal-container`, the [role=dialog]). These tests prove the shared-DOM
+// thesis and LOCK reader.ts against a regression once the maker generalizes the root.
+// If any of these ever fail, reader.ts has actually diverged for the student shape and
+// the maker must address it (the spec's "reader.ts needs no change" claim is wrong).
+const loadStudent = (name: string) => {
+  document.body.innerHTML = readFileSync(join(here, '__fixtures__', name), 'utf8');
+  return document.querySelector('.cb-modal-container')!;
+};
+
+describe('readQuestion — student bank (.cb-modal-container root)', () => {
+  it('reads a student multiple-choice question (revealed)', () => {
+    const v = readQuestion(loadStudent('student-mc.html'))!;
+    expect(v).not.toBeNull();
+    expect(v.id).toBe('ab12cd34');
+    // Taxonomy is read by COLUMN position [Assessment, Section, Domain, Skill, Difficulty].
+    expect(v.section).toBe('Reading and Writing');
+    expect(v.domain).toBe('Information and Ideas');
+    expect(v.skill).toBe('Central Ideas and Details');
+    expect(v.difficulty).toBe('Medium');
+    // Letters are derived from <li> index; four bare choices → A,B,C,D.
+    expect(v.choices.map((c) => c.letter)).toEqual(['A', 'B', 'C', 'D']);
+    expect(v.choices.map((c) => c.text)).toEqual([
+      'Alpha placeholder choice [SYNTHETIC]',
+      'Bravo placeholder choice [SYNTHETIC]',
+      'Charlie placeholder choice [SYNTHETIC]',
+      'Delta placeholder choice [SYNTHETIC]',
+    ]);
+    // Stem text is read (CB's <h5> "Reading and Writing"/"Difficulty:" chrome must NOT leak in).
+    expect(v.stem).toBe('Lorem ipsum dolor sit amet placeholder stem. [SYNTHETIC]');
+    expect(v.stem).not.toMatch(/Difficulty/);
+    // Correct answer comes from the injected `.rationale` (present in this revealed fixture).
+    expect(v.correctAnswer).toBe('B');
+  });
+
+  it('reads a student grid-in question (no choices, numeric answer)', () => {
+    const v = readQuestion(loadStudent('student-grid-in.html'))!;
+    expect(v).not.toBeNull();
+    expect(v.id).toBe('ef56ab78');
+    expect(v.section).toBe('Math');
+    expect(v.domain).toBe('Algebra');
+    expect(v.skill).toBe('Linear equations in two variables');
+    expect(v.difficulty).toBe('Hard');
+    expect(v.choices).toHaveLength(0);
+    expect(v.correctAnswer).toBe('5');
+  });
+});
