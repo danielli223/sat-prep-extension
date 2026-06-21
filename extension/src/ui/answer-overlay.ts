@@ -11,6 +11,11 @@ export interface AnswerHandlers {
 }
 
 const HOST_CLASS = 'fp-answer-host';
+const EXTRAS_HOST_CLASS = 'fp-extras-host';   // issue #22: note + calc, a separate host appended LAST (below CB's .rationale)
+// True for EITHER of our two hosts (interaction or extras) — used everywhere we must never hide or disturb our own nodes.
+function isOurHost(el: Element): boolean {
+  return el.classList.contains(HOST_CLASS) || el.classList.contains(EXTRAS_HOST_CLASS);
+}
 // Marker on the CB-native nodes WE hid, so teardown restores exactly those (and never un-hides a node
 // CB itself had hidden). Also lets the MutationObserver and revealRationale find our own work.
 const HIDDEN_ATTR = 'data-fp-hidden';
@@ -31,7 +36,7 @@ export function findAnswerContent(modal: Element): HTMLElement | null {
 // Hide ONE CB-native direct child (display:none) and mark it as ours so teardown can restore it.
 // Idempotent: re-hiding a node we already marked is a no-op.
 function hideCbNode(el: HTMLElement): void {
-  if (el.classList.contains(HOST_CLASS)) return;   // never touch our own host
+  if (isOurHost(el)) return;   // never touch either of our hosts (interaction + extras)
   if (el.hasAttribute(REVEALED_ATTR)) return;      // a deliberate reveal/move — observer must not re-hide it
   if (el.hasAttribute(HIDDEN_ATTR)) return;
   el.setAttribute(HIDDEN_ATTR, '');
@@ -85,12 +90,6 @@ function renderBody(vm: CardVM): string {
       <button class="fp-next">Next</button>
     </div>
     <div class="fp-verdict" aria-live="polite"></div>
-    <label class="fp-note-label">Why did you miss it?
-      <textarea class="fp-note" rows="1" placeholder="one line — your own note"></textarea>
-    </label>
-    <div class="fp-calc">
-      <button class="fp-calc-open">Calculator</button>
-    </div>
   </div>`;
 }
 
@@ -115,6 +114,23 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
   shadow.querySelector('.fp-check')!.addEventListener('click', () => h.onCheck(pickValue()));
   shadow.querySelector('.fp-reveal')!.addEventListener('click', () => h.onReveal());
   shadow.querySelector('.fp-next')!.addEventListener('click', () => h.onNext());
+}
+
+// The extras block (issue #22): the note + the single Calculator button. Rendered into the SEPARATE
+// extras host (last child of .answer-content) so it sits BELOW CB's native .rationale/explanation.
+function renderExtras(): string {
+  return `<div class="fp-answer">
+    <label class="fp-note-label">Why did you miss it?
+      <textarea class="fp-note" rows="1" placeholder="one line — your own note"></textarea>
+    </label>
+    <div class="fp-calc">
+      <button class="fp-calc-open">Calculator</button>
+    </div>
+  </div>`;
+}
+
+// Wire the extras shadow (note + calc). Same handlers as the single-host layout — only the host moved.
+function wireExtras(shadow: ShadowRoot, h: AnswerHandlers): void {
   shadow.querySelector('.fp-note')!.addEventListener('change', (e) =>
     h.onNote((e.target as HTMLTextAreaElement).value.trim()));
   shadow.querySelector('.fp-calc-open')!.addEventListener('click', () => h.onOpenDesmos());
@@ -147,14 +163,21 @@ export function maskAnswerContent(answerContent: HTMLElement): void {
   // leaked through the disconnect gap — live-race flake.)
   hideObservers.get(answerContent)?.disconnect();
   const observer = new MutationObserver((records) => {
+    let cbNodeAdded = false;
     for (const rec of records) {
       for (const node of Array.from(rec.addedNodes)) {
         // childList (non-subtree) only reports direct children; guard is belt-and-suspenders — do NOT add subtree:true (would hide CB's nested nodes)
         if (node.nodeType === 1 && (node as Element).parentElement === answerContent) {
-          hideCbNode(node as HTMLElement);
+          const el = node as HTMLElement;
+          if (isOurHost(el)) continue;   // our own host (e.g. the extras re-anchor below) — ignore (prevents an infinite observer loop)
+          hideCbNode(el);
+          cbNodeAdded = true;
         }
       }
     }
+    // Keep the extras host LAST so note/calc stay BELOW any CB node injected after mount — critically
+    // CB's async .rationale (~150ms), which lands as a fresh last child after our mount-time append (#22).
+    if (cbNodeAdded) reanchorExtras(answerContent);
   });
   observer.observe(answerContent, { childList: true });
   hideObservers.set(answerContent, observer);
@@ -162,6 +185,17 @@ export function maskAnswerContent(answerContent: HTMLElement): void {
   // Whitelist hide: every direct child that ISN'T our host (covers .answer-choices + any present
   // .rationale + anything else CB rendered). :scope > is unsupported in happy-dom, so scan children.
   for (const el of Array.from(answerContent.children)) hideCbNode(el as HTMLElement);
+  // A .rationale present at mask time would sit below the extras host; restore extras-last. On the FOUC
+  // curtain path (extras host not yet created) this is a no-op.
+  reanchorExtras(answerContent);
+}
+
+// Move the extras host (note + calc) back to LAST child so it stays below CB's .rationale (#22). No-op
+// when the extras host doesn't exist yet (the FOUC curtain path) or is already last.
+function reanchorExtras(answerContent: HTMLElement): void {
+  const extras = Array.from(answerContent.children)
+    .find((c) => c.classList.contains(EXTRAS_HOST_CLASS)) as HTMLElement | undefined;
+  if (extras && answerContent.lastElementChild !== extras) answerContent.appendChild(extras);
 }
 
 // Create (or reuse) our shadow host as the FIRST child of CB's .answer-content. Idempotent: CB may
@@ -180,6 +214,24 @@ function ensureHost(answerContent: HTMLElement): HTMLElement {
     host.addEventListener(t, (e) => e.stopPropagation());
   }
   answerContent.insertBefore(host, answerContent.firstChild);
+  host.attachShadow({ mode: 'open' });
+  return host;
+}
+
+// Create (or reuse) the extras shadow host as the LAST child of CB's .answer-content (issue #22), so the
+// note + calculator render BELOW CB's native .rationale/explanation. Idempotent like ensureHost.
+function ensureExtrasHost(answerContent: HTMLElement): HTMLElement {
+  const existing = Array.from(answerContent.children)
+    .find((c) => c.classList.contains(EXTRAS_HOST_CLASS)) as HTMLElement | undefined;
+  if (existing) return existing;
+  const doc = answerContent.ownerDocument!;
+  const host = doc.createElement('div');
+  host.className = EXTRAS_HOST_CLASS;
+  // CB closes its modal on outside pointer-down; stop our events at the host (parity with the main host).
+  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+    host.addEventListener(t, (e) => e.stopPropagation());
+  }
+  answerContent.appendChild(host);   // LAST child
   host.attachShadow({ mode: 'open' });
   return host;
 }
@@ -215,11 +267,17 @@ export function mountCurtain(answerContent: HTMLElement): void {
 // primitive) so a node hidden before mount stays hidden and unmount restores exactly our marked nodes.
 export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: AnswerHandlers): ShadowRoot {
   const host = ensureHost(answerContent);
+  const extrasHost = ensureExtrasHost(answerContent);   // created BEFORE the mask sweep → exempt (isOurHost) + anchored last
   maskAnswerContent(answerContent);
   removeCurtain(answerContent);
   const shadow = host.shadowRoot!;
   shadow.innerHTML = html(`<style>${ANSWER_CSS}</style>` + renderBody(vm)) as unknown as string;
   wire(shadow, vm, h);
+  // Note + calc live in the extras shadow (issue #22). Reuse ANSWER_CSS — it carries the .fp-note/.fp-calc styles.
+  const extrasShadow = extrasHost.shadowRoot!;
+  extrasShadow.innerHTML = html(`<style>${ANSWER_CSS}</style>` + renderExtras()) as unknown as string;
+  wireExtras(extrasShadow, h);
+  // Contract: return the INTERACTION shadow (choices/verdict live here; renderVerdict etc. target it).
   return shadow;
 }
 
@@ -237,6 +295,7 @@ export function unmountAnswerOverlay(answerContent: HTMLElement): void {
     el.removeAttribute(REVEALED_ATTR);
   }
   answerContent.querySelector('.fp-answer-host')?.remove();
+  answerContent.querySelector('.fp-extras-host')?.remove();   // extras host (note + calc) — issue #22
   removeCurtain(answerContent);   // FOUC curtain (#38): drop the white rectangle too, if it's still up
 }
 

@@ -25,6 +25,15 @@ function overlay(): ShadowRoot | null {
 function inOverlay(sel: string): Element | null {
   return overlay()?.querySelector(sel) ?? null;
 }
+// The note + Calculator + Desmos now live in a SEPARATE extras host (`.fp-extras-host`), appended as the
+// LAST child of .answer-content so they render below CB's .rationale. These mirror the pair above but
+// resolve the extras shadow; `null` until the extras host is mounted.
+function extrasOverlay(): ShadowRoot | null {
+  return document.querySelector('.answer-content .fp-extras-host')?.shadowRoot ?? null;
+}
+function inExtras(sel: string): Element | null {
+  return extrasOverlay()?.querySelector(sel) ?? null;
+}
 
 beforeEach(() => { document.body.innerHTML = ''; history.replaceState({}, '', '/digital/results'); });
 
@@ -146,9 +155,9 @@ describe('content loop wiring', () => {
     document.body.innerHTML += mc;
     await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
 
-    const note = inOverlay('.fp-note') as HTMLTextAreaElement;
+    const note = inExtras('.fp-note') as HTMLTextAreaElement;   // note moved to the extras shadow (below the explanation)
     note.value = 'missed the trap'; note.dispatchEvent(new Event('change'));
-    (inOverlay('.fp-next') as HTMLElement).click();
+    (inOverlay('.fp-next') as HTMLElement).click();             // Next stays in the interaction shadow
 
     await vi.waitFor(async () => expect((await getNotes(db)).length).toBe(1));
     expect((await getNotes(db))[0]!.text).toBe('missed the trap');
