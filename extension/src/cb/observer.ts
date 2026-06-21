@@ -16,8 +16,10 @@ export function observeQuestions(doc: Document, onShown: (view: QuestionView) =>
   let settle: ReturnType<typeof setTimeout> | null = null;
 
   const read = () => {
-    const p = doc.location.pathname;
-    if (!p.includes('/digital/results') && !p.includes('/questionbank/results')) return;
+    // Bank-agnostic results-page gate: both banks open questions on a `.../results` page (educator
+    // `/digital/results`, student `/questionbank/results`), and the manifest only injects us on the two
+    // question-bank hosts — so a single `/results` check covers both without naming either bank.
+    if (!doc.location.pathname.includes('/results')) return;
     const modal = [...doc.querySelectorAll(QUESTION_MODAL_SELECTOR)]
       .find((el) => /Question ID:/i.test(el.textContent ?? '')) ?? null;
     if (!modal) { lastSig = null; return; }
