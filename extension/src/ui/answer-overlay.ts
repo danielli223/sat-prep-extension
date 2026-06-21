@@ -56,7 +56,6 @@ function renderBody(vm: CardVM): string {
     <div class="fp-answer-head">
       <button class="fp-overlay-close" aria-label="Close">✕</button>
     </div>
-    <div class="fp-progress">${esc(vm.skill)} › ${esc(vm.difficulty)} · Q ${vm.position.index} of ${vm.position.total}</div>
     ${answerBody}
     <div class="fp-actions">
       <button class="fp-check">Check</button>
@@ -223,8 +222,6 @@ const ANSWER_CSS = `
 .fp-answer{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;}
 .fp-answer-head{display:flex;justify-content:flex-end;align-items:center;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
-.fp-progress{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#6b7280;
-  border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:12px;}
 .fp-choices{list-style:none;margin:0 0 12px;padding:0;}
 .fp-choice{display:flex;align-items:center;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:7px;}
 .fp-choice .fp-eliminate{border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:14px;padding:8px 4px 8px 10px;}
