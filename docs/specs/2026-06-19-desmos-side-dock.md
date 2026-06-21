@@ -51,7 +51,8 @@ Given that, docking is implemented two ways, each respecting every bright-line i
 - **Unify the calculator with Desmos.** Would require an in-page real-Desmos surface → the Desmos API
   (license) or an iframe (blocked). Needs a product + legal decision before it can be built. Not done.
 - **Move "Open Desmos" to the bottom bar.** A larger control-placement change touching the answer
-  overlay's action layout; deferred to keep this change focused. Not done.
+  overlay's action layout; deferred to keep this change focused. **Picked up in [issue #29](https://github.com/danielli223/sat-prep-extension/issues/29)** — see
+  [`2026-06-21-desmos-action-bar.md`](2026-06-21-desmos-action-bar.md).
 
 ## Visuals
 
