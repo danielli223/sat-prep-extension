@@ -49,13 +49,18 @@ describe('packaging — three browser manifests', () => {
     expect(firefox.browser_specific_settings.gecko.id).toMatch(/@/);
   });
 
-  // The three variants must be EQUIVALENT packages, not just CB-host-equal. The GeoGebra frame
-  // policy and the journal popup are product surface — dropping them in Firefox/Edge (as the
-  // original variants did) ships a different, broken extension.
-  it('all three carry the same GeoGebra frame-src CSP (extension_pages)', () => {
+  // The three variants must be EQUIVALENT packages, not just CB-host-equal. Issue #17 removed the
+  // GeoGebra in-page embed, so NONE of the three may carry a frame-src host anymore — the one
+  // calculator is the real Desmos opened in a separate window (never an iframe). The CSP must still
+  // be present, default-restrictive, identical across variants, and free of any embedded host.
+  it('all three carry the same embed-free CSP — no GeoGebra frame-src, no embedded host', () => {
     for (const m of manifests) {
-      expect(m.content_security_policy?.extension_pages, 'missing extension_pages CSP').toBeTruthy();
-      expect(m.content_security_policy.extension_pages).toContain('frame-src https://www.geogebra.org');
+      const csp = m.content_security_policy?.extension_pages as string | undefined;
+      expect(csp, 'missing extension_pages CSP').toBeTruthy();
+      expect(csp).toContain("script-src 'self'");                  // stays default-restrictive
+      expect(csp).not.toContain('frame-src https://www.geogebra.org');
+      expect(csp).not.toContain('geogebra.org');
+      expect(csp).not.toContain('desmos.com');                     // bright line: Desmos is never embedded
     }
     const csps = manifests.map((m) => m.content_security_policy.extension_pages);
     expect(new Set(csps).size, 'CSP extension_pages diverges across variants').toBe(1);

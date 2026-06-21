@@ -6,7 +6,7 @@ import type { ScoreResult } from '../scoring';
 export interface AnswerHandlers {
   onSelect(letter: string): void; onEliminate(letter: string): void;
   onCheck(pick: string): void; onReveal(): void; onNext(): void;
-  onToggleCalc(): void; onOpenDesmos(): void; onClose(): void;
+  onOpenDesmos(): void; onClose(): void;
   onNote(text: string): void;
 }
 
@@ -89,8 +89,7 @@ function renderBody(vm: CardVM): string {
       <textarea class="fp-note" rows="1" placeholder="one line — your own note"></textarea>
     </label>
     <div class="fp-calc">
-      <button class="fp-calc-pin">Calculator</button>
-      <button class="fp-desmos">Open real Desmos</button>
+      <button class="fp-calc-open">Calculator</button>
     </div>
   </div>`;
 }
@@ -118,8 +117,7 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
   shadow.querySelector('.fp-next')!.addEventListener('click', () => h.onNext());
   shadow.querySelector('.fp-note')!.addEventListener('change', (e) =>
     h.onNote((e.target as HTMLTextAreaElement).value.trim()));
-  shadow.querySelector('.fp-calc-pin')!.addEventListener('click', () => h.onToggleCalc());
-  shadow.querySelector('.fp-desmos')!.addEventListener('click', () => h.onOpenDesmos());
+  shadow.querySelector('.fp-calc-open')!.addEventListener('click', () => h.onOpenDesmos());
 }
 
 // Mask CB's own .answer-content children (display:none + our marker) WITHOUT mounting a host. This is
@@ -338,5 +336,5 @@ const ANSWER_CSS = `
   padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}
 .fp-note::placeholder{color:#b45309;}
 .fp-calc{display:flex;gap:8px;}
-.fp-calc-pin,.fp-desmos{background:#f1f5f9;color:#334155;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;}
+.fp-calc-open{background:#f1f5f9;color:#334155;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;}
 `;

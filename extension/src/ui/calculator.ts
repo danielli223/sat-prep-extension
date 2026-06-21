@@ -1,46 +1,8 @@
-// Calculator (Decision D7). GeoGebra is embedded INSIDE the shadow root (integrated, free).
-// "Open real Desmos" launches desmos.com's own free public site in a SEPARATE window — never an
-// iframe — the zero-license fallback (Open item O1). Returns the new visibility (true=open).
+// Calculator (Decision D7). There is ONE calculator, and it IS the real Desmos — the test-day tool
+// (issue #17). Nothing is embedded in-page: openDesmos() launches desmos.com's own free public site
+// in a SEPARATE window — never an iframe — the zero-license fallback (Open item O1).
 
-import { extrasSlot } from './host';
-
-// The SCIENTIFIC app, not the graphing one (/calculator): it opens straight to a button keypad
-// (digits, operators, √, π, fractions, exponents) — the visible calculator students expect, close to
-// the Desmos SAT keypad — instead of an axes grid with the math keyboard tucked away.
-const GEOGEBRA_URL = 'https://www.geogebra.org/scientific';
 const DESMOS_URL = 'https://www.desmos.com/calculator';
-
-export function toggleGeoGebra(root: ShadowRoot): boolean {
-  // Mount into the persistent extras slot — NOT the card slot — so the start panel (which writes
-  // the card slot) doesn't wipe an open calculator, and vice versa.
-  const slot = extrasSlot(root);
-  const existing = slot.querySelector('.fp-geogebra');
-  if (existing) { existing.remove(); return false; }
-  const doc = root.ownerDocument!;
-  // The calculator is a side-docked PANEL (.fp-geogebra; full-height, left edge — see host.ts CSS) with
-  // a header bar carrying a ✕, so it can be dismissed directly — matching the focus card / start panel
-  // — without re-toggling the card button.
-  const panel = doc.createElement('div');
-  panel.className = 'fp-geogebra';
-  const head = doc.createElement('div');
-  head.className = 'fp-geogebra-head';
-  const label = doc.createElement('span');
-  label.textContent = 'Calculator';
-  const close = doc.createElement('button');
-  close.className = 'fp-geogebra-close';
-  close.setAttribute('aria-label', 'Close calculator');
-  close.textContent = '✕';
-  close.addEventListener('click', () => panel.remove());
-  head.append(label, close);
-  const iframe = doc.createElement('iframe');
-  iframe.className = 'fp-geogebra-frame';
-  iframe.src = GEOGEBRA_URL;
-  iframe.title = 'GeoGebra calculator';
-  iframe.setAttribute('allow', 'fullscreen');
-  panel.append(head, iframe);
-  slot.appendChild(panel);
-  return true;
-}
 
 export function openDesmos(): void {
   // The real test-day tool on its own free site — a new window, NEVER an iframe (the zero-license
