@@ -113,4 +113,27 @@ describe('renderBlockNotice (§8.3 — disable AND point to CB)', () => {
     renderBlockNotice(root);
     expect(root.querySelectorAll(`#${BLOCK_NOTICE_ID}`)).toHaveLength(1);
   });
+
+  // Issue #32 — host-aware redirect: a blocked student lands back on the SAME bank their session uses.
+  it('with no hostname arg, defaults to the educator bank (happy-dom host is not the student bank)', () => {
+    document.body.innerHTML = '';
+    const root = mountHost(document);
+    renderBlockNotice(root);
+
+    const link = root.getElementById(BLOCK_NOTICE_ID)!.querySelector<HTMLAnchorElement>('a[href]')!;
+    expect(link.href).toMatch(/satsuiteeducatorquestionbank\.collegeboard\.org/i);
+    // the default must NOT resolve to the student bank when the page host is unknown
+    expect(link.href).not.toMatch(/mypractice\.collegeboard\.org/i);
+  });
+
+  it('points a blocked student on the student host to the student bank', () => {
+    document.body.innerHTML = ''; // fresh host: the notice is idempotent + id-keyed
+    const root = mountHost(document);
+    renderBlockNotice(root, 'mypractice.collegeboard.org');
+
+    const link = root.getElementById(BLOCK_NOTICE_ID)!.querySelector<HTMLAnchorElement>('a[href]')!;
+    expect(link.href).toContain('https://mypractice.collegeboard.org/questionbank/results');
+    // not the educator bank — host-aware, not the hard-coded default
+    expect(link.href).not.toMatch(/satsuiteeducatorquestionbank\.collegeboard\.org/i);
+  });
 });

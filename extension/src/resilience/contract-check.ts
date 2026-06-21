@@ -1,5 +1,6 @@
 import type { QuestionView } from '../cb/reader';
 import { html } from '../ui/host';
+import { bankUrlForHost } from '../cb/banks';
 
 // DOM-contract self-check (spec §8.1, contract §2.4). Verifies CB's expected data is present on a
 // read view BEFORE the loop trusts it. On failure we NEVER guess a score — the caller degrades to
@@ -71,15 +72,21 @@ export const BLOCK_NOTICE_ID = 'fp-block-notice';
 // itself for this page and tells the student to use CB's question bank directly. We NEVER retry,
 // NEVER call the API — we just link them to CB's own page. Non-verdict; not dismissible (the overlay
 // is off for this page). Idempotent. HTML goes through Plan 2's single `html()` policy.
-export function renderBlockNotice(root: ShadowRoot): void {
+// Issue #32: host-aware — a blocked student lands back on the SAME bank their session uses. The
+// hostname defaults to the live page host so the existing caller picks up the right bank with no args.
+export function renderBlockNotice(
+  root: ShadowRoot,
+  hostname: string = root.ownerDocument?.location?.hostname ?? '',
+): void {
   if (root.getElementById(BLOCK_NOTICE_ID)) return; // idempotent
+  const bankUrl = bankUrlForHost(hostname);
   const el = root.ownerDocument!.createElement('div');
   el.id = BLOCK_NOTICE_ID;
   el.setAttribute('role', 'status');
   el.innerHTML = html(`
     <div class="fp-banner">
       <span class="fp-banner-text">Focused Practice is paused on this page. Use the question bank directly on CB:</span>
-      <a class="fp-banner-link" href="https://satsuiteeducatorquestionbank.collegeboard.org/" target="_blank" rel="noopener noreferrer">Open the College Board question bank</a>
+      <a class="fp-banner-link" href="${bankUrl}" target="_blank" rel="noopener noreferrer">Open the College Board question bank</a>
     </div>`) as string;
   root.appendChild(el);
 }

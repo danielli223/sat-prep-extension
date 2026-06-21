@@ -153,6 +153,35 @@ it('revealRationale un-hides CB\'s native .rationale', () => {
   expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('');
 });
 
+// #20: in Reading, the revealed explanation must sit directly UNDER the question (above our tall
+// interaction UI) so the student can read both at once — not be buried below our host. revealRationale
+// must move CB's native .rationale ABOVE .fp-answer-host in document order, keep it visible even after
+// the masking observer flushes, and NEVER copy its text into our shadow root (CB's node, repositioned).
+it('revealRationale repositions CB\'s native .rationale above our interaction host (#20)', async () => {
+  const ac = cbAnswerContent();
+  const shadow = mountAnswerOverlay(ac, vm, noop());
+
+  expect(revealRationale(ac)).toBe(true);
+
+  const kids = Array.from(ac.children);
+  const rationaleIdx = kids.findIndex((c) => c.classList.contains('rationale'));
+  const hostIdx = kids.findIndex((c) => c.classList.contains('fp-answer-host'));
+  expect(rationaleIdx).toBeGreaterThanOrEqual(0);
+  expect(hostIdx).toBeGreaterThanOrEqual(0);
+  // The explanation now precedes our interaction UI, so it renders directly beneath the question.
+  expect(rationaleIdx).toBeLessThan(hostIdx);
+
+  // Moving a node is a childList mutation — the masking observer must NOT re-hide the node we just
+  // deliberately revealed. Flush the (async, happy-dom) observer callback, then assert still visible.
+  const rationale = ac.querySelector('.rationale') as HTMLElement;
+  await new Promise((r) => setTimeout(r, 0));
+  expect(rationale.style.display).toBe('');
+
+  // Invariant: CB's rationale stays CB's own node — its text is repositioned, never re-rendered as
+  // ours. The synthetic rationale text must not have leaked into our shadow root.
+  expect(shadow.textContent).not.toContain('Correct Answer: B');
+});
+
 it('renderVerdict lights the correct choice green and the wrong pick red', () => {
   const ac = cbAnswerContent();
   const shadow = mountAnswerOverlay(ac, vm, noop());
