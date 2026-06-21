@@ -9,6 +9,8 @@
 // createElement/textContent only (no innerHTML of any CB-derived string). Navigation is delegated to
 // the caller via onJump — the renderer itself performs no DOM lookup beyond its own cells and NO network.
 
+import type { SeenMap } from '../stats';
+
 export const NAV_GRID_CLASS = 'fp-nav-grid';
 export const NAV_CELL_CLASS = 'fp-nav-cell';
 
@@ -47,7 +49,7 @@ const DIFFICULTY_BG: Record<Tier, string> = {
 /** Pure builder: maps the ordered loaded rows + the student's own seen map to renderable cells. */
 export function buildNavCells(
   rows: { id: string; difficulty: string }[],
-  seen: Record<string, 'done' | 'missed'>,
+  seen: SeenMap,
 ): NavCell[] {
   return rows.map((row, i) => ({
     id: row.id,

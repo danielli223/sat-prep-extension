@@ -11,20 +11,18 @@ const FLUSH_ALARM = 'telemetry-flush';
 // Telemetry egress lives ONLY here (the single auditable network exit). Injected `api` so it's testable.
 export function installTelemetryListeners(api: typeof chrome): void {
   api.runtime.onMessage.addListener((msg: { type?: string; event?: TelemetryEvent }) => {
+    // The trusted super-prop context — identical for every egress path, built once per message.
+    const ctx = {
+      appVersion: api.runtime.getManifest().version,
+      ua: typeof navigator !== 'undefined' ? navigator.userAgent : 'chrome',
+      nowMs: Date.now(),
+    };
     if (msg?.type === TELEMETRY_EVENT && msg.event) {
-      void ingestTelemetryEvent(msg.event, {
-        appVersion: api.runtime.getManifest().version,
-        ua: typeof navigator !== 'undefined' ? navigator.userAgent : 'chrome',
-        nowMs: Date.now(),
-      }).then(() => flush());
+      void ingestTelemetryEvent(msg.event, ctx).then(() => flush());
     } else if (msg?.type === TELEMETRY_OPTOUT) {
       // Opt-out runs HERE (the single egress point): builds + flushes the final telemetry_disabled
       // with the full trusted super-prop set, then clears local state.
-      void optOut({
-        appVersion: api.runtime.getManifest().version,
-        ua: typeof navigator !== 'undefined' ? navigator.userAgent : 'chrome',
-        nowMs: Date.now(),
-      });
+      void optOut(ctx);
     } else if (msg?.type === TELEMETRY_DELETE) {
       void deleteMyData();
     }

@@ -7,7 +7,6 @@ export const HOST_ID = 'focused-practice-root';
 export const TT_POLICY = 'focused-practice';
 
 export const CARD_SLOT_CLASS = 'fp-card-slot';
-export const EXTRAS_SLOT_CLASS = 'fp-extras-slot';
 
 interface TTPolicy { createHTML(s: string): unknown; }
 let policy: TTPolicy | null = null;
@@ -32,16 +31,13 @@ function ensurePolicy(): void {
 // backdrop with a centered white card, green=correct / red=wrong / blue=selected. Scoped to this
 // shadow root, so nothing leaks to (or is overridden by) College Board's page.
 const BASE_CSS = `
-/* Explicit overlay layering (all three are position:fixed → each its own stacking context). Without
-   z-index, stacking fell to DOM order and the calculator/panel buried each other. Card (the dimmed
-   modal) sits lowest; the journal panel above it; the extras slot (calculator + future floating
-   tools) on top so a tool is never hidden under another overlay. */
+/* Explicit overlay layering (each is position:fixed → its own stacking context). Without z-index,
+   stacking fell to DOM order and the panel/card buried each other. The card (the dimmed modal) sits
+   lowest; the journal panel above it. */
 .${CARD_SLOT_CLASS}{position:fixed;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;
   background:rgba(15,23,42,.55);padding:24px;box-sizing:border-box;pointer-events:auto;
   font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
 .${CARD_SLOT_CLASS}:empty{display:none;}
-.${EXTRAS_SLOT_CLASS}{position:fixed;inset:0;z-index:3;pointer-events:none;}
-.${EXTRAS_SLOT_CLASS}>*{pointer-events:auto;}
 .fp-start{width:100%;max-width:460px;max-height:88vh;overflow:auto;background:#fff;color:#1f2937;
   border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:20px;box-sizing:border-box;}
 .fp-start-head{display:flex;justify-content:flex-end;margin-bottom:10px;}
@@ -78,19 +74,11 @@ const BASE_CSS = `
 .fp-empty{font-size:12px;color:#9ca3af;}
 `;
 
-// The shadow root holds two sibling slots so a start-panel repaint never clobbers persistent UI:
-//   .fp-card-slot   — the start panel; OVERWRITTEN on every render.
-//   .fp-extras-slot — the calculator iframe and other persistent overlays; SURVIVES re-renders.
-// Returns the card slot (renderStartPanel targets this, not the whole shadow root).
+// The shadow root holds the card slot for the start panel (OVERWRITTEN on every render). Returns it —
+// renderStartPanel targets this slot, not the whole shadow root.
 export function cardSlot(shadow: ShadowRoot): HTMLElement {
   ensureSlots(shadow);
   return shadow.querySelector(`.${CARD_SLOT_CLASS}`) as HTMLElement;
-}
-
-// Returns the persistent extras slot (the calculator mounts here so renderStartPanel can't wipe it).
-export function extrasSlot(shadow: ShadowRoot): HTMLElement {
-  ensureSlots(shadow);
-  return shadow.querySelector(`.${EXTRAS_SLOT_CLASS}`) as HTMLElement;
 }
 
 function ensureSlots(shadow: ShadowRoot): void {
@@ -100,9 +88,7 @@ function ensureSlots(shadow: ShadowRoot): void {
   style.textContent = BASE_CSS;
   const card = doc.createElement('div');
   card.className = CARD_SLOT_CLASS;
-  const extras = doc.createElement('div');
-  extras.className = EXTRAS_SLOT_CLASS;
-  shadow.append(style, card, extras);
+  shadow.append(style, card);
 }
 
 // The ONLY way HTML enters the shadow root. Returns a TrustedHTML where supported, else the raw
@@ -110,6 +96,16 @@ function ensureSlots(shadow: ShadowRoot): void {
 export function html(s: string): unknown {
   ensurePolicy();
   return policy!.createHTML(s);
+}
+
+// Swallow our own pointer events so they never reach CB's document-level "close on outside
+// pointerdown" listener. stopPropagation (not preventDefault) leaves native focus/typing/button
+// behaviour intact. Shared by every host/widget we mount (the overlay host, the in-modal answer +
+// extras hosts, and the light-DOM stats widget) so the event set is single-sourced.
+export function stopPointerPropagation(el: HTMLElement): void {
+  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+    el.addEventListener(t, (e) => e.stopPropagation());
+  }
 }
 
 export function mountHost(doc: Document): ShadowRoot {
@@ -127,9 +123,7 @@ export function mountHost(doc: Document): ShadowRoot {
   // events reproduce this, not programmatic .click()). Stop our overlay's pointer events at the host so
   // they never reach CB's document-level listeners. Our own in-shadow handlers fire first, so the card
   // still works; stopPropagation (not preventDefault) leaves focus/typing/native button behaviour intact.
-  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
-    host.addEventListener(t, (e) => e.stopPropagation());
-  }
+  stopPointerPropagation(host);
   doc.body.appendChild(host);
   return host.attachShadow({ mode: 'open' });
 }

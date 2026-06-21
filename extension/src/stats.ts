@@ -1,10 +1,17 @@
 import type { Attempt } from './types';
 
+// The student's own per-question status (from their attempt journal — never CB content). Single-
+// sourced here so the badger, nav grid, journal, view-model, and answer overlay don't each hand-copy
+// the union or the map shape.
+export type SeenStatus = 'done' | 'missed';        // a question they've attempted
+export type PriorStatus = 'new' | SeenStatus;      // + 'new' (never attempted)
+export type SeenMap = Record<string, SeenStatus>;  // latest result per questionId
+
 export interface SkillStat { skill: string; total: number; correct: number; accuracy: number; }
 export interface Stats {
   total: number; correct: number; accuracy: number;
   perSkill: SkillStat[];                       // worst accuracy first
-  seen: Record<string, 'done' | 'missed'>;     // latest result per questionId
+  seen: SeenMap;                               // latest result per questionId
   streakDays: number;                          // consecutive active days ending at the most recent
 }
 
@@ -31,7 +38,7 @@ export function deriveStats(attempts: Attempt[], opts?: StatsOpts): Stats {
   const correct = list.filter((a) => a.correct).length;
 
   const bySkill = new Map<string, { t: number; c: number }>();
-  const seen: Record<string, 'done' | 'missed'> = {};
+  const seen: SeenMap = {};
   for (const a of list) {
     const s = bySkill.get(a.skill) ?? { t: 0, c: 0 };
     s.t++; if (a.correct) s.c++;
