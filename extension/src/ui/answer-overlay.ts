@@ -61,6 +61,7 @@ function renderBody(vm: CardVM): string {
     <div class="fp-actions">
       <button class="fp-check">Check</button>
       <button class="fp-reveal">Reveal explanation</button>
+      <button class="fp-desmos">Open real Desmos</button>
       <button class="fp-next">Next</button>
     </div>
     <div class="fp-verdict" aria-live="polite"></div>
@@ -69,7 +70,6 @@ function renderBody(vm: CardVM): string {
     </label>
     <div class="fp-calc">
       <button class="fp-calc-pin">Calculator</button>
-      <button class="fp-desmos">Open real Desmos</button>
     </div>
   </div>`;
 }
