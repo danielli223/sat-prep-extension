@@ -7,7 +7,7 @@ const ext = join(dirname(fileURLToPath(import.meta.url)), '..');
 const load = (f: string) => JSON.parse(readFileSync(join(ext, f), 'utf8'));
 const CB = '*://satsuiteeducatorquestionbank.collegeboard.org/*';
 // Issue #32: the STUDENT question bank is a second, specific CB origin the overlay must run on.
-const STUDENT_CB = '*://mypractice.collegeboard.org/questionbank/*';
+const STUDENT_CB = '*://mypractice.collegeboard.org/*';
 const CONFIG = 'https://config.focusedpractice.app/*';
 const POSTHOG = 'https://us.i.posthog.com/*';
 const DELETE_EP = 'https://api.focusedpractice.app/*';
