@@ -1,14 +1,14 @@
 import type { IDBPDatabase } from 'idb';
 import { openStore, recordAttempt, saveNote, saveSession, getSession, getAttempts } from '../store';
 import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
-import { observeQuestions } from '../cb/observer';
+import { observeQuestions, QUESTION_MODAL_SELECTOR } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
 import { mountHost, cardSlot } from '../ui/host';
 import { toCardVM } from '../ui/view-model';
 import {
-  findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, renderVerdict, renderNeedAnswer,
-  renderStaleCard, revealRationale, type AnswerHandlers,
+  findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, mountCurtain, renderVerdict,
+  renderNeedAnswer, renderStaleCard, revealRationale, type AnswerHandlers,
 } from '../ui/answer-overlay';
 import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
@@ -19,8 +19,7 @@ import { badge } from '../ui/badger';
 import { buildNavCells, renderNavGrid } from '../ui/nav-grid';
 import { getSeen, getMistakes } from '../journal';
 import { deriveStats } from '../stats';
-import { resumeSession, scrollToResume, type ResumeResult } from '../ui/resume';
-import { dropCoachmark, COACHMARK_CLASS } from '../ui/coachmark';
+import { resumeSession, scrollToResume, nextRandomId, type ResumeResult } from '../ui/resume';
 import { OPEN_JOURNAL } from '../messages';
 import { emit } from '../telemetry/emit';
 import {
@@ -76,9 +75,12 @@ function countLoadedResults(doc: Document): number {
 // checked; it is absent (not merely hidden) otherwise. Reads the rendered DOM + toggles ONE control
 // on the CURRENT user-chosen question — no API call, no enumeration, no prefetch. The focus card
 // overlays the dimmed CB page (D2), so the student never sees CB's revealed answer until our own
-// verdict/explanation step. Selector observed live in the spike (.hide-rationale-checkbox).
+// verdict/explanation step. The reveal control differs by bank: educator = `.hide-rationale-checkbox
+// input`, student (issue #55) = `.cb-checkbox.inline-rationale-toggle input` (a class-less checkbox).
+// Both inject the same `.rationale` outcome, so we match either control and gate on that goal.
 function ensureAnswerRevealed(doc: Document): void {
-  const box = doc.querySelector<HTMLInputElement>('.hide-rationale-checkbox input[type="checkbox"]');
+  const box = doc.querySelector<HTMLInputElement>(
+    '.hide-rationale-checkbox input[type="checkbox"], .cb-checkbox.inline-rationale-toggle input[type="checkbox"]');
   if (!box) return;
   if (doc.querySelector('.rationale')) return;   // goal already met — rationale is in the DOM, nothing to do
   // No rationale yet. Drive CB's reveal with real CLICKS ONLY — never by assigning `box.checked`. From
@@ -119,7 +121,7 @@ function currentModal(doc: Document, id: string): Element | null {
   // real match. The 8-hex validation is the load-bearing guard.)
   if (!/^[0-9a-f]{8}$/i.test(id)) return null;
   const re = new RegExp(`Question ID:\\s*${id}`, 'i');
-  return [...doc.querySelectorAll('.cb-dialog-container')]
+  return [...doc.querySelectorAll(QUESTION_MODAL_SELECTOR)]
     .find((el) => re.test(el.textContent ?? '')) ?? null;
 }
 
@@ -251,15 +253,30 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   (typeof self !== 'undefined' ? self : window).addEventListener?.('pagehide', onPageHide);
 
   function start(orderMode: 'list' | 'random'): void {
+    stop?.();   // tear down any prior observer (e.g. the boot re-attach one) so it can't race or stack
     cardSlot(shadow).replaceChildren();   // dismiss the start panel so the student can open a CB question
     total = countLoadedResults(doc);   // read N once, before the first card paints
+    // Issue #31: mint the random seed UP FRONT (not lazily in the first-question observer) so the
+    // shuffled order exists before the student opens anything — and so the session created below carries
+    // this SAME seed. While the results list is still on the page, GUIDE the student to the first
+    // shuffled-order row by scrolling it into view (the Resume posture; no auto-load, no id-navigation,
+    // bright lines #1 & #4). List not yet rendered ⇒ no-op, exactly like Resume.
+    const seed = orderMode === 'random' ? newSeed() : 0;
+    if (orderMode === 'random') {
+      const list = findResultsList(doc);
+      if (list) {
+        const ids = readListQuestionIds(list).map((r) => r.id);
+        const first = nextRandomId(seed, ids, 0);
+        if (first) scrollToResume(list, first);
+      }
+    }
     let started = false;
     stop = observeQuestions(doc, (view) => {
       if (!started) {
         started = true;
         session = makeSession({
           deviceId: dev, filterContext: filterContextOf(view), orderMode,
-          shuffleSeed: orderMode === 'random' ? newSeed() : 0,
+          shuffleSeed: seed,
         });
         sessionStartMs = Date.now(); attempted = 0; correct = 0;   // start the session_ended stat window
         // Fire-and-forget from inside the MutationObserver callback. The observer outlives a single
@@ -272,6 +289,15 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         }));
       }
       showQuestion(view);
+    }, (modal) => {
+      // Issue #38 (FOUC): the instant CB's answer region is observed — BEFORE the observer's 150ms
+      // read-debounce mounts the overlay — drop an opaque "curtain" host over it and hide CB's raw
+      // content, so CB's native choices never flash. The real overlay later fills this SAME host (the
+      // nice UI loads over the white rectangle). Only fires after Start (a session is running), never on
+      // the boot/resume probe. mountCurtain is idempotent and never clobbers a live overlay; the degrade/
+      // close path (unmountAnswerOverlay) restores CB's nodes.
+      const answerContent = findAnswerContent(modal);
+      if (answerContent) mountCurtain(answerContent);
     });
   }
 
@@ -316,7 +342,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
 
     // §2.4: only mount the overlay when the DOM contract holds; otherwise degrade to the banner in the
     // body host. The renderQuestion thunk mounts the overlay into CB's .answer-content ("Q n of N").
+    let mounted = false;   // set inside the thunk; stays false on the degrade path (contract failed)
     void handleQuestion(shadow, view, () => {
+      mounted = true;
       mountAnswerOverlay(answerContent, toCardVM(view, index, total), handlers);
       // Trigger CB's reveal ONLY after the overlay is mounted (S1): so (a) a failed contract never
       // reveals CB's answer un-masked, and (b) the hide-observer installed by mount is live BEFORE CB
@@ -324,6 +352,14 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       // still reads the (hidden) rationale at Check time (awaitCorrectAnswer / currentCorrectAnswer).
       ensureAnswerRevealed(doc);
     });
+    // Fail-safe (invariant #6, #38): the early mask (onModalAppear) hid CB's .answer-content for this
+    // modal. handleQuestion runs the renderQuestion thunk SYNCHRONOUSLY on the contract-OK path (no await
+    // precedes it), so by here `mounted` is already true when the overlay mounted; it stays false only on
+    // the degrade path (contract failed → banner, no mount). In that case restore CB's own native nodes
+    // rather than leaving them stuck blank at display:none — unmount un-hides exactly our marked nodes and
+    // disconnects the early-mask observer (no host was mounted, so there's nothing else to remove). Doing
+    // this synchronously (not in a trailing .then) keeps the per-question path free of an extra microtask.
+    if (!mounted) unmountAnswerOverlay(answerContent);
   }
 
   async function onCheck(view: QuestionView, pick: string): Promise<void> {
@@ -371,9 +407,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       // repaints when the row-ID set changes, not when the student's own data does — so this answer-
       // driven change has no other repaint path. Safe re-entrancy: readListQuestionIds ignores chip
       // text, so this chip mutation leaves the ID signature stable and never re-triggers that observer.
-      // Fire-and-forget (same posture as the coachmark re-badge): the chip lives behind the modal, so a
-      // background repaint must never delay the verdict the student is waiting on, and we already
-      // awaited recordAttempt above, so getSeen reads the just-recorded result.
+      // Fire-and-forget: the chip lives behind the modal, so a background repaint must never delay the
+      // verdict the student is waiting on, and we already awaited recordAttempt above, so getSeen reads
+      // the just-recorded result.
       const list = findResultsList(doc);
       if (list) void refreshBadges(db, list);
     }
@@ -394,15 +430,43 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       session.dirty = true;
       await safeWrite(saveSession(db, session));
     }
-    // Advance: actuate CB's own Next so it loads the next question; observeQuestions then re-mounts the
-    // overlay for it (no spurious "the card just closed"). Only dismiss the overlay when CB has no next
-    // question (last item / single-question view), so the student isn't left staring at a stale overlay.
-    // The fallback tears down our overlay AND restores CB's masked native nodes; CB's question stays put.
+    // Issue #31: random mode follows the shuffled order by GUIDED scrolling — it must NOT actuate CB's
+    // native Next (that yields CB LIST order, defeating the shuffle). `index` is the position counter
+    // (0 while the first question shows; bumped above), so it now points at the next shuffled-order slot.
+    // Tear our overlay down (restoring CB's masked native nodes) to return the student to the loaded
+    // list, then scroll the next shuffled row into view for them to click. Past the end / empty list
+    // (nextId === null) ⇒ just tear down, no next (same end-state as list mode's last item).
+    if (session && session.orderMode === 'random') {
+      const modal = currentModal(doc, view.id);
+      const ac = modal ? findAnswerContent(modal) : null;
+      if (ac) unmountAnswerOverlay(ac);
+      const list = findResultsList(doc);
+      const ids = list ? readListQuestionIds(list).map((r) => r.id) : [];
+      const nextId = nextRandomId(session.shuffleSeed, ids, index);
+      if (list && nextId) scrollToResume(list, nextId);
+      return;
+    }
+    // List mode (or no session yet): actuate CB's own Next so it loads the next question; observeQuestions
+    // then re-mounts the overlay for it (no spurious "the card just closed"). Only dismiss the overlay
+    // when CB has no next question (last item / single-question view), so the student isn't left staring
+    // at a stale overlay. The fallback tears down our overlay AND restores CB's masked native nodes;
+    // CB's question stays put.
     if (!clickCbNext(doc)) {
       const modal = currentModal(doc, view.id);
       const ac = modal ? findAnswerContent(modal) : null;
       if (ac) unmountAnswerOverlay(ac);
     }
+  }
+
+  // Issue #30: reload mid-question. CB re-renders its native (unstyled) modal but our overlay is gone,
+  // and nothing re-mounts it without a Start/Resume click. When a resumable session exists for the
+  // already-present question, silently re-decorate it: install the question observer so showQuestion
+  // re-mounts the overlay over the live question. This is INERT re-decoration only — it actuates no
+  // transition (never clickCbNext), creates no session, and emits no practice_started/practice_resumed
+  // (a reload is not a new start, and Resume stays the student's explicit click). A later Start/Resume
+  // tears this observer down (start() calls stop()) and drives a fresh session.
+  if (existing) {
+    stop = observeQuestions(doc, (view) => { showQuestion(view); });
   }
 
   return shadow;
@@ -460,26 +524,6 @@ export function resumeFor(db: IDBPDatabase, listRoot: Element, filterContext: st
   return resumeSession(db, listRoot, filterContext);
 }
 
-/** Wire the panel's Practice/Find coachmark links: open CB (the <a> default) AND drop a coachmark
- *  that, on confirm, re-runs the badger to highlight the now-filtered questions (spec §7 hand-off).
- *  We never automate CB's filter — the student sets it (D3); confirm only re-badges what's on screen. */
-export function bindPanelCoachmarks(host: ShadowRoot, db: IDBPDatabase, listRoot: Element): void {
-  host.querySelectorAll<HTMLAnchorElement>('a.fp-practice-link, a.fp-find-link').forEach((a) => {
-    a.addEventListener('click', () => {
-      const skill = a.dataset.skill ?? '';
-      dropCoachmark(host, {
-        skill,
-        onConfirm: () => {
-          // Paint chips synchronously for an instant highlight, then reconcile with the store's
-          // done/missed map (idempotent: the async pass replaces these chips, never duplicates).
-          badge(listRoot, {});
-          void refreshBadges(db, listRoot);
-        },
-      });
-    });
-  });
-}
-
 /** Badge the results list now and whenever CB (re)renders it. The React list is NOT in the DOM at
  *  document_idle, so a one-shot boot badge misses it, and observeQuestions only fires on question
  *  modals — not list changes (live 2026-06-16: chips never appeared on the list view). Gate on the
@@ -503,9 +547,6 @@ export function watchResultsList(doc: Document, db: IDBPDatabase): () => void {
 export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): Promise<void> {
   if (msg?.type !== OPEN_JOURNAL) return;
   const host = mountHost(document);
-  // Clear any coachmark left over from a prior open (the panel re-renders into the same .fp-panel,
-  // but a stale .fp-coachmark would otherwise persist across re-opens).
-  host.querySelector(`.${COACHMARK_CLASS}`)?.remove();
   const attempts = await getAttempts(db);
   // Issue #34: the difficulty option list is derived from the student's own attempts, in a stable
   // canonical order (Easy/Medium/Hard first, then any others), so the multi-select only ever offers
@@ -519,14 +560,10 @@ export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): P
     selected: new Set<string>(),
   });
   void emit({ event: JOURNAL_OPENED, props: {} });
-  // Bind the coachmark links AFTER the panel exists — renderPanel injects a.fp-practice-link /
-  // a.fp-find-link, so binding earlier (e.g. at boot, against an empty host) matches nothing.
-  const list = findResultsList(document);
-  if (list) bindPanelCoachmarks(host, db, list);
 }
 
 // Boot (skipped under test: no chrome runtime). Plan 2 runs the scored loop; Plan 3 adds the
-// badger + journal panel toggle + coachmark binding + the open-journal message listener.
+// badger + journal panel toggle + the open-journal message listener.
 if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
   // Plan 4: the whole post-Plan-3 startup body runs through the §2.5/§8.3 gate. isEnabled() off →
   // mount nothing; a CB block → mount the §8.3 "use CB directly" notice and return (never retry,
@@ -538,7 +575,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
       await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
 
       mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
-      watchResultsList(document, db);   // badge on list render + whenever CB re-renders it (coachmarks bind on panel open)
+      watchResultsList(document, db);   // badge on list render + whenever CB re-renders it
       chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
     } catch { emit({ event: JS_ERROR, props: { component: 'boot', error_code: 'BOOT_FAILURE' } }); }
   });
