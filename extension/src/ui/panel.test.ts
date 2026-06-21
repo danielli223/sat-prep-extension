@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderPanel, type PanelVM, CB_SEARCH_URL } from './panel';
+import { renderPanel, type PanelVM } from './panel';
 import type { Stats } from '../stats';
 import type { Mistake } from '../journal';
 import type { Attempt } from '../types';
@@ -34,19 +34,19 @@ describe('renderPanel', () => {
     expect(text).toContain('3');      // streak days
   });
 
-  it('renders weak-area bars worst-first, each with a Practice-on-CB coachmark link carrying a data-skill hook', () => {
+  it('renders weak-area bars worst-first with NO dead Practice-on-CB link (#33)', () => {
     const root = shadow();
     renderPanel(root, vm);
     const bars = [...root.querySelectorAll('.fp-weak-area')];
-    expect(bars[0]!.textContent).toContain('Inferences');         // 25% worst → first
-    const link = bars[0]!.querySelector('a.fp-practice-link') as HTMLAnchorElement;
-    expect(link.href).toBe(CB_SEARCH_URL);                        // plain link to CB QB (student drives — D3)
-    expect(link.target).toBe('_blank');
-    expect(link.dataset.skill).toBe('Inferences');                // hook the integration layer wires the coachmark to
-    expect(link.textContent).toContain('Practice Inferences on CB');
+    expect(bars[0]!.textContent).toContain('Inferences');         // 25% worst → first (ordering preserved)
+    expect(bars[1]!.textContent).toContain('Linear equations');   // 100% → last
+    // Issue #33: the bare-/search "Practice X on CB" link was dead (dumped the student on the QB home);
+    // a per-question deep-link is impossible, so the link is removed entirely.
+    expect(bars[0]!.querySelector('a.fp-practice-link')).toBeNull();
+    expect(root.querySelector('a.fp-practice-link')).toBeNull();   // no Practice link anywhere in the panel
   });
 
-  it('renders the mistakes list with note + id/skill/difficulty/date + Practice/Find links', () => {
+  it('renders the mistakes list with note + id/skill/difficulty/date and NO dead Practice/Find actions (#33)', () => {
     const root = shadow();
     renderPanel(root, vm);
     const item = root.querySelector('.fp-mistake')!;
@@ -56,16 +56,10 @@ describe('renderPanel', () => {
     expect(t).toContain('Hard');
     expect(t).toContain('2026-06-13');
     expect(t).toContain('fell for the trap');
-    expect(item.querySelector('a.fp-practice-link')).not.toBeNull();
-    expect(item.querySelector('a.fp-find-link')).not.toBeNull();
-  });
-
-  it('renders the mistake Practice/Find links with a data-skill hook for the coachmark hand-off', () => {
-    const root = shadow();
-    renderPanel(root, vm);
-    const item = root.querySelector('.fp-mistake')!;
-    expect((item.querySelector('a.fp-practice-link') as HTMLAnchorElement).dataset.skill).toBe('Inferences');
-    expect((item.querySelector('a.fp-find-link') as HTMLAnchorElement).dataset.skill).toBe('Inferences');
+    // Issue #33: both dead links and their wrapper are removed from the mistake item.
+    expect(item.querySelector('a.fp-practice-link')).toBeNull();
+    expect(item.querySelector('a.fp-find-link')).toBeNull();
+    expect(item.querySelector('.fp-mistake-actions')).toBeNull();
   });
 
   it('escapes the student note (no HTML injection from journal text)', () => {
@@ -158,15 +152,6 @@ describe('renderPanel — difficulty filter control (issue #34)', () => {
     // Inferences is now 0/1 on Hard → 0%, not its 50% overall.
     const inf = [...root.querySelectorAll('.fp-weak-area')].find((b) => b.textContent?.includes('Inferences'))!;
     expect(inf.querySelector('.fp-acc')!.textContent).toContain('0%');
-  });
-
-  it('keeps the data-skill Practice coachmark hook on each filtered bar', () => {
-    const root = shadow();
-    renderPanel(root, filterVm);
-    changeControl(root, 'Hard');
-    const link = root.querySelector('.fp-weak-area a.fp-practice-link') as HTMLAnchorElement;
-    expect(link.dataset.skill).toBe('Inferences');
-    expect(link.href).toBe(CB_SEARCH_URL);
   });
 
   it('shows the weak-area empty-state copy when the filtered list is empty', () => {

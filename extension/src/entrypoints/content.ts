@@ -1,7 +1,7 @@
 import type { IDBPDatabase } from 'idb';
 import { openStore, recordAttempt, saveNote, saveSession, getSession, getAttempts } from '../store';
 import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
-import { observeQuestions } from '../cb/observer';
+import { observeQuestions, QUESTION_MODAL_SELECTOR } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
 import { mountHost, cardSlot } from '../ui/host';
@@ -19,7 +19,6 @@ import { badge } from '../ui/badger';
 import { getSeen, getMistakes } from '../journal';
 import { deriveStats } from '../stats';
 import { resumeSession, type ResumeResult } from '../ui/resume';
-import { dropCoachmark, COACHMARK_CLASS } from '../ui/coachmark';
 import { OPEN_JOURNAL } from '../messages';
 import { emit } from '../telemetry/emit';
 import {
@@ -75,9 +74,12 @@ function countLoadedResults(doc: Document): number {
 // checked; it is absent (not merely hidden) otherwise. Reads the rendered DOM + toggles ONE control
 // on the CURRENT user-chosen question — no API call, no enumeration, no prefetch. The focus card
 // overlays the dimmed CB page (D2), so the student never sees CB's revealed answer until our own
-// verdict/explanation step. Selector observed live in the spike (.hide-rationale-checkbox).
+// verdict/explanation step. The reveal control differs by bank: educator = `.hide-rationale-checkbox
+// input`, student (issue #55) = `.cb-checkbox.inline-rationale-toggle input` (a class-less checkbox).
+// Both inject the same `.rationale` outcome, so we match either control and gate on that goal.
 function ensureAnswerRevealed(doc: Document): void {
-  const box = doc.querySelector<HTMLInputElement>('.hide-rationale-checkbox input[type="checkbox"]');
+  const box = doc.querySelector<HTMLInputElement>(
+    '.hide-rationale-checkbox input[type="checkbox"], .cb-checkbox.inline-rationale-toggle input[type="checkbox"]');
   if (!box) return;
   if (doc.querySelector('.rationale')) return;   // goal already met — rationale is in the DOM, nothing to do
   // No rationale yet. Drive CB's reveal with real CLICKS ONLY — never by assigning `box.checked`. From
@@ -118,7 +120,7 @@ function currentModal(doc: Document, id: string): Element | null {
   // real match. The 8-hex validation is the load-bearing guard.)
   if (!/^[0-9a-f]{8}$/i.test(id)) return null;
   const re = new RegExp(`Question ID:\\s*${id}`, 'i');
-  return [...doc.querySelectorAll('.cb-dialog-container')]
+  return [...doc.querySelectorAll(QUESTION_MODAL_SELECTOR)]
     .find((el) => re.test(el.textContent ?? '')) ?? null;
 }
 
@@ -389,9 +391,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       // repaints when the row-ID set changes, not when the student's own data does — so this answer-
       // driven change has no other repaint path. Safe re-entrancy: readListQuestionIds ignores chip
       // text, so this chip mutation leaves the ID signature stable and never re-triggers that observer.
-      // Fire-and-forget (same posture as the coachmark re-badge): the chip lives behind the modal, so a
-      // background repaint must never delay the verdict the student is waiting on, and we already
-      // awaited recordAttempt above, so getSeen reads the just-recorded result.
+      // Fire-and-forget: the chip lives behind the modal, so a background repaint must never delay the
+      // verdict the student is waiting on, and we already awaited recordAttempt above, so getSeen reads
+      // the just-recorded result.
       const list = findResultsList(doc);
       if (list) void refreshBadges(db, list);
     }
@@ -467,26 +469,6 @@ export function resumeFor(db: IDBPDatabase, listRoot: Element, filterContext: st
   return resumeSession(db, listRoot, filterContext);
 }
 
-/** Wire the panel's Practice/Find coachmark links: open CB (the <a> default) AND drop a coachmark
- *  that, on confirm, re-runs the badger to highlight the now-filtered questions (spec §7 hand-off).
- *  We never automate CB's filter — the student sets it (D3); confirm only re-badges what's on screen. */
-export function bindPanelCoachmarks(host: ShadowRoot, db: IDBPDatabase, listRoot: Element): void {
-  host.querySelectorAll<HTMLAnchorElement>('a.fp-practice-link, a.fp-find-link').forEach((a) => {
-    a.addEventListener('click', () => {
-      const skill = a.dataset.skill ?? '';
-      dropCoachmark(host, {
-        skill,
-        onConfirm: () => {
-          // Paint chips synchronously for an instant highlight, then reconcile with the store's
-          // done/missed map (idempotent: the async pass replaces these chips, never duplicates).
-          badge(listRoot, {});
-          void refreshBadges(db, listRoot);
-        },
-      });
-    });
-  });
-}
-
 /** Badge the results list now and whenever CB (re)renders it. The React list is NOT in the DOM at
  *  document_idle, so a one-shot boot badge misses it, and observeQuestions only fires on question
  *  modals — not list changes (live 2026-06-16: chips never appeared on the list view). Gate on the
@@ -510,9 +492,6 @@ export function watchResultsList(doc: Document, db: IDBPDatabase): () => void {
 export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): Promise<void> {
   if (msg?.type !== OPEN_JOURNAL) return;
   const host = mountHost(document);
-  // Clear any coachmark left over from a prior open (the panel re-renders into the same .fp-panel,
-  // but a stale .fp-coachmark would otherwise persist across re-opens).
-  host.querySelector(`.${COACHMARK_CLASS}`)?.remove();
   const attempts = await getAttempts(db);
   // Issue #34: the difficulty option list is derived from the student's own attempts, in a stable
   // canonical order (Easy/Medium/Hard first, then any others), so the multi-select only ever offers
@@ -526,14 +505,10 @@ export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): P
     selected: new Set<string>(),
   });
   void emit({ event: JOURNAL_OPENED, props: {} });
-  // Bind the coachmark links AFTER the panel exists — renderPanel injects a.fp-practice-link /
-  // a.fp-find-link, so binding earlier (e.g. at boot, against an empty host) matches nothing.
-  const list = findResultsList(document);
-  if (list) bindPanelCoachmarks(host, db, list);
 }
 
 // Boot (skipped under test: no chrome runtime). Plan 2 runs the scored loop; Plan 3 adds the
-// badger + journal panel toggle + coachmark binding + the open-journal message listener.
+// badger + journal panel toggle + the open-journal message listener.
 if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
   // Plan 4: the whole post-Plan-3 startup body runs through the §2.5/§8.3 gate. isEnabled() off →
   // mount nothing; a CB block → mount the §8.3 "use CB directly" notice and return (never retry,
@@ -545,7 +520,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
       await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
 
       mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
-      watchResultsList(document, db);   // badge on list render + whenever CB re-renders it (coachmarks bind on panel open)
+      watchResultsList(document, db);   // badge on list render + whenever CB re-renders it
       chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
     } catch { emit({ event: JS_ERROR, props: { component: 'boot', error_code: 'BOOT_FAILURE' } }); }
   });
