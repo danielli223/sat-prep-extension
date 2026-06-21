@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { toCardVM, type CardVM } from './view-model';
-import type { QuestionView } from '../cb/reader';
+import type { QuestionView, MathNode } from '../cb/reader';
+import { assertNoQuestionContent } from '../guard';
 
 const mc: QuestionView = {
   id: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Linear equations in one variable',
@@ -36,5 +37,33 @@ describe('toCardVM', () => {
 
   it('sets answerKnown=false when CB has not revealed the answer yet', () => {
     expect(toCardVM({ ...mc, correctAnswer: null }, 0, 1).answerKnown).toBe(false);
+  });
+
+  it('threads a choice math AST through (RAM-only, like imgSrc)', () => {
+    const math: MathNode = { kind: 'frac', num: { kind: 'text', value: '1' }, den: { kind: 'text', value: 'x' } };
+    const withMath: QuestionView = {
+      ...mc,
+      choices: [{ letter: 'A', text: '1/x', math }, { letter: 'B', text: '5' }],
+    };
+    const vm = toCardVM(withMath, 0, 10);
+    expect(vm.choices[0]!.math).toEqual(math);
+    expect(vm.choices[1]!.math).toBeUndefined();
+  });
+
+  it('math stays RAM-only: stem undefined, and choice content never reaches the store leak-guard', () => {
+    const math: MathNode = { kind: 'frac', num: { kind: 'text', value: '−150v' }, den: { kind: 'text', value: 'x' } };
+    const withMath: QuestionView = {
+      ...mc, stem: 'STEM TEXT — must not leak',
+      choices: [{ letter: 'A', text: 'w=-150v/x', math }],
+    };
+    const vm = toCardVM(withMath, 0, 1);
+    // Leak-guard: the VM never carries the stem.
+    expect((vm as Record<string, unknown>).stem).toBeUndefined();
+    // The math AST does not smuggle question content into a store-bound record: the guard's
+    // allowed keys do not include `math`/`choices`/`text`-as-choice, so any attempt to persist a
+    // record built from these fields throws. Build a record with the math-bearing choice fields and
+    // assert the store guard rejects it (math is RAM-only, never an attempt key).
+    expect(() => assertNoQuestionContent({ questionId: vm.id, math } as Record<string, unknown>)).toThrow();
+    expect(() => assertNoQuestionContent({ questionId: vm.id, choices: vm.choices } as Record<string, unknown>)).toThrow();
   });
 });

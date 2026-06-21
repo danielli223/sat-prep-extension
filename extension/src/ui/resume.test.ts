@@ -4,7 +4,7 @@ import { indexedDB } from 'fake-indexeddb';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { planResume, scrollToResume, resumeSession } from './resume';
+import { planResume, scrollToResume, resumeSession, nextRandomId } from './resume';
 import { shuffleIds } from '../order';
 import { openStore, saveSession } from '../store';
 import { makeSession } from '../model';
@@ -61,6 +61,29 @@ describe('scrollToResume', () => {
   it('returns null when the target id is not present in the list', () => {
     const root = loadList();
     expect(scrollToResume(root, 'not-loaded')).toBeNull();
+  });
+});
+
+// Issue #31: random mode follows shuffleIds(loadedIds, seed) by GUIDED scrolling (no auto-load, no
+// id-navigation). nextRandomId is the pure seam content.ts uses to pick the row to scroll into view.
+describe('nextRandomId (issue #31 — guided shuffle order)', () => {
+  const ids = ['ab12cd34', 'ef56ab78', '99ff00aa', 'dead0001'];
+  const seed = 7;
+
+  it('returns the shuffled-order id at the given position (seed-agnostic via shuffleIds)', () => {
+    const order = shuffleIds(ids, seed);   // deterministic reference order — never assume a literal
+    expect(nextRandomId(seed, ids, 0)).toBe(order[0]);
+    expect(nextRandomId(seed, ids, 1)).toBe(order[1]);
+    expect(nextRandomId(seed, ids, ids.length - 1)).toBe(order[ids.length - 1]);
+  });
+
+  it('returns null once the position runs past the end of the order', () => {
+    expect(nextRandomId(seed, ids, ids.length)).toBeNull();
+    expect(nextRandomId(seed, ids, ids.length + 5)).toBeNull();
+  });
+
+  it('returns null for an empty list of loaded ids', () => {
+    expect(nextRandomId(seed, [], 0)).toBeNull();
   });
 });
 

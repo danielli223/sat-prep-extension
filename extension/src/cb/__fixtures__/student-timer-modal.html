@@ -1,0 +1,18 @@
+<!-- SYNTHETIC fixture: the STUDENT bank's inactivity-timer warning modal
+     (content-free /verify-overlay spike, 2026-06-20). It is ALSO a `.cb-modal.cb-open`
+     with a `.cb-modal-container` [role=dialog], but carries NO "Question ID:" text and
+     no question content (just `.remaining-time` / a warning). The observer's existing
+     `"Question ID:"` filter must keep EXCLUDING it — this fixture locks that. -->
+<div class="cb-modal cb-open">
+  <div class="cb-modal-overlay" data-cb-modal-close></div>
+  <div class="cb-modal-container" role="dialog" aria-modal="true">
+    <div class="cb-modal-header cb-modal-has-close">
+      <span class="cb-glyph cb-exclamation-circle"></span>
+    </div>
+    <div class="cb-modal-content">
+      <p>Your session is about to expire. [SYNTHETIC]</p>
+      <span class="remaining-time">04:59</span>
+      <button class="cb-btn cb-btn-primary">Continue [SYNTHETIC]</button>
+    </div>
+  </div>
+</div>
