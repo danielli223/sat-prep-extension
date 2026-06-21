@@ -4,7 +4,7 @@
 > needs background; it points to the right doc instead of re-deriving from scratch.
 > Update it on every ingest (new row + one-line summary).
 >
-> *Last updated: 2026-06-19*
+> *Last updated: 2026-06-21*
 
 ## How this is organized
 
@@ -60,3 +60,5 @@ Verbatim CB terms, retrieved 2026-06-17, authoritative URL in each file's header
 | [`specs/2026-06-19-loop-visual-verification-design.md`](specs/2026-06-19-loop-visual-verification-design.md) | Design — **approved: human-gated `/verify-overlay` skill** driving the existing dev Chrome+CDP harness to verify the overlay on a **real** CB question; the agent runs only **content-free** checks (booleans/counts), the human eyeballs the live window — so no CB content ever reaches a model (invariant #3). Synthetic / model-readable approach designed, reviewed, and **rejected** (less faithful, much more machinery; a human already reviews every PR). |
 | [`plans/2026-06-19-loop-visual-verification.md`](plans/2026-06-19-loop-visual-verification.md) | Implementation plan (real-Chrome, human-gated): the `/verify-overlay` skill + issue-loop step 6.5 are written (no new code — reuses `dev:chrome`/`reload`/`cdp-eval`); remaining is one live verification pass to validate the probe selectors against the real overlay. |
 | [`specs/2026-06-19-desmos-side-dock.md`](specs/2026-06-19-desmos-side-dock.md) | Decision (issue #37): dock the calculator to the side of the screen — full-height GeoGebra panel in-page, and "Open real Desmos" as a screen-edge window. **Reaffirms** the no-iframe / zero-license Desmos line; defers "unify with Desmos" and "move to bottom bar". |
+| [`specs/2026-06-21-unify-calculator-desmos.md`](specs/2026-06-21-unify-calculator-desmos.md) | Decision (issue #17): unify the two calculators — **remove the GeoGebra embed**, collapse to a single "Calculator" button that opens the real Desmos externally. Resolves the prior spec's deferred "unify with Desmos" item the compliant way (no embed); **strengthens** the no-iframe / zero-license Desmos line. |
+| [`plans/2026-06-21-unify-calculator-desmos.md`](plans/2026-06-21-unify-calculator-desmos.md) | Implementation plan for issue #17: locked test spec + maker steps to drop `toggleGeoGebra`/GeoGebra CSP, narrow the calculator telemetry enum to `'desmos'`, and render one "Calculator" button wired to `openDesmos()`. |
