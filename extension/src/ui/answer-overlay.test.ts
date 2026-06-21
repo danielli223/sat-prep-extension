@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard } from './answer-overlay';
+import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard, morphCheckToExplain } from './answer-overlay';
 import { score } from '../scoring';
 import type { CardVM } from './view-model';
 
@@ -39,16 +39,75 @@ describe('renders interactive UI', () => {
     expect(checked).toBe('B');
   });
 
-  it('renders a grid-in input for kind "grid" and Check reads the typed value', () => {
+  it('renders a grid-in input for kind "grid" and Check (always visible) reads the typed value', () => {
     const ac = cbAnswerContent();
     const gridVm = { ...vm, kind: 'grid' as const, choices: [] };
     let checked = '';
     const shadow = mountAnswerOverlay(ac, gridVm, { ...noop(), onCheck: (p) => { checked = p; } });
     expect(shadow.querySelector('.fp-gridin-label')).not.toBeNull();
     expect(shadow.querySelectorAll('.fp-choice')).toHaveLength(0);
+    // Grid-in has no choice rows to host the button, so .fp-check is shown beside the input from the
+    // start (NOT hidden — there's nothing to "move beside" on a selection).
+    const check = shadow.querySelector('.fp-check') as HTMLElement;
+    expect(check).not.toBeNull();
+    expect(check.hidden).toBe(false);
     (shadow.querySelector('.fp-gridin') as HTMLInputElement).value = '42';
-    (shadow.querySelector('.fp-check') as HTMLElement).click();
+    check.click();
     expect(checked).toBe('42');
+  });
+
+  it('mc: .fp-check is hidden before any selection and not yet inside a choice row', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    const check = shadow.querySelector('.fp-check') as HTMLElement;
+    expect(check).not.toBeNull();          // the single Check button exists…
+    expect(check.hidden).toBe(true);       // …but is hidden until the student picks an answer
+    // It has not been moved beside any choice yet.
+    expect(shadow.querySelector('.fp-choice[data-letter="A"] .fp-check')).toBeNull();
+    expect(shadow.querySelector('.fp-choice[data-letter="B"] .fp-check')).toBeNull();
+  });
+
+  it('mc: selecting a choice moves the (now-visible) Check beside it; checking fires onCheck with that letter; selecting another moves it', () => {
+    const ac = cbAnswerContent();
+    let checked = '';
+    const shadow = mountAnswerOverlay(ac, vm, { ...noop(), onCheck: (p) => { checked = p; } });
+
+    // Select B → the single Check button is moved INTO B's <li> and revealed.
+    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    const checkInB = shadow.querySelector('.fp-choice[data-letter="B"] .fp-check') as HTMLElement;
+    expect(checkInB).not.toBeNull();       // moved beside the selected answer
+    expect(checkInB.hidden).toBe(false);   // and now visible
+    checkInB.click();
+    expect(checked).toBe('B');             // clicking it grades the picked letter
+
+    // Select A → the SAME single button moves to A's row and leaves B's row.
+    (shadow.querySelector('.fp-choice[data-letter="A"] .fp-pick') as HTMLElement).click();
+    expect(shadow.querySelector('.fp-choice[data-letter="A"] .fp-check')).not.toBeNull();
+    expect(shadow.querySelector('.fp-choice[data-letter="B"] .fp-check')).toBeNull();
+    // Still exactly one Check button in the whole overlay (never one-per-row).
+    expect(shadow.querySelectorAll('.fp-check')).toHaveLength(1);
+  });
+
+  it('morphCheckToExplain relabels Check → "Explain"; afterward clicking it fires onReveal, NOT onCheck', () => {
+    const ac = cbAnswerContent();
+    const fired: string[] = [];
+    const shadow = mountAnswerOverlay(ac, vm, { ...noop(),
+      onCheck: () => fired.push('check'), onReveal: () => fired.push('reveal') });
+    // Select B so the (mc) Check is visible and reachable as the morph target.
+    (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+
+    morphCheckToExplain(shadow);
+
+    const check = shadow.querySelector('.fp-check') as HTMLElement;
+    expect(check.textContent).toBe('Explain');                 // exact relabel
+    expect(check.classList.contains('fp-explain')).toBe(true); // marker class added
+    // The standalone "Reveal explanation" button is KEPT in the DOM but hidden once Explain takes
+    // over — no two reveal controls at once (the pre-check peek path is the only reason it survives).
+    const reveal = shadow.querySelector('.fp-reveal') as HTMLElement;
+    expect(reveal).not.toBeNull();   // still in the DOM (it backs the reveal-without-committing path)
+    expect(reveal.hidden).toBe(true);   // …but no longer shown after the morph
+    check.click();
+    expect(fired).toEqual(['reveal']);   // now reveals CB's own rationale — does NOT re-grade
   });
 
   it('wires the remaining controls to their handlers', () => {
