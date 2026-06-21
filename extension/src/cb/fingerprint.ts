@@ -21,7 +21,6 @@ export const SELECTORS = {
   taxonomyTable: 'table.cb-table',
   taxonomyRows: 'table.cb-table tr',
   stemContent: '.question-content',
-  stemInner: '.question',
   answerChoices: '.answer-choices ul > li',
   rationale: '.rationale',
   resultsTable: 'table.cb-table-react',

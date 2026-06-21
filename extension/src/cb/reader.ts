@@ -47,7 +47,7 @@ function readStem(root: Element): string {
   if (!src) return '';
   const clone = src.cloneNode(true) as Element;
   clone.querySelectorAll('style, script, h5').forEach((n) => n.remove());
-  return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+  return collapse(clone.textContent);
 }
 
 const collapse = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
@@ -193,7 +193,7 @@ export function readQuestion(root: Element): QuestionView | null {
     // choice doesn't leak its CSS/verbalized-math into text (#36); then image / SVG / plain-text.
     const clone = li.cloneNode(true) as Element;
     clone.querySelectorAll('style, script, title, desc').forEach((n) => n.remove());
-    const text = (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const text = collapse(clone.textContent);
     if (!text) {
       const img = li.querySelector('img');
       if (img?.src) return { letter, text: img.alt || '', imgSrc: img.src };
