@@ -1,6 +1,6 @@
 import type { IDBPDatabase } from 'idb';
 import { getAttempts, getNotes } from './store';
-import { deriveStats } from './stats';
+import { deriveStats, type SeenMap } from './stats';
 import type { Attempt } from './types';
 
 // Read-views for the journal/badger. NO new store methods, NO new persisted fields:
@@ -17,7 +17,7 @@ export interface Mistake {
 }
 
 /** Latest result per question as a done/missed map. Thin wrapper over deriveStats.seen. */
-export async function getSeen(db: IDBPDatabase): Promise<Record<string, 'done' | 'missed'>> {
+export async function getSeen(db: IDBPDatabase): Promise<SeenMap> {
   const attempts = await getAttempts(db);
   return deriveStats(attempts).seen;
 }

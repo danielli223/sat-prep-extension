@@ -1,4 +1,5 @@
 import { CONFIG_FLAG_URL, TELEMETRY_FLAG_CACHE_KEY } from '../config';
+import { getLocal } from '../storage';
 
 export const INSTALL_ID_KEY = 'telemetry.installId';
 export const INSTALLED_AT_KEY = 'telemetry.installedAt';
@@ -6,14 +7,9 @@ export const CONSENT_KEY = 'telemetry.consent';
 export const CONSENT_VERSION = '1';
 const TIMEOUT_MS = 4000;
 
-async function get<T>(key: string): Promise<T | undefined> {
-  try { const g = await chrome.storage.local.get(key); return (g as Record<string, unknown>)[key] as T; }
-  catch { return undefined; }
-}
-
-export async function getInstallId(): Promise<string | null> { return (await get<string>(INSTALL_ID_KEY)) ?? null; }
-export async function getInstalledAt(): Promise<string | null> { return (await get<string>(INSTALLED_AT_KEY)) ?? null; }
-export async function isOptedIn(): Promise<boolean> { return (await get<boolean>(CONSENT_KEY)) === true; }
+export async function getInstallId(): Promise<string | null> { return (await getLocal<string>(INSTALL_ID_KEY)) ?? null; }
+export async function getInstalledAt(): Promise<string | null> { return (await getLocal<string>(INSTALLED_AT_KEY)) ?? null; }
+export async function isOptedIn(): Promise<boolean> { return (await getLocal<boolean>(CONSENT_KEY)) === true; }
 
 export async function optIn(): Promise<string> {
   const id = crypto.randomUUID();
@@ -30,15 +26,9 @@ export async function clearLocalTelemetry(): Promise<void> {
   try { await chrome.storage.local.remove(INSTALLED_AT_KEY); } catch { /* best-effort */ }
 }
 
-export async function resetInstallId(): Promise<string> {
-  const id = crypto.randomUUID();
-  await chrome.storage.local.set({ [INSTALL_ID_KEY]: id, [INSTALLED_AT_KEY]: new Date().toISOString() });
-  return id;
-}
-
 // Remote kill flag rides on flags.json. Mirrors killswitch: timeout + cache + DEFAULT-ON on failure.
 export async function remoteAllowed(): Promise<boolean> {
-  const cached = await get<boolean>(TELEMETRY_FLAG_CACHE_KEY);
+  const cached = await getLocal<boolean>(TELEMETRY_FLAG_CACHE_KEY);
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);

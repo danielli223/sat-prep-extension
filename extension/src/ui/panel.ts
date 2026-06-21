@@ -1,4 +1,5 @@
 import { html } from './host';
+import { esc } from './escape';
 import { deriveStats, type Stats } from '../stats';
 import type { Mistake } from '../journal';
 import type { Attempt } from '../types';
@@ -23,9 +24,6 @@ function setHtml(el: Element, markup: string): void {
   el.innerHTML = html(markup) as unknown as string;   // host.ts owns the one policy; we just route through it
 }
 
-function esc(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-}
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const day = (iso: string) => iso.slice(0, 10);
 

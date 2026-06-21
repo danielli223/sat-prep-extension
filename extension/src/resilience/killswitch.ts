@@ -1,4 +1,5 @@
 import { CONFIG_FLAG_URL } from '../config';
+import { getLocal } from '../storage';
 
 // §2.5 enablement gate (Plan 4 owns). Fetches OUR hosted flag; caches in chrome.storage.local;
 // NEVER throws. Default-ON: a flaky/absent host must not brick the local journal — the kill-switch
@@ -7,13 +8,8 @@ export const CACHE_KEY = 'killswitch.enabled';
 const TIMEOUT_MS = 4000;
 
 async function readCache(): Promise<boolean | undefined> {
-  try {
-    const got = await chrome.storage.local.get(CACHE_KEY);
-    const v = (got as Record<string, unknown>)[CACHE_KEY];
-    return typeof v === 'boolean' ? v : undefined;
-  } catch {
-    return undefined;
-  }
+  const v = await getLocal<unknown>(CACHE_KEY);
+  return typeof v === 'boolean' ? v : undefined;
 }
 
 async function writeCache(v: boolean): Promise<void> {

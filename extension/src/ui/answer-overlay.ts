@@ -1,4 +1,6 @@
-import { html } from './host';
+import { html, stopPointerPropagation } from './host';
+import { esc } from './escape';
+import type { PriorStatus } from '../stats';
 import type { CardVM, ChoiceVM } from './view-model';
 import type { MathNode } from '../cb/reader';
 import type { ScoreResult } from '../scoring';
@@ -19,8 +21,7 @@ function isOurHost(el: Element): boolean {
 
 // Issue #28: the seen-before badge label is a FIXED 3-value map keyed by the student's prior status
 // (from their own attempt journal) — never a CB-derived string (invariant §3). Mirrors badger.ts's
-// LABEL pattern. The em-dash is U+2014.
-type PriorStatus = 'new' | 'done' | 'missed';
+// LABEL pattern. The em-dash is U+2014. PriorStatus is single-sourced from ../stats.
 const SEEN_LABEL: Record<PriorStatus, string> = {
   new: 'New to you',
   done: 'Seen before — got it right',
@@ -38,6 +39,12 @@ const REVEALED_ATTR = 'data-fp-revealed';
 // previous one (no stacked observers across CB's in-place re-renders). WeakMap → GC'd with the node.
 const hideObservers = new WeakMap<Element, MutationObserver>();
 
+// Find a DIRECT child of `parent` by class. `:scope >` is unsupported in happy-dom, so we scan
+// `.children` directly — the single home for every our-node / CB-node direct-child lookup here.
+function childByClass(parent: HTMLElement, cls: string): HTMLElement | undefined {
+  return Array.from(parent.children).find((c) => c.classList.contains(cls)) as HTMLElement | undefined;
+}
+
 // CB's answer container (choices + rationale) inside the question modal.
 export function findAnswerContent(modal: Element): HTMLElement | null {
   return modal.querySelector('.answer-content');
@@ -53,13 +60,9 @@ function hideCbNode(el: HTMLElement): void {
   el.style.display = 'none';
 }
 
-const esc = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-
-// Render a neutral math AST (issue #35) into OUR OWN tags. esc() runs on every text value — this is
-// the sole XSS boundary (host.ts's TrustedTypes policy is identity, no sanitization). We never emit
-// CB markup; only our own structural tags carry the AST's structure.
+// Render a neutral math AST (issue #35) into OUR OWN tags. esc() (the sole XSS boundary, from
+// ./escape) runs on every text value — host.ts's TrustedTypes policy is identity, no sanitization.
+// We never emit CB markup; only our own structural tags carry the AST's structure.
 function renderMath(n: MathNode): string {
   switch (n.kind) {
     case 'text': return esc(n.value);
@@ -227,45 +230,25 @@ export function maskAnswerContent(answerContent: HTMLElement): void {
 // Move the extras host (note + calc) back to LAST child so it stays below CB's .rationale (#22). No-op
 // when the extras host doesn't exist yet (the FOUC curtain path) or is already last.
 function reanchorExtras(answerContent: HTMLElement): void {
-  const extras = Array.from(answerContent.children)
-    .find((c) => c.classList.contains(EXTRAS_HOST_CLASS)) as HTMLElement | undefined;
+  const extras = childByClass(answerContent, EXTRAS_HOST_CLASS);
   if (extras && answerContent.lastElementChild !== extras) answerContent.appendChild(extras);
 }
 
-// Create (or reuse) our shadow host as the FIRST child of CB's .answer-content. Idempotent: CB may
-// replace .answer-content on its in-place "Next", so callers re-run this and reuse the existing host.
-// :scope > is unsupported in happy-dom, so scan children directly.
-function ensureHost(answerContent: HTMLElement): HTMLElement {
-  const existing = Array.from(answerContent.children)
-    .find((c) => c.classList.contains(HOST_CLASS)) as HTMLElement | undefined;
+// Create (or reuse) one of our shadow hosts inside CB's .answer-content. Idempotent: CB may replace
+// .answer-content on its in-place "Next", so callers re-run this and reuse the existing host.
+//   place 'first' — the interaction host, FIRST child (the focus card sits above CB's content).
+//   place 'last'  — the extras host (issue #22), LAST child so note + calc render BELOW CB's native
+//                   .rationale/explanation.
+// We stop pointer events at the host (belt-and-suspenders inside the modal — parity with the body host).
+function ensureShadowHost(answerContent: HTMLElement, cls: string, place: 'first' | 'last'): HTMLElement {
+  const existing = childByClass(answerContent, cls);
   if (existing) return existing;
   const doc = answerContent.ownerDocument!;
   const host = doc.createElement('div');
-  host.className = HOST_CLASS;
-  // CB closes its modal on outside pointer-down; stop our events at the host (belt-and-suspenders —
-  // we are inside the modal, but keep parity with the old body host).
-  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
-    host.addEventListener(t, (e) => e.stopPropagation());
-  }
-  answerContent.insertBefore(host, answerContent.firstChild);
-  host.attachShadow({ mode: 'open' });
-  return host;
-}
-
-// Create (or reuse) the extras shadow host as the LAST child of CB's .answer-content (issue #22), so the
-// note + calculator render BELOW CB's native .rationale/explanation. Idempotent like ensureHost.
-function ensureExtrasHost(answerContent: HTMLElement): HTMLElement {
-  const existing = Array.from(answerContent.children)
-    .find((c) => c.classList.contains(EXTRAS_HOST_CLASS)) as HTMLElement | undefined;
-  if (existing) return existing;
-  const doc = answerContent.ownerDocument!;
-  const host = doc.createElement('div');
-  host.className = EXTRAS_HOST_CLASS;
-  // CB closes its modal on outside pointer-down; stop our events at the host (parity with the main host).
-  for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
-    host.addEventListener(t, (e) => e.stopPropagation());
-  }
-  answerContent.appendChild(host);   // LAST child
+  host.className = cls;
+  stopPointerPropagation(host);
+  if (place === 'first') answerContent.insertBefore(host, answerContent.firstChild);
+  else answerContent.appendChild(host);   // LAST child
   host.attachShadow({ mode: 'open' });
   return host;
 }
@@ -275,7 +258,7 @@ function ensureExtrasHost(answerContent: HTMLElement): HTMLElement {
 const CURTAIN_CLASS = 'fp-curtain';
 
 function removeCurtain(answerContent: HTMLElement): void {
-  Array.from(answerContent.children).find((c) => c.classList.contains(CURTAIN_CLASS))?.remove();
+  childByClass(answerContent, CURTAIN_CLASS)?.remove();
 }
 
 // FOUC curtain (#38): the instant CB's answer region is observed — BEFORE the 150ms-debounced overlay
@@ -300,8 +283,8 @@ export function mountCurtain(answerContent: HTMLElement): void {
 // white rectangle). Idempotent across CB's in-place "Next". Masking shares maskAnswerContent (the FOUC
 // primitive) so a node hidden before mount stays hidden and unmount restores exactly our marked nodes.
 export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: AnswerHandlers): ShadowRoot {
-  const host = ensureHost(answerContent);
-  const extrasHost = ensureExtrasHost(answerContent);   // created BEFORE the mask sweep → exempt (isOurHost) + anchored last
+  const host = ensureShadowHost(answerContent, HOST_CLASS, 'first');
+  const extrasHost = ensureShadowHost(answerContent, EXTRAS_HOST_CLASS, 'last');   // created BEFORE the mask sweep → exempt (isOurHost) + anchored last
   maskAnswerContent(answerContent);
   removeCurtain(answerContent);
   const shadow = host.shadowRoot!;
@@ -341,15 +324,13 @@ export interface Verdict { pick: string; result: ScoreResult; }
 // NOTE: use a direct-children scan, NOT querySelector(':scope > .rationale') — happy-dom does not
 // support :scope > (the hide loop in mountAnswerOverlay uses the same .children pattern).
 export function revealRationale(answerContent: HTMLElement): boolean {
-  const r = Array.from(answerContent.children)
-    .find((c) => c.classList.contains('rationale')) as HTMLElement | undefined;
+  const r = childByClass(answerContent, 'rationale');
   if (!r) return false;
   // #20: move CB's explanation ABOVE our interaction host so it renders directly under the question —
   // co-visible with our (tall) UI rather than buried below it. Reposition CB's own node; never copy
   // its text into our shadow root. The move is a childList mutation, so flag REVEALED_ATTR before
   // un-hiding so the masking observer's hideCbNode doesn't re-hide this deliberate reveal.
-  const host = Array.from(answerContent.children)
-    .find((c) => c.classList.contains(HOST_CLASS)) as HTMLElement | undefined;
+  const host = childByClass(answerContent, HOST_CLASS);
   if (host && r.nextSibling !== host) answerContent.insertBefore(r, host);
   r.setAttribute(REVEALED_ATTR, '');
   r.style.display = '';
