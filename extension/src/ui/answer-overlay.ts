@@ -53,7 +53,7 @@ function renderBody(vm: CardVM): string {
     ? `<ul class="fp-choices">${vm.choices.map((c) => `
         <li class="fp-choice" data-letter="${esc(c.letter)}">
           <button class="fp-eliminate" aria-label="Cross off ${esc(c.letter)}">⊘</button>
-          <button class="fp-pick"><span class="fp-letter">${esc(c.letter)}</span> ${choiceBody(c)}</button>
+          <button class="fp-pick"><span class="fp-letter">${esc(c.letter)}</span><span class="fp-choice-text">${choiceBody(c)}</span></button>
         </li>`).join('')}</ul>`
     : `<label class="fp-gridin-label">Your answer
          <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>`;
@@ -284,17 +284,18 @@ const ANSWER_CSS = `
 .fp-choices{list-style:none;margin:0 0 12px;padding:0;}
 .fp-choice{display:flex;align-items:center;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:7px;}
 .fp-choice .fp-eliminate{border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:14px;padding:8px 4px 8px 10px;}
-.fp-choice .fp-pick{flex:1;display:flex;align-items:center;text-align:left;border:none;background:transparent;
-  cursor:pointer;padding:9px 12px 9px 2px;color:inherit;font:inherit;}
-.fp-choice .fp-letter{font-weight:700;margin-right:8px;}
+.fp-choice .fp-pick{flex:1;display:flex;align-items:baseline;gap:8px;text-align:left;border:none;background:transparent;
+  cursor:pointer;padding:8px 12px 8px 2px;color:inherit;font:inherit;line-height:1.4;}
+.fp-choice .fp-letter{flex:none;font-weight:700;}
+.fp-choice .fp-choice-text{flex:1;min-width:0;}
 .fp-choice-img{max-height:2.5em;width:auto;vertical-align:middle;}
 .fp-choice.fp-selected{border:2px solid #3b82f6;background:#eff6ff;}
-.fp-choice.fp-selected .fp-pick::after{content:"selected";margin-left:auto;font-size:9px;color:#3b82f6;font-weight:700;}
+.fp-choice.fp-selected .fp-pick::after{content:"selected";flex:none;margin-left:auto;font-size:9px;color:#3b82f6;font-weight:700;align-self:center;}
 .fp-choice.fp-eliminated .fp-pick{color:#9ca3af;text-decoration:line-through;}
 .fp-choice.fp-correct{border:2px solid #16a34a;background:#dcfce7;}
-.fp-choice.fp-correct .fp-pick::after{content:"\\2713 correct";margin-left:auto;font-size:9px;color:#16a34a;font-weight:700;}
+.fp-choice.fp-correct .fp-pick::after{content:"\\2713 correct";flex:none;margin-left:auto;font-size:9px;color:#16a34a;font-weight:700;align-self:center;}
 .fp-choice.fp-wrong{border:2px solid #dc2626;background:#fee2e2;}
-.fp-choice.fp-wrong .fp-pick::after{content:"\\2717 you chose";margin-left:auto;font-size:9px;color:#dc2626;font-weight:700;}
+.fp-choice.fp-wrong .fp-pick::after{content:"\\2717 you chose";flex:none;margin-left:auto;font-size:9px;color:#dc2626;font-weight:700;align-self:center;}
 .fp-gridin-label{display:block;font-size:12px;color:#6b7280;margin-bottom:12px;}
 .fp-gridin{display:block;width:100%;margin-top:5px;padding:9px 10px;border:1px solid #d1d5db;border-radius:8px;font:inherit;box-sizing:border-box;}
 .fp-actions{display:flex;gap:8px;align-items:center;margin-bottom:10px;}
