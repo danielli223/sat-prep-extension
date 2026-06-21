@@ -12,7 +12,7 @@ export interface AnswerHandlers {
 const HOST_CLASS = 'fp-answer-host';
 // Marker on the CB-native nodes WE hid, so teardown restores exactly those (and never un-hides a node
 // CB itself had hidden). Also lets the MutationObserver and revealRationale find our own work.
-const HIDDEN_ATTR = 'data-fp-hidden';
+export const HIDDEN_ATTR = 'data-fp-hidden';
 
 // One MutationObserver per .answer-content, keyed by the container so re-mount can disconnect the
 // previous one (no stacked observers across CB's in-place re-renders). WeakMap → GC'd with the node.
@@ -101,14 +101,57 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
   shadow.querySelector('.fp-desmos')!.addEventListener('click', () => h.onOpenDesmos());
 }
 
-// Mount (or reuse) our shadow host as the FIRST child of CB's .answer-content, masking CB's own
-// content. Idempotent: CB may replace .answer-content on its in-place "Next", so this is called on
-// every question emit and reuses an existing host when present.
+// Mask CB's own .answer-content children (display:none + our marker) WITHOUT mounting a host. This is
+// the FOUC primitive (#38): the orchestrator calls it the moment CB's modal is observed — decoupled
+// from observeQuestions' 150ms read-debounce — so CB's raw choices never flash visible before the
+// overlay mounts on the settled read. mountAnswerOverlay reuses it so the masking is shared and the
+// existing unmountAnswerOverlay (keyed on the same data-fp-hidden marker) already restores it.
 //
 // Masking is whitelist-based, not blacklist-based: we hide EVERY direct child that isn't our host
 // (so a future CB class rename can't leak content), and we install a MutationObserver to hide any
 // node CB injects LATER — critically CB's `.rationale`, which the reveal drives in asynchronously
-// (~150ms) and so does NOT exist at mount time. revealRationale is the sole un-hider.
+// (~150ms) and so does NOT exist at mask time. revealRationale is the sole un-hider.
+//
+// Idempotent: re-calling disconnects+reinstalls the per-container observer via the WeakMap (no stacked
+// observers across CB's in-place re-renders or an early-mask-then-mount sequence).
+export function maskAnswerContent(answerContent: HTMLElement): void {
+  // Catch async-injected nodes (M1): CB injects .rationale after the mask. Hide any NEW non-host direct
+  // child the same way. Disconnect a prior observer first so re-masks/re-mounts don't stack observers.
+  //
+  // ORDER MATTERS — install the observer BEFORE the synchronous sweep below, then sweep current
+  // children. This is gap-free across re-masks: on CB's in-place re-render we disconnect the old
+  // observer and immediately install a fresh one, then sweep. A node injected between the old observer's
+  // disconnect and the new one's observe() would escape the observer — but the post-observe sweep hides
+  // any such already-present node. Conversely, anything injected after the sweep is caught by the now-
+  // active observer. No window is left where a CB node can stay visible. (Without this ordering, the
+  // async .rationale injection that lands at ~the same time as the debounced re-mount intermittently
+  // leaked through the disconnect gap — live-race flake.)
+  hideObservers.get(answerContent)?.disconnect();
+  const observer = new MutationObserver((records) => {
+    for (const rec of records) {
+      for (const node of Array.from(rec.addedNodes)) {
+        // childList (non-subtree) only reports direct children; guard is belt-and-suspenders — do NOT add subtree:true (would hide CB's nested nodes)
+        if (node.nodeType === 1 && (node as Element).parentElement === answerContent) {
+          hideCbNode(node as HTMLElement);
+        }
+      }
+    }
+  });
+  observer.observe(answerContent, { childList: true });
+  hideObservers.set(answerContent, observer);
+
+  // Whitelist hide: every direct child that ISN'T our host (covers .answer-choices + any present
+  // .rationale + anything else CB rendered). :scope > is unsupported in happy-dom, so scan children.
+  for (const el of Array.from(answerContent.children)) hideCbNode(el as HTMLElement);
+}
+
+// Mount (or reuse) our shadow host as the FIRST child of CB's .answer-content, masking CB's own
+// content. Idempotent: CB may replace .answer-content on its in-place "Next", so this is called on
+// every question emit and reuses an existing host when present.
+//
+// Masking shares maskAnswerContent (the FOUC primitive) — re-calling it here on the settled read is
+// idempotent and reinstalls the hide-observer for the now-present host (so the early-mask observer is
+// replaced, never stacked).
 export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: AnswerHandlers): ShadowRoot {
   // Reuse an existing direct-child host (idempotent re-mount). :scope > is unsupported in happy-dom,
   // so scan children directly.
@@ -127,34 +170,9 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
     host.attachShadow({ mode: 'open' });
   }
 
-  // Catch async-injected nodes (M1): CB injects .rationale after mount. Hide any NEW non-host direct
-  // child the same way. Disconnect a prior observer first so re-mounts don't stack observers.
-  //
-  // ORDER MATTERS — install the observer BEFORE the synchronous sweep below, then sweep current
-  // children. This is gap-free across re-mounts: on CB's in-place re-render we disconnect the old
-  // observer and immediately install a fresh one, then sweep. A node injected between the old
-  // observer's disconnect and the new one's observe() would escape the observer — but the post-observe
-  // sweep hides any such already-present node. Conversely, anything injected after the sweep is caught
-  // by the now-active observer. No window is left where a CB node can stay visible. (Without this
-  // ordering, the async .rationale injection that lands at ~the same time as the debounced re-mount
-  // intermittently leaked through the disconnect gap — live-race flake.)
-  hideObservers.get(answerContent)?.disconnect();
-  const observer = new MutationObserver((records) => {
-    for (const rec of records) {
-      for (const node of Array.from(rec.addedNodes)) {
-        // childList (non-subtree) only reports direct children; guard is belt-and-suspenders — do NOT add subtree:true (would hide CB's nested nodes)
-        if (node.nodeType === 1 && (node as Element).parentElement === answerContent) {
-          hideCbNode(node as HTMLElement);
-        }
-      }
-    }
-  });
-  observer.observe(answerContent, { childList: true });
-  hideObservers.set(answerContent, observer);
-
-  // Whitelist hide: every direct child that ISN'T our host (covers .answer-choices + any present
-  // .rationale + anything else CB rendered). :scope > is unsupported in happy-dom, so scan children.
-  for (const el of Array.from(answerContent.children)) hideCbNode(el as HTMLElement);
+  // Mask CB's native children + (re)install the late-injection observer. Shared with the early FOUC
+  // mask so a node hidden before mount stays hidden, and the marker is the one unmount restores.
+  maskAnswerContent(answerContent);
 
   const shadow = host.shadowRoot!;
   shadow.innerHTML = html(`<style>${ANSWER_CSS}</style>` + renderBody(vm)) as unknown as string;
