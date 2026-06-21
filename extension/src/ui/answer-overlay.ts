@@ -52,6 +52,14 @@ function renderBody(vm: CardVM): string {
         </li>`).join('')}</ul>`
     : `<label class="fp-gridin-label">Your answer
          <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>`;
+  // The calculator/Desmos are Math-only tools — pure clutter on Reading. Tolerant case-insensitive
+  // match on the taxonomy section: a CB label tweak degrades to *showing* the calc (safe), not a crash.
+  const calcBlock = /math/i.test(vm.section)
+    ? `<div class="fp-calc">
+      <button class="fp-calc-pin">Calculator</button>
+      <button class="fp-desmos">Open real Desmos</button>
+    </div>`
+    : '';
   return `<div class="fp-answer">
     <div class="fp-answer-head">
       <button class="fp-overlay-close" aria-label="Close">✕</button>
@@ -67,10 +75,7 @@ function renderBody(vm: CardVM): string {
     <label class="fp-note-label">Why did you miss it?
       <textarea class="fp-note" rows="1" placeholder="one line — your own note"></textarea>
     </label>
-    <div class="fp-calc">
-      <button class="fp-calc-pin">Calculator</button>
-      <button class="fp-desmos">Open real Desmos</button>
-    </div>
+    ${calcBlock}
   </div>`;
 }
 
@@ -97,8 +102,9 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
   shadow.querySelector('.fp-next')!.addEventListener('click', () => h.onNext());
   shadow.querySelector('.fp-note')!.addEventListener('change', (e) =>
     h.onNote((e.target as HTMLTextAreaElement).value.trim()));
-  shadow.querySelector('.fp-calc-pin')!.addEventListener('click', () => h.onToggleCalc());
-  shadow.querySelector('.fp-desmos')!.addEventListener('click', () => h.onOpenDesmos());
+  // Calc controls are Math-only (absent on Reading) — guard before wiring so wire() never throws.
+  shadow.querySelector('.fp-calc-pin')?.addEventListener('click', () => h.onToggleCalc());
+  shadow.querySelector('.fp-desmos')?.addEventListener('click', () => h.onOpenDesmos());
 }
 
 // Mount (or reuse) our shadow host as the FIRST child of CB's .answer-content, masking CB's own
@@ -193,6 +199,8 @@ export function revealRationale(answerContent: HTMLElement): boolean {
 
 export function renderVerdict(shadow: ShadowRoot, v: Verdict): void {
   const verdict = shadow.querySelector('.fp-verdict') as HTMLElement;
+  // A verdict means the student has checked — expand the note in place (it's now worth journaling).
+  shadow.querySelector('.fp-note-label')?.classList.add('fp-note-open');
   if (!v.result.graded) {
     verdict.innerHTML = html(`<div class="fp-indeterminate">Couldn't grade this one — see College Board's answer below.</div>`) as unknown as string;
     return;
@@ -207,6 +215,8 @@ export function renderVerdict(shadow: ShadowRoot, v: Verdict): void {
 }
 
 export function renderNeedAnswer(shadow: ShadowRoot, kind: 'mc' | 'grid'): void {
+  // Prompting the student to answer is the same beat as a verdict — open the note alongside it.
+  shadow.querySelector('.fp-note-label')?.classList.add('fp-note-open');
   (shadow.querySelector('.fp-verdict') as HTMLElement).innerHTML = html(
     `<div class="fp-need-answer">${kind === 'grid' ? 'Enter your answer first.' : 'Select an answer first.'}</div>`) as unknown as string;
 }
@@ -224,8 +234,8 @@ const ANSWER_CSS = `
 .fp-answer-head{display:flex;justify-content:flex-end;align-items:center;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
 .fp-progress{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#6b7280;
-  border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:12px;}
-.fp-choices{list-style:none;margin:0 0 12px;padding:0;}
+  border-bottom:1px solid #eee;padding-bottom:6px;margin-bottom:8px;}
+.fp-choices{list-style:none;margin:0 0 8px;padding:0;}
 .fp-choice{display:flex;align-items:center;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:7px;}
 .fp-choice .fp-eliminate{border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:14px;padding:8px 4px 8px 10px;}
 .fp-choice .fp-pick{flex:1;display:flex;align-items:center;text-align:left;border:none;background:transparent;
@@ -252,9 +262,12 @@ const ANSWER_CSS = `
 .fp-indeterminate{color:#92400e;font-weight:600;font-size:13px;}
 .fp-need-answer{color:#1d4ed8;font-weight:600;font-size:13px;}
 .fp-stale{color:#b45309;font-weight:600;font-size:13px;line-height:1.4;}
-.fp-note-label{display:block;font-size:11px;color:#92400e;margin-bottom:12px;}
-.fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
-  padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}
+/* Collapsed by default: a single compact line that doesn't push the answer down. The textarea is
+   hidden until the note is opened (renderVerdict / renderNeedAnswer add .fp-note-open). */
+.fp-note-label{display:block;font-size:11px;color:#92400e;margin-bottom:8px;}
+.fp-note{display:none;}
+.fp-note-label.fp-note-open .fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;
+  border:1px solid #fde68a;border-radius:8px;padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}
 .fp-note::placeholder{color:#b45309;}
 .fp-calc{display:flex;gap:8px;}
 .fp-calc-pin,.fp-desmos{background:#f1f5f9;color:#334155;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;}
