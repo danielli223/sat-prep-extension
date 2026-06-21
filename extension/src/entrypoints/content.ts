@@ -573,21 +573,26 @@ export function handleRouteChange(doc: Document): void {
   else teardown(doc);
 }
 
-// Issue #70 round 2: the per-tick body of the always-on `location.href` poller. Patching
+// Issue #70 round 3: the per-tick body of the always-on `location.href` poller. Patching
 // history.pushState/replaceState from the content script's ISOLATED world is dead code — it never
 // intercepts the page's main-world router calls, so the overlay never activated after CB's login→bank
 // SPA route (the cross-world boundary of the cb-react-isolated-world-reveal memo). `location.href` DOES
-// reflect the page URL across worlds, so we poll it instead. Compare against a module-level baseline:
-// the FIRST call ever only seeds the cursor (no activation, even on a QB page); a LATER call where the
-// href CHANGED updates the cursor and delegates to handleRouteChange (which gates activate/teardown);
-// an unchanged href is a no-op (keeps the continuous poll cheap and avoids re-running activation).
-let lastHref: string | undefined;
+// reflect the page URL across worlds, so we poll it.
+//
+// Round 2 baselined the FIRST tick on the current href and acted only on a CHANGE since last tick. That
+// change-gate was the bug: a QB page whose expired session client-redirects to /login commits the URL to
+// /login BEFORE the poller's first tick, so it baselined at /login, never saw a QB→login change, and the
+// overlay LINGERED on /login (caught by /verify-overlay). We drop the `lastHref` baseline entirely and
+// RECONCILE the overlay to the CURRENT page's QB-status on every tick — timing-independent: an overlay
+// the redirect carried onto /login is torn down on the next tick regardless of which href we first saw.
 export function checkForRouteChange(doc: Document): void {
-  const href = doc.location.href;
-  if (lastHref === undefined) { lastHref = href; return; }   // first tick → baseline only, never activate
-  if (href === lastHref) return;                              // quiet tick → nothing changed
-  lastHref = href;
-  handleRouteChange(doc);
+  const isQb = isQuestionBankPage(doc.location);
+  // Reconcile against the in-flight flag PLUS the live DOM, so an external teardown/mount (or a prior
+  // route teardown) is also caught — mirrors activate()'s own stale-flag reconcile.
+  const mounted = active || !!(doc.querySelector('.fp-panel-toggle') || doc.getElementById(HOST_ID));
+  if (isQb && !mounted) void activate(doc);
+  else if (!isQb && mounted) teardown(doc);
+  // else: already in the right state → no-op
 }
 
 // Boot (skipped under test: no chrome runtime). Plan 2 runs the scored loop; Plan 3 adds the badger +
