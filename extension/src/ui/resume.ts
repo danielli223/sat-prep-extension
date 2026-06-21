@@ -28,6 +28,13 @@ export function planResume(session: Session, currentListIds: string[]): ResumePl
   return { order, resumeId, resumeIndex };
 }
 
+// Issue #31: random mode follows shuffleIds(loadedIds, seed) by GUIDED scrolling (the Resume posture) —
+// never by auto-loading or id-navigating CB (bright lines #1 & #4). This is the pure seam content.ts
+// uses to pick the next row to scroll into view; null past the end / for an empty loaded list.
+export function nextRandomId(seed: number, currentListIds: string[], position: number): string | null {
+  return shuffleIds(currentListIds, seed)[position] ?? null;
+}
+
 /** Scroll the results row for `id` into view (guided resume). Returns the row node, or null. */
 export function scrollToResume(listRoot: Element, id: string): Element | null {
   const row = readListQuestionIds(listRoot).find((r) => r.id === id);
