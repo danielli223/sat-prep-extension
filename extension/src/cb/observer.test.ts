@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { observeQuestions } from './observer';
+import { observeQuestions, observeQuestionPresence } from './observer';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mc = readFileSync(join(here, '__fixtures__', 'multiple-choice.html'), 'utf8');
@@ -81,6 +81,61 @@ describe('observeQuestions', () => {
       expect(last.stem).toContain('B stem');                                              // not a blank stem
       expect(last.choices.map((x: { text: string }) => x.text)).toEqual(['B-one', 'B-two']);  // not empty/grid
     });
+    stop();
+  });
+});
+
+describe('observeQuestionPresence', () => {
+  it('reports the current closed state synchronously (no modal on the results page)', () => {
+    // The widget boot needs the open/closed boolean immediately so it can set visibility without an
+    // empty flash — so the VERY FIRST onChange must fire synchronously with the present state.
+    history.replaceState({}, '', '/digital/results');
+    document.body.innerHTML = '';
+    const onChange = vi.fn();
+    const stop = observeQuestionPresence(document, onChange);
+
+    expect(onChange).toHaveBeenCalledTimes(1);   // fired synchronously, before any mutation
+    expect(onChange.mock.calls[0]![0]).toBe(false);   // empty body → modal closed
+
+    stop();
+  });
+
+  it('fires onChange(true) when the question modal appears on the results page', async () => {
+    history.replaceState({}, '', '/digital/results');
+    document.body.innerHTML = '';
+    const onChange = vi.fn();
+    const stop = observeQuestionPresence(document, onChange);
+    onChange.mockClear();                          // drop the synchronous initial false
+
+    document.body.innerHTML = mc;                  // CB renders the question modal (.cb-dialog-container)
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith(true));
+
+    stop();
+  });
+
+  it('fires onChange(false) when the modal is removed (back on the list)', async () => {
+    history.replaceState({}, '', '/digital/results');
+    document.body.innerHTML = mc;                  // start with the modal already open
+    const onChange = vi.fn();
+    const stop = observeQuestionPresence(document, onChange);
+    onChange.mockClear();                          // drop the synchronous initial true
+
+    document.body.innerHTML = '';                  // student closes the modal → back on the results list
+    await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith(false));
+
+    stop();
+  });
+
+  it('does not report the modal as open when off the results path', async () => {
+    history.replaceState({}, '', '/digital/search');
+    document.body.innerHTML = '';
+    const onChange = vi.fn();
+    const stop = observeQuestionPresence(document, onChange);
+
+    document.body.innerHTML = mc;                  // a .cb-dialog-container, but NOT on /digital/results
+    await new Promise((r) => setTimeout(r, 50));
+    expect(onChange).not.toHaveBeenCalledWith(true);   // never reported open off the results path
+
     stop();
   });
 });
