@@ -147,6 +147,29 @@ describe('mountAnswerOverlay', () => {
     expect(late.style.display).toBe('none');             // observer hid it — no leaked "Correct Answer"
   });
 
+  it('keeps the extras host BELOW CB\'s .rationale even when CB injects .rationale AFTER mount (live async-reveal path)', async () => {
+    document.body.innerHTML =
+      '<div class="cb-dialog-container"><div class="answer-content">' +
+      '<div class="answer-choices"><ul><li>3</li><li>5</li></ul></div>' +
+      '</div></div>';
+    const ac = findAnswerContent(document.querySelector('.cb-dialog-container')!)!;
+    mountAnswerOverlay(ac, vm, noop());
+    expect(ac.querySelector('.rationale')).toBeNull();   // not present at mount (the live pre-reveal state)
+
+    // CB injects .rationale ~150ms later as a direct child, appended last — same as the observer test.
+    const late = document.createElement('div');
+    late.className = 'rationale';
+    late.innerHTML = '<p>Correct Answer: B</p>';
+    ac.appendChild(late);
+    await new Promise((r) => setTimeout(r, 0));          // let the MutationObserver run
+
+    const extras = ac.querySelector('.fp-extras-host') as HTMLElement;
+    // The extras host must STILL follow the late-injected rationale (note/calc below the explanation)...
+    expect(late.compareDocumentPosition(extras) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // ...and it should be the last child (re-anchored to the end after CB's injection).
+    expect(ac.lastElementChild).toBe(extras);
+  });
+
   it('findAnswerContent returns null when CB has no .answer-content (overlay no-ops)', () => {
     document.body.innerHTML = '<div class="cb-dialog-container"><div class="cb-dialog-header"></div></div>';
     expect(findAnswerContent(document.querySelector('.cb-dialog-container')!)).toBeNull();
