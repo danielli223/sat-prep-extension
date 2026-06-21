@@ -11,7 +11,7 @@
     "https://api.focusedpractice.app/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.geogebra.org"
+    "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "background": { "service_worker": "background.js" },
   "content_scripts": [

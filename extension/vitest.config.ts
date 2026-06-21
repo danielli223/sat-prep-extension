@@ -5,8 +5,8 @@ export default defineConfig({
     globals: true,
     environment: 'happy-dom',
     // Keep the suite hermetic / offline-safe.
-    // - disableIframePageLoading: when a test mounts the GeoGebra <iframe>, happy-dom must NOT fetch
-    //   geogebra.org. iframe.src is still the real URL, so no assertion is weakened.
+    // - disableIframePageLoading: should any test ever mount an <iframe>, happy-dom must NOT fetch its
+    //   src. (Nothing is iframed anymore — issue #17 removed the in-page embed — but the guard stays.)
     // - disableJavaScript*: tests inject CB-shaped HTML fixtures into the LIVE document; happy-dom would
     //   otherwise EVALUATE any <script> they carry. A CB script is an ES module, so it surfaces as an
     //   unhandled "Unexpected token 'export'" rejection that fails the run (exit 1). We assert DOM

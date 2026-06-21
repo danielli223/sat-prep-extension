@@ -46,18 +46,6 @@ const BASE_CSS = `
   border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:20px;box-sizing:border-box;}
 .fp-start-head{display:flex;justify-content:flex-end;margin-bottom:10px;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
-/* SIDE-DOCKED (issue #37): a full-height panel flush to the LEFT edge, mirroring College Board's Math
-   UI, which docks its Desmos calculator to the side rather than floating it. LEFT (not right) so it
-   never collides with the right-docked .fp-panel journal. A flex column: a slim header bar (label + ✕)
-   over the iframe, which fills the rest. overflow:hidden so the iframe clips to the panel's rounded
-   right edge. (Was a floating bottom-left box; the dock is closer to the test-day experience.) */
-.fp-geogebra{position:fixed;left:0;top:0;width:440px;max-width:92vw;height:100vh;
-  border:1px solid #cbd5e1;border-left:0;border-radius:0 14px 14px 0;box-shadow:14px 0 50px rgba(0,0,0,.28);background:#fff;
-  display:flex;flex-direction:column;overflow:hidden;}
-.fp-geogebra-head{display:flex;justify-content:space-between;align-items:center;flex:none;padding:6px 6px 6px 12px;
-  border-bottom:1px solid #e5e7eb;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#475569;}
-.fp-geogebra-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:26px;height:26px;cursor:pointer;font-size:12px;line-height:1;}
-.fp-geogebra-frame{flex:1;width:100%;border:0;}
 .fp-onboarding{font-size:12px;color:#0c4a6e;line-height:1.5;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px;margin-bottom:14px;}
 .fp-start-title{font-size:17px;margin:0 0 12px;color:#0f172a;}
 .fp-start>button{display:block;width:100%;margin-bottom:8px;padding:11px;border-radius:9px;border:1px solid #cbd5e1;
