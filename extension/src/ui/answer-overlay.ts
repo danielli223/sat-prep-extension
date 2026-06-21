@@ -52,8 +52,10 @@ function renderBody(vm: CardVM): string {
         </li>`).join('')}</ul>`
     : `<label class="fp-gridin-label">Your answer
          <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>`;
-  // The calculator/Desmos are Math-only tools — pure clutter on Reading. Tolerant case-insensitive
-  // match on the taxonomy section: a CB label tweak degrades to *showing* the calc (safe), not a crash.
+  // The calculator/Desmos are Math-only tools — pure clutter on Reading. Case-insensitive SUBSTRING
+  // match on the taxonomy section (read from the VM, never a CB DOM read): any Math label variant
+  // (a renamed "Math"/"Mathematics") keeps the calc; only genuinely non-Math sections (Reading and
+  // Writing) drop it. A bare regex test on a plain string — never throws.
   const calcBlock = /math/i.test(vm.section)
     ? `<div class="fp-calc">
       <button class="fp-calc-pin">Calculator</button>
