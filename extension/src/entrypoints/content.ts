@@ -250,6 +250,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   (typeof self !== 'undefined' ? self : window).addEventListener?.('pagehide', onPageHide);
 
   function start(orderMode: 'list' | 'random'): void {
+    stop?.();   // tear down any prior observer (e.g. the boot re-attach one) so it can't race or stack
     cardSlot(shadow).replaceChildren();   // dismiss the start panel so the student can open a CB question
     total = countLoadedResults(doc);   // read N once, before the first card paints
     let started = false;
@@ -402,6 +403,17 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       const ac = modal ? findAnswerContent(modal) : null;
       if (ac) unmountAnswerOverlay(ac);
     }
+  }
+
+  // Issue #30: reload mid-question. CB re-renders its native (unstyled) modal but our overlay is gone,
+  // and nothing re-mounts it without a Start/Resume click. When a resumable session exists for the
+  // already-present question, silently re-decorate it: install the question observer so showQuestion
+  // re-mounts the overlay over the live question. This is INERT re-decoration only — it actuates no
+  // transition (never clickCbNext), creates no session, and emits no practice_started/practice_resumed
+  // (a reload is not a new start, and Resume stays the student's explicit click). A later Start/Resume
+  // tears this observer down (start() calls stop()) and drives a fresh session.
+  if (existing) {
+    stop = observeQuestions(doc, (view) => { showQuestion(view); });
   }
 
   return shadow;
