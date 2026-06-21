@@ -36,6 +36,22 @@ function readStem(root: Element): string {
   return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
+// Some CB Math choices are inline <svg> parabola graphs with no text/<img> (#36). Serialize the <svg>
+// to a self-contained data: URL the overlay can render as an inert <img>. Clone, drop <script> nodes
+// (defense in depth — an img-loaded SVG won't run scripts anyway), ensure the xmlns is present (a
+// standalone data: URL SVG needs it), then percent-encode. Pure in-RAM serialization — never fetched.
+function serializeSvgChoice(li: Element): string | null {
+  const svg = li.querySelector('svg');
+  if (!svg) return null;
+  const clone = svg.cloneNode(true) as Element;
+  clone.querySelectorAll('script').forEach((n) => n.remove());
+  if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  const str = typeof XMLSerializer !== 'undefined'
+    ? new XMLSerializer().serializeToString(clone)
+    : clone.outerHTML;
+  return `data:image/svg+xml,${encodeURIComponent(str)}`;
+}
+
 // `root` is CB's div.cb-dialog-container (see observer.ts) — the element that actually holds the
 // question. The [role="dialog"] node itself does NOT contain the question content.
 export function readQuestion(root: Element): QuestionView | null {
@@ -55,13 +71,23 @@ export function readQuestion(root: Element): QuestionView | null {
   // so it is derived from the list index. Present in the DOM whether or not the answer is revealed.
   // Some CB Math questions render choices as images (e.g. complex math expressions) — textContent
   // is empty in that case, so fall back to capturing the <img> src for overlay rendering.
+  // Mirror readStem's hygiene: clone the <li> and drop style/script and SVG a11y prose (title/desc)
+  // before reading text, or an inline-SVG graph choice leaks its CSS block + verbalized math (#36).
   const choices: Choice[] = [...root.querySelectorAll('.answer-choices ul > li')].map((li, i) => {
-    const text = (li.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const letter = 'ABCD'[i] ?? '';
+    const clone = li.cloneNode(true) as Element;
+    clone.querySelectorAll('style, script, title, desc').forEach((n) => n.remove());
+    const text = (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
     if (!text) {
       const img = li.querySelector('img');
-      if (img?.src) return { letter: 'ABCD'[i] ?? '', text: img.alt || '', imgSrc: img.src };
+      if (img?.src) return { letter, text: img.alt || '', imgSrc: img.src };
+      // Inline-SVG graph choice (parabola, #36): no text, no <img>, just an <svg>. Serialize the real
+      // graph to an inert data:image/svg+xml URL so the overlay's existing <img> path renders it — we
+      // never AI-describe or rewrite the graph, just surface CB's own pixels. Strip <script> defensively.
+      const svg = serializeSvgChoice(li);
+      if (svg) return { letter, text, imgSrc: svg };
     }
-    return { letter: 'ABCD'[i] ?? '', text };
+    return { letter, text };
   });
 
   // Correct answer: the "Correct Answer: X" element inside .rationale — only in the DOM once the
