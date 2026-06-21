@@ -72,6 +72,38 @@ describe('renders interactive UI', () => {
   });
 });
 
+describe('Open real Desmos lives on the primary action bar (#29)', () => {
+  it('renders .fp-desmos as a descendant of .fp-actions (moved onto the primary action row)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    expect(shadow.querySelector('.fp-actions .fp-desmos')).not.toBeNull();
+  });
+
+  it('no longer renders .fp-desmos inside the trailing .fp-calc row', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    expect(shadow.querySelector('.fp-calc .fp-desmos')).toBeNull();
+  });
+
+  it('places .fp-desmos BEFORE .fp-next within .fp-actions (Next stays flush-right via margin-left:auto)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    const actions = shadow.querySelector('.fp-actions')!;
+    const desmos = actions.querySelector('.fp-desmos')!;
+    const next = actions.querySelector('.fp-next')!;
+    expect(desmos).not.toBeNull();
+    expect(next).not.toBeNull();
+    // DOCUMENT_POSITION_FOLLOWING (4) set on next means desmos precedes next in document order.
+    expect(desmos.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps the Calculator button (.fp-calc-pin) in the .fp-calc row (only Desmos moved)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    expect(shadow.querySelector('.fp-calc .fp-calc-pin')).not.toBeNull();
+  });
+});
+
 describe('mountAnswerOverlay', () => {
   it('mounts a shadow host inside .answer-content and hides CB\'s native choices (whitelist: everything but our host)', () => {
     const ac = cbAnswerContent();
