@@ -51,7 +51,15 @@ Both banks read correctly (no educator regression), tests not weakened, suite + 
 **and** a real grid-in correctly, Reveal shows CB's rationale; then re-confirm the **educator** bank still
 works. Confirm the inferred-vs-verified items in the spec. Only then un-draft PR #53.
 
-## Decision to make during this issue
+## Decision (resolved 2026-06-20): keep `/questionbank/*` this PR; broaden is a follow-up
 
-Broaden the match to `*://mypractice.collegeboard.org/*` (survives the post-login SPA route, wider surface)
-vs keep `/questionbank/*` (tighter, but the overlay only appears on a fresh `/questionbank/*` load).
+Live `/verify-overlay` confirmed the post-login SPA gap is real (document commits at `/login` →
+SPA-routes into the bank without re-injecting → overlay needs a hard reload). But broadening the match to
+`*://mypractice.collegeboard.org/*` is **not** a one-line fix: the content-script boot renders the start
+panel (`renderStartPanel`) and the Journal toggle (`mountPanelToggle`) **unconditionally** (only the
+observer is `/results`-gated). Every matched host is QB-dedicated today, so that's fine; broadening to the
+whole student portal would splatter our UI across `/dashboard`, `/login`, etc. The proper fix = broaden the
+match **and** make the boot path-aware + SPA-navigation-aware. That's a separate `content.ts`/UI-lifecycle
+change with its own TDD + live-verify cycle — **tracked as a follow-up** (see PR #53's "Known limitation").
+This PR ships the fully-verified `/questionbank/*` behavior (overlay mounts + grades on direct/hard-reload
+loads).
