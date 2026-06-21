@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard } from './answer-overlay';
+import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard, maskAnswerContent, mountCurtain } from './answer-overlay';
 import { score } from '../scoring';
 import type { CardVM } from './view-model';
 
@@ -141,6 +141,92 @@ describe('unmountAnswerOverlay', () => {
     ac.appendChild(late);
     await new Promise((r) => setTimeout(r, 0));
     expect(late.style.display).toBe('');   // observer gone → CB's own content is left untouched
+  });
+});
+
+// Issue #38: the FOUC fix masks CB's `.answer-content` children EARLY — the moment the modal is observed,
+// BEFORE (and decoupled from) the 150ms-debounced overlay mount — so CB's raw choices never flash. That
+// early mask is a standalone primitive (maskAnswerContent) that hides exactly the same way the mount does
+// (display:none + the data-fp-hidden marker) but mounts NO host.
+//
+// Fail-safe (invariant #6): on the degrade path the contract fails and NO overlay ever mounts on the
+// early-masked container. The mask MUST still be reversible — closing/tearing down restores CB's own
+// native content (visible), never leaving it stuck blank at display:none. This locks that reversibility
+// WITHOUT a host having been mounted: mask, then unmount, and assert CB's content is back.
+describe('maskAnswerContent (#38 early mask) — fail-safe, host-less reversibility', () => {
+  it('masks CB\'s native choices + rationale with no host mounted (the early, pre-overlay state)', () => {
+    const ac = cbAnswerContent();
+    maskAnswerContent(ac);
+    // CB's own nodes are hidden — exactly the masking the overlay mount would apply...
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
+    expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('none');
+    // ...but NO overlay host was mounted (the mask is decoupled from the mount).
+    expect(ac.querySelector('.fp-answer-host')).toBeNull();
+  });
+
+  it('unmount restores an early-masked container even though no overlay host was ever mounted (degrade path)', () => {
+    const ac = cbAnswerContent();
+    maskAnswerContent(ac);   // early mask fires; the contract then fails so the overlay NEVER mounts
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
+
+    unmountAnswerOverlay(ac); // fail-safe teardown on the degrade path
+
+    // CB's native content is RESTORED (visible), not stranded blank at display:none (invariant #6)...
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('');
+    expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('');
+    // ...and our hide markers are cleared so a later real mount + teardown stays correct.
+    expect(ac.querySelector('[data-fp-hidden]')).toBeNull();
+  });
+});
+
+// Issue #38 (curtain): the FOUC fix is an OPAQUE host ("white rectangle") dropped the instant CB's
+// answer region appears — it both hides CB's raw content AND covers the area with white, so the student
+// never sees raw choices before the real overlay fills the SAME host.
+describe('mountCurtain (#38 white-rectangle FOUC curtain)', () => {
+  it('hides CB\'s raw content and drops an opaque white rectangle, with NO overlay host yet', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    // CB's native content is masked...
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
+    expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('none');
+    // ...and the white rectangle is the FIRST child (covering the region)...
+    const curtain = ac.querySelector('.fp-curtain') as HTMLElement;
+    expect(curtain).not.toBeNull();
+    expect(ac.firstElementChild).toBe(curtain);
+    // ...but the real interactive overlay host is NOT mounted yet.
+    expect(ac.querySelector('.fp-answer-host')).toBeNull();
+  });
+
+  it('is idempotent — repeated calls keep a single curtain', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    mountCurtain(ac);
+    expect(ac.querySelectorAll('.fp-curtain')).toHaveLength(1);
+  });
+
+  it('mountAnswerOverlay removes the rectangle and mounts the real overlay over it', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    expect(ac.querySelector('.fp-curtain')).toBeNull();              // white rectangle gone
+    expect(ac.querySelectorAll('.fp-answer-host')).toHaveLength(1);   // real overlay up (single host)
+    expect(shadow.querySelector('.fp-actions')).not.toBeNull();
+  });
+
+  it('does not add a curtain once the real overlay is already mounted', () => {
+    const ac = cbAnswerContent();
+    mountAnswerOverlay(ac, vm, noop());
+    mountCurtain(ac);   // e.g. a late early-mask mutation after the overlay already mounted
+    expect(ac.querySelector('.fp-curtain')).toBeNull();
+  });
+
+  it('unmount tears the curtain down and restores CB\'s content (fail-safe, no real mount)', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    unmountAnswerOverlay(ac);
+    expect(ac.querySelector('.fp-curtain')).toBeNull();
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('');
+    expect(ac.querySelector('[data-fp-hidden]')).toBeNull();
   });
 });
 

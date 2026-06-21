@@ -7,8 +7,8 @@ import { score } from '../scoring';
 import { mountHost, cardSlot } from '../ui/host';
 import { toCardVM } from '../ui/view-model';
 import {
-  findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, renderVerdict, renderNeedAnswer,
-  renderStaleCard, revealRationale, type AnswerHandlers,
+  findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, mountCurtain, renderVerdict,
+  renderNeedAnswer, renderStaleCard, revealRationale, type AnswerHandlers,
 } from '../ui/answer-overlay';
 import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
@@ -273,6 +273,15 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         }));
       }
       showQuestion(view);
+    }, (modal) => {
+      // Issue #38 (FOUC): the instant CB's answer region is observed — BEFORE the observer's 150ms
+      // read-debounce mounts the overlay — drop an opaque "curtain" host over it and hide CB's raw
+      // content, so CB's native choices never flash. The real overlay later fills this SAME host (the
+      // nice UI loads over the white rectangle). Only fires after Start (a session is running), never on
+      // the boot/resume probe. mountCurtain is idempotent and never clobbers a live overlay; the degrade/
+      // close path (unmountAnswerOverlay) restores CB's nodes.
+      const answerContent = findAnswerContent(modal);
+      if (answerContent) mountCurtain(answerContent);
     });
   }
 
@@ -317,7 +326,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
 
     // §2.4: only mount the overlay when the DOM contract holds; otherwise degrade to the banner in the
     // body host. The renderQuestion thunk mounts the overlay into CB's .answer-content ("Q n of N").
+    let mounted = false;   // set inside the thunk; stays false on the degrade path (contract failed)
     void handleQuestion(shadow, view, () => {
+      mounted = true;
       mountAnswerOverlay(answerContent, toCardVM(view, index, total), handlers);
       // Trigger CB's reveal ONLY after the overlay is mounted (S1): so (a) a failed contract never
       // reveals CB's answer un-masked, and (b) the hide-observer installed by mount is live BEFORE CB
@@ -325,6 +336,14 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       // still reads the (hidden) rationale at Check time (awaitCorrectAnswer / currentCorrectAnswer).
       ensureAnswerRevealed(doc);
     });
+    // Fail-safe (invariant #6, #38): the early mask (onModalAppear) hid CB's .answer-content for this
+    // modal. handleQuestion runs the renderQuestion thunk SYNCHRONOUSLY on the contract-OK path (no await
+    // precedes it), so by here `mounted` is already true when the overlay mounted; it stays false only on
+    // the degrade path (contract failed → banner, no mount). In that case restore CB's own native nodes
+    // rather than leaving them stuck blank at display:none — unmount un-hides exactly our marked nodes and
+    // disconnects the early-mask observer (no host was mounted, so there's nothing else to remove). Doing
+    // this synchronously (not in a trailing .then) keeps the per-question path free of an extra microtask.
+    if (!mounted) unmountAnswerOverlay(answerContent);
   }
 
   async function onCheck(view: QuestionView, pick: string): Promise<void> {
