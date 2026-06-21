@@ -48,11 +48,24 @@ requires the note/calc/Desmos block to become a **separate node placed after
 - **Extras host** (`fp-extras-host`, appended as **last** child) — the
   `fp-note-label` + textarea and the `fp-calc` (Calculator + Desmos) block.
 
-Because the extras host is the **last** direct child and CB's `.rationale` is an earlier
-sibling, the extras render **below** the rationale once it's revealed — and below the
-(hidden) rationale slot before reveal. This is deterministic: it does **not** depend on
-reveal timing, unlike a "move on reveal" approach (rejected — fragile against CB's async
-~150ms rationale injection and re-renders).
+The extras host must end up **after** CB's `.rationale` in document order so the note/calc
+render below the explanation. But CB injects `.rationale` **asynchronously (~150ms after
+mount)** as a fresh last child — so simply appending the extras host at mount time is
+**not** enough: CB's later `appendChild(.rationale)` would land *after* the extras host,
+putting the note/calc back above the explanation (the bug #22 fixes). Two cases:
+
+- **Sync** (`.rationale` already present at mount): appending the extras host last places
+  it after the rationale — done.
+- **Async** (the live reveal path: `.rationale` injected after mount): the **same
+  MutationObserver** that masks CB's late nodes also **re-anchors the extras host back to
+  last** whenever a non-host CB node is added. So when CB appends `.rationale`, the extras
+  host is moved to sit after it. Re-anchoring is guarded to fire only on a *CB* node
+  addition (the extras host carries `isOurHost`, so moving it never re-triggers the move —
+  no observer re-entrancy loop), and is a no-op when the extras host is already last.
+
+Net: the ordering is timing-independent — the note/calc render below the rationale in both
+paths. (A "move only on reveal" approach was rejected — more fragile across CB re-renders;
+the observer already runs for masking, so re-anchoring there is the smaller, robust change.)
 
 ### Invariants the implementation must preserve (else existing guards break)
 
@@ -86,9 +99,14 @@ Existing tests encode the single-host layout and must be updated by the test aut
 
 New/updated assertions:
 
-- **DOM order:** the extras host is a **later** direct child of `.answer-content` than
-  CB's `.rationale` (assert via `compareDocumentPosition` /
+- **DOM order (sync):** the extras host is a **later** direct child of `.answer-content`
+  than CB's `.rationale` (assert via `compareDocumentPosition` /
   `DOCUMENT_POSITION_FOLLOWING`), both before and after `revealRationale`.
+- **DOM order (async — the live path):** mount against an `.answer-content` with **no**
+  `.rationale`, then `appendChild` a `.rationale` after mount (as the masking-observer
+  test does), let the observer run, and assert the extras host **still follows** the
+  late-injected `.rationale` (and is the last child). This is the assertion that actually
+  exercises CB's ~150ms async reveal — the sync fixture passes vacuously without it.
 - **Masking exemption:** the extras host is **not** hidden by the whitelist sweep, and a
   CB node injected after mount is still hidden (observer unaffected by the second host).
 - **Reveal still works:** `revealRationale` un-hides `.rationale`; the extras host sits
