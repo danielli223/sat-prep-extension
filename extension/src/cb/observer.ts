@@ -37,3 +37,29 @@ export function observeQuestions(doc: Document, onShown: (view: QuestionView) =>
   read(); // catch an already-present, settled modal synchronously (e.g. runLoop's resume probe)
   return () => { if (settle) clearTimeout(settle); obs.disconnect(); };
 }
+
+// Reports whether CB's question modal is open, and notifies on every open<->closed transition.
+// observeQuestions has no "closed" signal — it only fires on a question being SHOWN — but the stats
+// widget needs both: hide when a question opens, re-show when the modal closes. "Open" reuses the SAME
+// matcher observeQuestions keys on: a .cb-dialog-container holding the "Question ID:" heading on the
+// /digital/results page. This is a boolean presence signal (not a settled-view read), so it does NOT
+// wait for the meta table — and it needs no debounce; a redundant onChange(true) while the modal paints
+// is idempotent for the widget's visibility toggle. Fires the current state synchronously so the boot
+// can set visibility without an empty flash, then fires onChange(now) only when the boolean flips.
+export function observeQuestionPresence(doc: Document, onChange: (open: boolean) => void): () => void {
+  const isOpen = (): boolean => {
+    if (!doc.location.pathname.includes('/digital/results')) return false;
+    return [...doc.querySelectorAll('.cb-dialog-container')]
+      .some((el) => /Question ID:/i.test(el.textContent ?? ''));
+  };
+
+  let last = isOpen();
+  onChange(last); // synchronous initial state
+
+  const obs = new MutationObserver(() => {
+    const now = isOpen();
+    if (now !== last) { last = now; onChange(now); }
+  });
+  obs.observe(doc.body, { childList: true, subtree: true });
+  return () => obs.disconnect();
+}

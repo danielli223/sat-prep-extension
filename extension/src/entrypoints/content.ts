@@ -1,7 +1,7 @@
 import type { IDBPDatabase } from 'idb';
 import { openStore, recordAttempt, saveNote, saveSession, getSession, getAttempts } from '../store';
 import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
-import { observeQuestions } from '../cb/observer';
+import { observeQuestions, observeQuestionPresence } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
 import { mountHost, cardSlot } from '../ui/host';
@@ -420,27 +420,59 @@ export async function refreshBadges(db: IDBPDatabase, listRoot: Element): Promis
   badge(listRoot, await getSeen(db));
 }
 
-/** Add the journal-panel toggle button to the page (idempotent). Clicking mounts the panel. */
-export function mountPanelToggle(doc: Document, onOpen: () => void = () => {}): HTMLButtonElement {
-  const existing = doc.querySelector<HTMLButtonElement>('.fp-panel-toggle');
+/** Issue #16: the at-a-glance numbers the top-right widget renders. `accuracy` is 0..1. A superset of
+ *  this (`Stats`) comes straight from deriveStats, so the boot can pass derived stats in directly. */
+export interface StatsWidgetView { total: number; accuracy: number; streakDays: number; }
+
+/** Mount the top-right at-a-glance stats widget (idempotent). Clicking opens the journal (onOpen).
+ *  Replaces the cryptic "📓 Journal" pill: the value (done / accuracy% / day streak) is visible without
+ *  clicking, and the boot auto-hides it whenever a CB question modal is open (setStatsWidgetVisible). */
+export function mountStatsWidget(doc: Document, onOpen: () => void = () => {}): HTMLButtonElement {
+  const existing = doc.querySelector<HTMLButtonElement>('.fp-stats-widget');
   if (existing) return existing;
   const btn = doc.createElement('button');
-  btn.className = 'fp-panel-toggle';
-  btn.textContent = '📓 Journal';
-  // Light-DOM launcher (not in our shadow), so style inline: a fixed pill in the top-right corner.
+  btn.className = 'fp-stats-widget';
+  btn.setAttribute('aria-label', 'Open progress journal');
+  // Light-DOM furniture (not in our shadow), so style inline: a fixed pill in the top-right corner —
+  // same fixed position / z-index / shadow as the old launcher.
   btn.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483000;background:#3b82f6;color:#fff;' +
     'border:none;border-radius:9px;padding:8px 14px;font:700 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
-    'cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);';
-  // This launcher is in the LIGHT DOM, OUTSIDE the overlay host — so it misses the host's pointer guard
+    'cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);display:inline-flex;gap:10px;align-items:center;';
+  // Three labelled segments; numbers are filled in by updateStatsWidget via textContent (never innerHTML).
+  const done = doc.createElement('span'); done.className = 'fp-stats-done';
+  const acc = doc.createElement('span'); acc.className = 'fp-stats-acc';
+  const streak = doc.createElement('span'); streak.className = 'fp-stats-streak';
+  btn.append(done, acc, streak);
+  // This widget is in the LIGHT DOM, OUTSIDE the overlay host — so it misses the host's pointer guard
   // (host.ts). CB closes its open question modal on an outside pointer-down/click, so a real click here
   // would bubble to the document and trip that close, dismissing the open problem page (reported
   // 2026-06-18). Swallow our own pointer events at the button, exactly as the host does for the overlay.
   for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
     btn.addEventListener(t, (e) => e.stopPropagation());
   }
-  btn.addEventListener('click', onOpen);
+  btn.addEventListener('click', onOpen);   // stopPropagation above stops the BUBBLE, not our own handler
   doc.body.appendChild(btn);
   return btn;
+}
+
+/** Refresh the widget's numbers in place (idempotent; no-op if the widget isn't mounted — the boot
+ *  mounts before the first update). Numbers go in via textContent only — no innerHTML. */
+export function updateStatsWidget(doc: Document, view: StatsWidgetView): void {
+  const btn = doc.querySelector<HTMLButtonElement>('.fp-stats-widget');
+  if (!btn) return;
+  const done = btn.querySelector('.fp-stats-done');
+  const acc = btn.querySelector('.fp-stats-acc');
+  const streak = btn.querySelector('.fp-stats-streak');
+  if (done) done.textContent = `${view.total} done`;
+  if (acc) acc.textContent = `${Math.round(view.accuracy * 100)}%`;
+  if (streak) streak.textContent = `🔥 ${view.streakDays}`;
+}
+
+/** Show/hide the widget. The boot calls (doc, false) when a question modal is open, (doc, true) on the
+ *  results list. No-op if the widget isn't mounted. */
+export function setStatsWidgetVisible(doc: Document, visible: boolean): void {
+  const btn = doc.querySelector<HTMLButtonElement>('.fp-stats-widget');
+  if (btn) btn.style.display = visible ? '' : 'none';
 }
 
 /** Contract §2.3 resume read, used by the start panel's onResume and the integration boot. */
@@ -525,7 +557,16 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
       const db = await openStore();
       await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
 
-      mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
+      // Issue #16: the at-a-glance stats widget replaces the "📓 Journal" pill. Mount it, seed it with
+      // the current numbers (no empty flash), then drive its visibility off CB's modal-presence signal:
+      // hide while a question is open, refresh + re-show on the results list.
+      const attempts0 = await getAttempts(db);
+      mountStatsWidget(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
+      updateStatsWidget(document, deriveStats(attempts0));   // initial numbers, no empty flash
+      observeQuestionPresence(document, (open) => {
+        if (open) { setStatsWidgetVisible(document, false); return; }
+        void getAttempts(db).then((a) => { updateStatsWidget(document, deriveStats(a)); setStatsWidgetVisible(document, true); });
+      });
       watchResultsList(document, db);   // badge on list render + whenever CB re-renders it (coachmarks bind on panel open)
       chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
     } catch { emit({ event: JS_ERROR, props: { component: 'boot', error_code: 'BOOT_FAILURE' } }); }
