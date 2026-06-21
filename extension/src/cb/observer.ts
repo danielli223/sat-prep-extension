@@ -1,16 +1,24 @@
 import { readQuestion, type QuestionView } from './reader';
 
+// The question-modal wrapper differs by bank: the EDUCATOR bank renders the question inside
+// `.cb-dialog-container`, the STUDENT bank inside `.cb-modal-container` (which IS its [role=dialog]).
+// One source of truth for both shapes; consumers still filter on the "Question ID:" heading so the
+// student bank's sibling inactivity-timer popup (also a `.cb-modal`, no id) is excluded.
+export const QUESTION_MODAL_SELECTOR = '.cb-dialog-container, .cb-modal-container';
+
 // Watches the results page for CB's question modal and emits each distinct question once.
-// CB renders the question inside div.cb-dialog-container — NOT inside the [role="dialog"] node
-// (that node is the modal chrome, and a cookie-consent banner also uses role="dialog"). So we match
-// the dialog container that actually holds the "Question ID:" heading.
+// CB renders the question inside the QUESTION_MODAL_SELECTOR wrapper — NOT inside the bare
+// [role="dialog"] node where that differs from it (that node is the modal chrome, and a
+// cookie-consent banner also uses role="dialog"). So we match the wrapper that actually holds the
+// "Question ID:" heading.
 export function observeQuestions(doc: Document, onShown: (view: QuestionView) => void): () => void {
   let lastSig: string | null = null;
   let settle: ReturnType<typeof setTimeout> | null = null;
 
   const read = () => {
-    if (!doc.location.pathname.includes('/digital/results')) return;
-    const modal = [...doc.querySelectorAll('.cb-dialog-container')]
+    const p = doc.location.pathname;
+    if (!p.includes('/digital/results') && !p.includes('/questionbank/results')) return;
+    const modal = [...doc.querySelectorAll(QUESTION_MODAL_SELECTOR)]
       .find((el) => /Question ID:/i.test(el.textContent ?? '')) ?? null;
     if (!modal) { lastSig = null; return; }
     // The modal renders progressively: the header (with the id) appears before .cb-dialog-content
