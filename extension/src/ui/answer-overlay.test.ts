@@ -8,6 +8,8 @@ const vm: CardVM = {
   kind: 'mc', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
   answerKnown: true, position: { index: 1, total: 10 },
 };
+// A Reading vm — CB's non-Math section label. The calculator gate (/math/i) must NOT match this.
+const readingVm: CardVM = { ...vm, section: 'Reading and Writing', domain: 'Information and Ideas' };
 const noop = () => ({
   onSelect(){}, onEliminate(){}, onCheck(){}, onReveal(){}, onNext(){},
   onToggleCalc(){}, onOpenDesmos(){}, onClose(){}, onNote(){},
@@ -69,6 +71,79 @@ describe('renders interactive UI', () => {
     note.value = '  forgot to distribute  ';
     note.dispatchEvent(new Event('change'));
     expect(calls).toEqual(['eliminate','reveal','next','close','calc','desmos','note:forgot to distribute']);
+  });
+});
+
+// Issue #23 — Reading declutter. The Math-only calculator must not render on Reading,
+// the note field is collapsed until a verdict exists, and the answer stays near the top.
+//
+// CONTRACT NOTE for the maker: the collapsed/open state is carried by the `fp-note-open`
+// class on the `.fp-note-label` element (the note container). renderVerdict and
+// renderNeedAnswer add it; a freshly mounted overlay must NOT have it. These tests assert
+// against `.fp-note-label` — keep the class on that stable selector.
+describe('Reading declutter (issue #23)', () => {
+  it('omits the Math-only calculator block on a Reading & Writing question (pure clutter there)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, readingVm, noop());
+    expect(shadow.querySelector('.fp-calc')).toBeNull();
+    expect(shadow.querySelector('.fp-calc-pin')).toBeNull();
+    expect(shadow.querySelector('.fp-desmos')).toBeNull();
+  });
+
+  it('keeps the calculator block on a Math question (Math-only tool stays for Math)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    expect(shadow.querySelector('.fp-calc')).not.toBeNull();
+    expect(shadow.querySelector('.fp-calc-pin')).not.toBeNull();
+    expect(shadow.querySelector('.fp-desmos')).not.toBeNull();
+  });
+
+  it('still renders the note field on Reading and fires onNote with the trimmed value (feature preserved)', () => {
+    const ac = cbAnswerContent();
+    let noted = '';
+    const shadow = mountAnswerOverlay(ac, readingVm, { ...noop(), onNote: (t) => { noted = t; } });
+    expect(shadow.querySelector('.fp-note-label')).not.toBeNull();
+    const note = shadow.querySelector('.fp-note') as HTMLTextAreaElement;
+    expect(note).not.toBeNull();
+    note.value = '  missed the transition word  ';
+    note.dispatchEvent(new Event('change'));
+    expect(noted).toBe('missed the transition word');
+  });
+
+  it('starts the note collapsed (no fp-note-open) on a fresh mount', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, readingVm, noop());
+    const noteLabel = shadow.querySelector('.fp-note-label')!;
+    expect(noteLabel.classList.contains('fp-note-open')).toBe(false);
+  });
+
+  it('expands the note (adds fp-note-open) once renderVerdict writes a result', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, readingVm, noop());
+    expect(shadow.querySelector('.fp-note-label')!.classList.contains('fp-note-open')).toBe(false);
+    shadow.querySelector('.fp-choice[data-letter="B"]')!.setAttribute('data-correct', 'true');
+    renderVerdict(shadow, { pick: 'B', result: score('B', 'B') });
+    expect(shadow.querySelector('.fp-note-label')!.classList.contains('fp-note-open')).toBe(true);
+  });
+
+  it('expands the note (adds fp-note-open) once renderNeedAnswer prompts the student', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, readingVm, noop());
+    expect(shadow.querySelector('.fp-note-label')!.classList.contains('fp-note-open')).toBe(false);
+    renderNeedAnswer(shadow, 'mc');
+    expect(shadow.querySelector('.fp-note-label')!.classList.contains('fp-note-open')).toBe(true);
+  });
+
+  it('renders the answer choices before the actions row in DOM order (answer stays near the top)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, readingVm, noop());
+    const choices = shadow.querySelector('.fp-choices')!;
+    const actions = shadow.querySelector('.fp-actions')!;
+    expect(choices).not.toBeNull();
+    expect(actions).not.toBeNull();
+    // DOCUMENT_POSITION_FOLLOWING => actions comes AFTER choices in document order.
+    const rel = choices.compareDocumentPosition(actions);
+    expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
