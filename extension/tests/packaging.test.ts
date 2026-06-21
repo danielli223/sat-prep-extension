@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 const ext = join(dirname(fileURLToPath(import.meta.url)), '..');
 const load = (f: string) => JSON.parse(readFileSync(join(ext, f), 'utf8'));
 const CB = '*://satsuiteeducatorquestionbank.collegeboard.org/*';
+// Issue #32: the STUDENT question bank is a second, specific CB origin the overlay must run on.
+const STUDENT_CB = '*://mypractice.collegeboard.org/questionbank/*';
 const CONFIG = 'https://config.focusedpractice.app/*';
 const POSTHOG = 'https://us.i.posthog.com/*';
 const DELETE_EP = 'https://api.focusedpractice.app/*';
@@ -13,23 +15,28 @@ const DELETE_EP = 'https://api.focusedpractice.app/*';
 describe('packaging — three browser manifests', () => {
   const manifests = ['manifest.json', 'manifest.firefox.json', 'manifest.edge.json'].map(load);
 
-  it('all three share the identical CB content host', () => {
+  it('all three carry BOTH CB question-bank hosts (educator + student) in permissions and content scripts', () => {
     for (const m of manifests) {
       expect(m.host_permissions).toContain(CB);
+      expect(m.host_permissions).toContain(STUDENT_CB);
       expect(m.content_scripts[0].matches).toContain(CB);
+      expect(m.content_scripts[0].matches).toContain(STUDENT_CB);
     }
   });
 
-  it('all three declare OUR config host and NOTHING else outside CB', () => {
+  it('all three declare OUR config host and NOTHING else outside the two CB banks', () => {
     for (const m of manifests) {
       expect(m.host_permissions).toContain(CONFIG);
       for (const h of m.host_permissions) {
-        const ok = h === CB || h === CONFIG || h === POSTHOG || h === DELETE_EP;
+        const ok = h === CB || h === STUDENT_CB || h === CONFIG || h === POSTHOG || h === DELETE_EP;
         expect(ok, `unexpected host permission: ${h}`).toBe(true);
       }
-      // no host permission may target collegeboard.org beyond the educator bank match
+      // STRICT: any collegeboard.org host permission must be EXACTLY one of the two CB bank matches —
+      // never a third CB host and never a *.collegeboard.org wildcard subdomain sneaking in.
       for (const h of m.host_permissions) {
-        if (/collegeboard\.org/i.test(h)) expect(h).toBe(CB);
+        if (/collegeboard\.org/i.test(h)) {
+          expect(h === CB || h === STUDENT_CB, `unexpected collegeboard.org host: ${h}`).toBe(true);
+        }
       }
     }
   });
