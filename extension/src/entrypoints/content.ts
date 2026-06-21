@@ -4,7 +4,7 @@ import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
 import { observeQuestions, observeQuestionPresence, QUESTION_MODAL_SELECTOR } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
-import { mountHost, cardSlot } from '../ui/host';
+import { mountHost, cardSlot, HOST_ID } from '../ui/host';
 import { toCardVM } from '../ui/view-model';
 import {
   findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, mountCurtain, renderVerdict,
@@ -603,6 +603,70 @@ export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): P
   void emit({ event: JOURNAL_OPENED, props: {} });
 }
 
+// Issue #70: the student match is now the whole portal (*://mypractice.collegeboard.org/*) so the
+// content script also injects on /login (CB redirects through it, then SPA-routes into the results
+// page with NO fresh document load). This gate decides where our UI is allowed to be live: TRUE only
+// on a question-bank RESULTS page — student (/questionbank/results) or educator (/digital/results) —
+// FALSE everywhere else (/login, /dashboard, /details, a bare /questionbank). Pure path logic: no CB
+// control is touched, no fetch, no enumeration (bright lines #1/#4).
+export function isQuestionBankPage(doc: Document): boolean {
+  const path = doc.location.pathname;
+  return path.includes('/questionbank/results') || path.includes('/digital/results');
+}
+
+// Issue #70: one-call show/hide of ALL our light-DOM furniture (the overlay host + the stats widget),
+// driven by the lifecycle below as the URL enters/leaves a question-bank page. Mirrors
+// setStatsWidgetVisible: null-guarded, a no-op when an element isn't mounted.
+export function setOverlayActive(doc: Document, on: boolean): void {
+  const host = doc.getElementById(HOST_ID);
+  if (host) host.style.display = on ? '' : 'none';
+  const widget = doc.querySelector<HTMLElement>('.fp-stats-widget');
+  if (widget) widget.style.display = on ? '' : 'none';
+}
+
+// Issue #70: path-aware, SPA-navigation-aware lifecycle. After CB's post-login redirect the student
+// bank SPA-routes from /login into /questionbank/results with NO document load, so document_idle alone
+// never re-runs — our overlay only appeared after a manual hard reload. We patch history.pushState /
+// replaceState and listen for popstate, re-evaluating the URL on every navigation: activate (show our
+// furniture) only when ON a question-bank page, deactivate (hide it) when we leave. PURE navigation
+// logic — it actuates NOTHING on CB (no fetch, no CB endpoint, no id enumeration, no auto-advance);
+// it only toggles OUR own UI based on the path (bright lines #1/#4). Returns a teardown that restores
+// the patched history methods and removes the popstate listener.
+export function installOverlayLifecycle(
+  doc: Document,
+  activate: () => void,
+  deactivate: () => void,
+): () => void {
+  const view = doc.defaultView!;
+  let active = false;
+  function evaluate(): void {
+    const on = isQuestionBankPage(doc);
+    if (on && !active) { active = true; activate(); }
+    else if (!on && active) { active = false; deactivate(); }
+  }
+
+  const origPush: History['pushState'] = view.history.pushState.bind(view.history);
+  const origReplace: History['replaceState'] = view.history.replaceState.bind(view.history);
+  view.history.pushState = function (...args: Parameters<History['pushState']>): void {
+    origPush(...args);   // let CB's route land first so location reflects the new URL
+    evaluate();
+  };
+  view.history.replaceState = function (...args: Parameters<History['replaceState']>): void {
+    origReplace(...args);
+    evaluate();
+  };
+  const onPopState = (): void => evaluate();
+  view.addEventListener('popstate', onPopState);
+
+  evaluate();   // initial state (off a QB page on first install ⇒ nothing happens, no spurious deactivate)
+
+  return () => {
+    view.history.pushState = origPush;
+    view.history.replaceState = origReplace;
+    view.removeEventListener('popstate', onPopState);
+  };
+}
+
 // Boot (skipped under test: no chrome runtime). Plan 2 runs the scored loop; Plan 3 adds the
 // badger + journal panel toggle + the open-journal message listener.
 if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
@@ -610,23 +674,37 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
   // mount nothing; a CB block → mount the §8.3 "use CB directly" notice and return (never retry,
   // never call the API). When enabled and unblocked, the runner is Plan 2/3's startup verbatim.
   self.addEventListener?.('unhandledrejection', () => emit({ event: JS_ERROR, props: { component: 'unhandledrejection', error_code: 'BOOT_FAILURE' } }));
-  void guardedStart(document, async () => {
-    try {
-      const db = await openStore();
-      await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
+  // Issue #70: the script now injects on the whole student portal (/login included), so the boot is
+  // path-aware. installOverlayLifecycle runs guardedStart's body AT MOST ONCE (the first time we land
+  // on a question-bank results page — whether via fresh load or an SPA route after the /login redirect);
+  // later activations just re-show our furniture, and leaving the QB page hides it.
+  let booted = false;
+  installOverlayLifecycle(
+    document,
+    () => {
+      setOverlayActive(document, true);
+      if (booted) return;
+      booted = true;
+      void guardedStart(document, async () => {
+        try {
+          const db = await openStore();
+          await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
 
-      // Issue #16: the at-a-glance stats widget replaces the "📓 Journal" pill. Mount it, seed it with
-      // the current numbers (no empty flash), then drive its visibility off CB's modal-presence signal:
-      // hide while a question is open, refresh + re-show on the results list.
-      const attempts0 = await getAttempts(db);
-      mountStatsWidget(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
-      updateStatsWidget(document, deriveStats(attempts0));   // initial numbers, no empty flash
-      observeQuestionPresence(document, (open) => {
-        if (open) { setStatsWidgetVisible(document, false); return; }
-        void getAttempts(db).then((a) => { updateStatsWidget(document, deriveStats(a)); setStatsWidgetVisible(document, true); });
+          // Issue #16: the at-a-glance stats widget replaces the "📓 Journal" pill. Mount it, seed it with
+          // the current numbers (no empty flash), then drive its visibility off CB's modal-presence signal:
+          // hide while a question is open, refresh + re-show on the results list.
+          const attempts0 = await getAttempts(db);
+          mountStatsWidget(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
+          updateStatsWidget(document, deriveStats(attempts0));   // initial numbers, no empty flash
+          observeQuestionPresence(document, (open) => {
+            if (open) { setStatsWidgetVisible(document, false); return; }
+            void getAttempts(db).then((a) => { updateStatsWidget(document, deriveStats(a)); setStatsWidgetVisible(document, true); });
+          });
+          watchResultsList(document, db);   // badge on list render + whenever CB re-renders it
+          chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
+        } catch { emit({ event: JS_ERROR, props: { component: 'boot', error_code: 'BOOT_FAILURE' } }); }
       });
-      watchResultsList(document, db);   // badge on list render + whenever CB re-renders it
-      chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
-    } catch { emit({ event: JS_ERROR, props: { component: 'boot', error_code: 'BOOT_FAILURE' } }); }
-  });
+    },
+    () => setOverlayActive(document, false),
+  );
 }
