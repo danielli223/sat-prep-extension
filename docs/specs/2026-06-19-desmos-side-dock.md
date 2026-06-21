@@ -48,8 +48,12 @@ Given that, docking is implemented two ways, each respecting every bright-line i
 
 ## Deferred follow-ups (the issue's "related" items)
 
-- **Unify the calculator with Desmos.** Would require an in-page real-Desmos surface → the Desmos API
-  (license) or an iframe (blocked). Needs a product + legal decision before it can be built. Not done.
+- **Unify the calculator with Desmos.** ~~Would require an in-page real-Desmos surface → the Desmos API
+  (license) or an iframe (blocked). Needs a product + legal decision before it can be built. Not done.~~
+  **Resolved 2026-06-21 (issue #17), the compliant way:** see
+  [`2026-06-21-unify-calculator-desmos.md`](2026-06-21-unify-calculator-desmos.md). We unify by
+  *removing the GeoGebra embed* and collapsing to a single "Calculator" button that opens the real
+  Desmos externally — no in-page Desmos surface, so no license/iframe and no legal escalation.
 - **Move "Open Desmos" to the bottom bar.** A larger control-placement change touching the answer
   overlay's action layout; deferred to keep this change focused. Not done.
 

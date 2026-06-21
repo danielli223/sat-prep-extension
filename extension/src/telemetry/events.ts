@@ -68,7 +68,7 @@ export function buildPracticeResumed(i: {
 }
 
 export function buildCalculatorOpened(i: {
-  sessionId: string; calculatorType: 'geogebra' | 'desmos';
+  sessionId: string; calculatorType: 'desmos';
 }): TelemetryEvent {
   return make(CALCULATOR_OPENED, { session_id: i.sessionId, calculator_type: i.calculatorType });
 }
