@@ -16,6 +16,7 @@ import { toggleGeoGebra, openDesmos } from '../ui/calculator';
 import { newSeed } from '../order';
 import type { Session, Attempt } from '../types';
 import { badge } from '../ui/badger';
+import { buildNavCells, renderNavGrid } from '../ui/nav-grid';
 import { getSeen, getMistakes } from '../journal';
 import { deriveStats } from '../stats';
 import { resumeSession, scrollToResume, nextRandomId, type ResumeResult } from '../ui/resume';
@@ -479,9 +480,20 @@ export function findResultsList(doc: Document): Element | null {
   return doc.querySelector('table.cb-table-react');
 }
 
-/** Read the store and (re)badge the on-screen results list with done/missed/new chips. */
+/** Read the store and (re)badge the on-screen results list with done/missed/new chips, then repaint
+ *  the question-grid navigator (Issue #25) from the SAME read — one getSeen, no new network. Both the
+ *  badger and the nav-grid key off the student's own seen map; the grid mounts in the overlay host's
+ *  shadow root so its styling is scoped and it survives across questions. Clicking a cell delegates to
+ *  scrollToResume (scroll the already-loaded row into view) — never a fetch/prefetch/advance. */
 export async function refreshBadges(db: IDBPDatabase, listRoot: Element): Promise<void> {
-  badge(listRoot, await getSeen(db));
+  const seen = await getSeen(db);
+  badge(listRoot, seen);
+  const doc = listRoot.ownerDocument ?? document;
+  renderNavGrid(
+    mountHost(doc),
+    buildNavCells(readListQuestionIds(listRoot), seen),
+    { onJump: (id) => { scrollToResume(listRoot, id); } },
+  );
 }
 
 /** Add the journal-panel toggle button to the page (idempotent). Clicking mounts the panel. */
