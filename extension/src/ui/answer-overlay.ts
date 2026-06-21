@@ -10,6 +10,16 @@ export interface AnswerHandlers {
 }
 
 const HOST_CLASS = 'fp-answer-host';
+
+// Issue #28: the seen-before badge label is a FIXED 3-value map keyed by the student's prior status
+// (from their own attempt journal) — never a CB-derived string (invariant §3). Mirrors badger.ts's
+// LABEL pattern. The em-dash is U+2014.
+type PriorStatus = 'new' | 'done' | 'missed';
+const SEEN_LABEL: Record<PriorStatus, string> = {
+  new: 'New to you',
+  done: 'Seen before — got it right',
+  missed: 'Seen before — missed it',
+};
 // Marker on the CB-native nodes WE hid, so teardown restores exactly those (and never un-hides a node
 // CB itself had hidden). Also lets the MutationObserver and revealRationale find our own work.
 const HIDDEN_ATTR = 'data-fp-hidden';
@@ -52,10 +62,12 @@ function renderBody(vm: CardVM): string {
         </li>`).join('')}</ul>`
     : `<label class="fp-gridin-label">Your answer
          <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>`;
+  const status: PriorStatus = vm.priorStatus ?? 'new';
   return `<div class="fp-answer">
     <div class="fp-answer-head">
       <button class="fp-overlay-close" aria-label="Close">✕</button>
     </div>
+    <div class="fp-seen" data-prior="${esc(status)}">${esc(SEEN_LABEL[status])}</div>
     <div class="fp-progress">${esc(vm.skill)} › ${esc(vm.difficulty)} · Q ${vm.position.index} of ${vm.position.total}</div>
     ${answerBody}
     <div class="fp-actions">
@@ -223,6 +235,11 @@ const ANSWER_CSS = `
 .fp-answer{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;}
 .fp-answer-head{display:flex;justify-content:flex-end;align-items:center;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
+/* issue #28: seen-before pill — colored per prior status to match the badger palette */
+.fp-seen{display:inline-block;margin-bottom:10px;padding:2px 9px;border-radius:9px;white-space:nowrap;font-weight:700;font-size:11px;}
+.fp-seen[data-prior="done"]{background:#dcfce7;color:#16a34a;}
+.fp-seen[data-prior="missed"]{background:#fee2e2;color:#dc2626;}
+.fp-seen[data-prior="new"]{background:#f1f5f9;color:#6b7280;}
 .fp-progress{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#6b7280;
   border-bottom:1px solid #eee;padding-bottom:8px;margin-bottom:12px;}
 .fp-choices{list-style:none;margin:0 0 12px;padding:0;}
