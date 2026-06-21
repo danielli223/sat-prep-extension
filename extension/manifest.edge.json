@@ -6,7 +6,7 @@
   "permissions": ["storage", "alarms"],
   "host_permissions": [
     "*://satsuiteeducatorquestionbank.collegeboard.org/*",
-    "*://mypractice.collegeboard.org/questionbank/*",
+    "*://mypractice.collegeboard.org/*",
     "https://config.focusedpractice.app/*",
     "https://us.i.posthog.com/*",
     "https://api.focusedpractice.app/*"
@@ -19,7 +19,7 @@
     {
       "matches": [
         "*://satsuiteeducatorquestionbank.collegeboard.org/*",
-        "*://mypractice.collegeboard.org/questionbank/*"
+        "*://mypractice.collegeboard.org/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"

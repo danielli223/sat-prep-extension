@@ -7,7 +7,12 @@ const ext = join(dirname(fileURLToPath(import.meta.url)), '..');
 const load = (f: string) => JSON.parse(readFileSync(join(ext, f), 'utf8'));
 const CB = '*://satsuiteeducatorquestionbank.collegeboard.org/*';
 // Issue #32: the STUDENT question bank is a second, specific CB origin the overlay must run on.
-const STUDENT_CB = '*://mypractice.collegeboard.org/questionbank/*';
+// Issue #70: broadened to the whole student portal origin — after CB's login redirect the document
+// commits at /login and the app SPA-routes into /questionbank/* WITHOUT a fresh document load, so a
+// path-scoped match never injects. The broadened match is paired with a path-aware boot
+// (isQuestionBankPage + activate/teardown) so our UI only mounts on /questionbank/* — NOT /dashboard,
+// /login, /details. Still a specific origin; never a *.collegeboard.org wildcard (strict tests below).
+const STUDENT_CB = '*://mypractice.collegeboard.org/*';
 const CONFIG = 'https://config.focusedpractice.app/*';
 const POSTHOG = 'https://us.i.posthog.com/*';
 const DELETE_EP = 'https://api.focusedpractice.app/*';

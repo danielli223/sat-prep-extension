@@ -4,7 +4,7 @@ import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
 import { observeQuestions, QUESTION_MODAL_SELECTOR } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
-import { mountHost, cardSlot } from '../ui/host';
+import { mountHost, cardSlot, HOST_ID } from '../ui/host';
 import { toCardVM } from '../ui/view-model';
 import {
   findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, renderVerdict, renderNeedAnswer,
@@ -516,21 +516,98 @@ export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): P
   if (list) bindPanelCoachmarks(host, db, list);
 }
 
-// Boot (skipped under test: no chrome runtime). Plan 2 runs the scored loop; Plan 3 adds the
-// badger + journal panel toggle + coachmark binding + the open-journal message listener.
-if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
-  // Plan 4: the whole post-Plan-3 startup body runs through the §2.5/§8.3 gate. isEnabled() off →
-  // mount nothing; a CB block → mount the §8.3 "use CB directly" notice and return (never retry,
-  // never call the API). When enabled and unblocked, the runner is Plan 2/3's startup verbatim.
-  self.addEventListener?.('unhandledrejection', () => emit({ event: JS_ERROR, props: { component: 'unhandledrejection', error_code: 'BOOT_FAILURE' } }));
-  void guardedStart(document, async () => {
+// Issue #70: the student match is now portal-wide (*://mypractice.collegeboard.org/*) so the script
+// injects after CB's login redirect (which commits at /login) and survives the app's SPA route into
+// the bank. The boot is therefore PATH-AWARE: our UI mounts only on a real question-bank page, never
+// on /dashboard, /login, /details. The predicate is HOST-KEYED, not path-keyed: the educator bank IS
+// the whole host (its pages are /digital/*, never /questionbank/*), so keying on "/questionbank" alone
+// would silently disable the educator overlay. Educator host → always a QB page.
+const EDUCATOR_HOST = 'satsuiteeducatorquestionbank.collegeboard.org';
+const STUDENT_HOST = 'mypractice.collegeboard.org';
+export function isQuestionBankPage(loc: { hostname: string; pathname: string }): boolean {
+  if (loc.hostname === EDUCATOR_HOST) return true;                       // QB-dedicated host: every page is a QB page
+  if (loc.hostname === STUDENT_HOST) return loc.pathname.includes('/questionbank');  // student portal: bank pages only
+  return false;
+}
+
+// Idempotent activation state. `activeStop` holds watchResultsList's disconnect fn so teardown can stop
+// the badger observer when the student routes away (runLoop's own question observer no-ops on non-QB
+// pages, where there are no CB question modals to match).
+let active = false;
+let activeStop: (() => void) | null = null;
+
+// Extract Plan 2/3's startup body into an idempotent activate(): openStore → runLoop → mountPanelToggle
+// → watchResultsList → onMessage listener, still wrapped in guardedStart so the §2.5/§8.3 kill-switch +
+// block-detect gate runs first. A second call while already active is a no-op (no double-mount).
+export async function activate(doc: Document): Promise<void> {
+  // Reconcile the in-flight flag with the live DOM: if a prior teardown (or an external removal of our
+  // host/toggle) cleared the UI, the flag is stale — drop it so we re-mount rather than no-op.
+  if (active && !doc.querySelector('.fp-panel-toggle') && !doc.getElementById(HOST_ID)) { active = false; activeStop = null; }
+  if (active || doc.querySelector('.fp-panel-toggle')) return;   // already mounting/mounted → don't stack a second toggle/host
+  active = true;
+  await guardedStart(doc, async () => {
     try {
       const db = await openStore();
-      await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
+      await runLoop(doc, db, deviceId());                        // Plan 2 scored loop (unchanged)
 
-      mountPanelToggle(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
-      watchResultsList(document, db);   // badge on list render + whenever CB re-renders it (coachmarks bind on panel open)
+      mountPanelToggle(doc, () => void handleMessage(db, { type: OPEN_JOURNAL }));
+      activeStop = watchResultsList(doc, db);   // badge on list render + whenever CB re-renders it; disconnect on teardown
       chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
     } catch { emit({ event: JS_ERROR, props: { component: 'boot', error_code: 'BOOT_FAILURE' } }); }
   });
+}
+
+// Tear our UI off the page when the student routes away from the bank (issue #70). Remove the body host
+// (HOST_ID) + the Journal toggle and disconnect the badger observer so nothing lingers on /dashboard.
+export function teardown(doc: Document): void {
+  activeStop?.(); activeStop = null;
+  doc.getElementById(HOST_ID)?.remove();
+  doc.querySelector('.fp-panel-toggle')?.remove();
+  active = false;
+}
+
+// The SPA-route hook: gate activate/teardown on the path. Idempotent on repeats (activate/teardown both
+// no-op when already in the target state), so re-entering a QB page never double-mounts.
+export function handleRouteChange(doc: Document): void {
+  if (isQuestionBankPage(doc.location)) void activate(doc);
+  else teardown(doc);
+}
+
+// Issue #70 round 3: the per-tick body of the always-on `location.href` poller. Patching
+// history.pushState/replaceState from the content script's ISOLATED world is dead code — it never
+// intercepts the page's main-world router calls, so the overlay never activated after CB's login→bank
+// SPA route (the cross-world boundary of the cb-react-isolated-world-reveal memo). `location.href` DOES
+// reflect the page URL across worlds, so we poll it.
+//
+// Round 2 baselined the FIRST tick on the current href and acted only on a CHANGE since last tick. That
+// change-gate was the bug: a QB page whose expired session client-redirects to /login commits the URL to
+// /login BEFORE the poller's first tick, so it baselined at /login, never saw a QB→login change, and the
+// overlay LINGERED on /login (caught by /verify-overlay). We drop the `lastHref` baseline entirely and
+// RECONCILE the overlay to the CURRENT page's QB-status on every tick — timing-independent: an overlay
+// the redirect carried onto /login is torn down on the next tick regardless of which href we first saw.
+export function checkForRouteChange(doc: Document): void {
+  const isQb = isQuestionBankPage(doc.location);
+  // Reconcile against the in-flight flag PLUS the live DOM, so an external teardown/mount (or a prior
+  // route teardown) is also caught — mirrors activate()'s own stale-flag reconcile.
+  const mounted = active || !!(doc.querySelector('.fp-panel-toggle') || doc.getElementById(HOST_ID));
+  if (isQb && !mounted) void activate(doc);
+  else if (!isQb && mounted) teardown(doc);
+  // else: already in the right state → no-op
+}
+
+// Boot (skipped under test: no chrome runtime). Plan 2 runs the scored loop; Plan 3 adds the badger +
+// journal panel toggle + coachmark binding + the open-journal message listener; issue #70 makes the
+// boot path-aware + SPA-reactive so the broadened portal-wide student match never splatters our UI off
+// the bank. The §2.5/§8.3 gate still wraps activation (inside activate → guardedStart).
+if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
+  self.addEventListener?.('unhandledrejection', () => emit({ event: JS_ERROR, props: { component: 'unhandledrejection', error_code: 'BOOT_FAILURE' } }));
+  handleRouteChange(document);   // mount now iff this is a QB page (direct load / hard reload)
+  // SPA routes commit WITHOUT a fresh document load. We CANNOT detect them by patching
+  // history.pushState/replaceState: the content script runs in an ISOLATED world, so that patch never
+  // intercepts the page's main-world router calls (same cross-world boundary as the React reveal). We
+  // poll `location.href` — which DOES reflect the page URL across worlds — to catch the login→bank
+  // route. Polling (vs chrome.webNavigation) deliberately avoids a "read browsing history" permission
+  // on a privacy-focused extension. popstate is the fast path for back/forward.
+  setInterval(() => checkForRouteChange(document), 400);
+  window.addEventListener('popstate', () => handleRouteChange(document));
 }
