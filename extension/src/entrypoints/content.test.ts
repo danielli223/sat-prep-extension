@@ -548,8 +548,9 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
   });
 });
 
-// --- Plan 3 additions (badger + panel toggle + coachmark + resume) ---
-import { refreshBadges, mountPanelToggle, resumeFor, handleMessage, findResultsList, watchResultsList } from './content';
+// --- Plan 3 additions (badger + stats widget + resume) ---
+import { refreshBadges, mountStatsWidget, updateStatsWidget, setStatsWidgetVisible, resumeFor, handleMessage, findResultsList, watchResultsList } from './content';
+import { observeQuestionPresence } from '../cb/observer';
 import { HOST_ID } from '../ui/host';
 import { recordAttempt, saveSession } from '../store';
 import { makeAttempt, makeSession } from '../model';
@@ -575,19 +576,39 @@ describe('content wiring (Plan 3)', () => {
     expect(chips[1]!.getAttribute('data-state')).toBe('new');      // ef56ab78 unseen
   });
 
-  it('mountPanelToggle adds a single toggle button (idempotent)', () => {
-    mountPanelToggle(document);
-    mountPanelToggle(document);
-    expect(document.querySelectorAll('.fp-panel-toggle')).toHaveLength(1);
+  it('mountStatsWidget adds a single widget (idempotent) and renders the supplied numbers', () => {
+    mountStatsWidget(document);
+    mountStatsWidget(document);
+    expect(document.querySelectorAll('.fp-stats-widget')).toHaveLength(1);   // one widget, not two
+
+    updateStatsWidget(document, { total: 12, accuracy: 0.75, streakDays: 3 });
+    const text = document.querySelector('.fp-stats-widget')!.textContent ?? '';
+    expect(text).toContain('12');     // done count
+    expect(text).toContain('75%');    // Math.round(accuracy * 100)%
+    expect(text).toContain('3');      // day streak
   });
 
-  it('mountPanelToggle: the launcher swallows its own pointer events so CB never closes the open question modal', () => {
-    // The Journal launcher lives in the LIGHT DOM (doc.body), OUTSIDE our overlay host's stopPropagation
-    // guard. CB closes its question modal on an outside pointer-down/click, so without its own guard a
-    // click on the launcher bubbles to the document and trips CB's close — the open problem page vanishes
-    // (reported 2026-06-18). The launcher must stop its own pointer events, exactly like the host does.
+  it('updateStatsWidget is a no-op when the widget is not mounted', () => {
+    // The boot mounts before first update, but a stray update must not throw or create a widget.
+    expect(() => updateStatsWidget(document, { total: 5, accuracy: 0.5, streakDays: 1 })).not.toThrow();
+    expect(document.querySelector('.fp-stats-widget')).toBeNull();
+  });
+
+  it('clicking the widget opens the journal (onOpen handler)', () => {
     const onOpen = vi.fn();
-    const btn = mountPanelToggle(document, onOpen);
+    const btn = mountStatsWidget(document, onOpen);
+    btn.click();
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('the widget swallows its own pointer events so CB never closes the open question modal', () => {
+    // The stats widget lives in the LIGHT DOM (doc.body), OUTSIDE our overlay host's stopPropagation
+    // guard. CB closes its question modal on an outside pointer-down/click, so without its own guard a
+    // click on the widget bubbles to the document and trips CB's close — the open problem page vanishes
+    // (reported 2026-06-18, carried over from the old launcher). The widget must stop its own pointer
+    // events, exactly like the host does.
+    const onOpen = vi.fn();
+    const btn = mountStatsWidget(document, onOpen);
     const onDocPointerdown = vi.fn();
     const onDocMousedown = vi.fn();
     const onDocClick = vi.fn();
@@ -602,10 +623,43 @@ describe('content wiring (Plan 3)', () => {
     expect(onDocPointerdown).not.toHaveBeenCalled();   // stopped at the button — never reaches CB's listener
     expect(onDocMousedown).not.toHaveBeenCalled();
     expect(onDocClick).not.toHaveBeenCalled();
-    expect(onOpen).toHaveBeenCalledTimes(1);            // ...yet the launcher's own open-journal handler still fires
+    expect(onOpen).toHaveBeenCalledTimes(1);            // ...yet the widget's own open-journal handler still fires
     document.removeEventListener('pointerdown', onDocPointerdown);
     document.removeEventListener('mousedown', onDocMousedown);
     document.removeEventListener('click', onDocClick);
+  });
+
+  it('setStatsWidgetVisible toggles the widget between hidden and shown', () => {
+    mountStatsWidget(document);
+    const widget = document.querySelector<HTMLElement>('.fp-stats-widget')!;
+
+    setStatsWidgetVisible(document, false);
+    expect(widget.style.display).toBe('none');         // hidden while a question modal is open
+
+    setStatsWidgetVisible(document, true);
+    expect(widget.style.display).not.toBe('none');     // re-shown back on the results list
+  });
+
+  it('integration: observeQuestionPresence hides the widget while the modal is open and re-shows it on the list', async () => {
+    // No chrome boot needed — wire the CB-presence signal straight to the widget's visibility, the way
+    // guardedStart will: hidden when a question is open, shown when back on the list.
+    history.replaceState({}, '', '/digital/results');
+    document.body.innerHTML = '';
+    mountStatsWidget(document);
+    const widget = document.querySelector<HTMLElement>('.fp-stats-widget')!;
+
+    const stop = observeQuestionPresence(document, (open) => setStatsWidgetVisible(document, !open));
+
+    // Append (not replace) so the widget node itself survives — only the CB modal comes and goes.
+    const modal = document.createElement('div');
+    modal.innerHTML = mc;
+    document.body.appendChild(modal);                  // CB renders a question modal → widget should hide
+    await vi.waitFor(() => expect(widget.style.display).toBe('none'));
+
+    modal.remove();                                    // modal closed, back on the list → widget shown
+    await vi.waitFor(() => expect(widget.style.display).not.toBe('none'));
+
+    stop();
   });
 
   it('resumeFor reads getSession and scrolls to lastQuestionId (contract §2.3)', async () => {
