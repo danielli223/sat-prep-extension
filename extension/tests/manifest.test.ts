@@ -16,9 +16,13 @@ function loadManifest(file: string): Record<string, unknown> & {
 const manifest = loadManifest('manifest.json');
 
 describe('manifest CSP', () => {
-  it('allows the GeoGebra frame and no other host (D7)', () => {
+  it('iframes no embedded host — nothing is framed (issue #17 removed the GeoGebra embed)', () => {
+    // The in-page GeoGebra calculator is gone; the one calculator is the real Desmos opened in a
+    // separate window (never an iframe). So the CSP carries NO frame-src host at all, while staying
+    // default-restrictive. desmos.com must NOT appear here either (asserted below).
     const csp = manifest.content_security_policy.extension_pages as string;
-    expect(csp).toContain('frame-src https://www.geogebra.org');
+    expect(csp).not.toContain('frame-src https://www.geogebra.org');
+    expect(csp).not.toContain('geogebra.org');
     expect(csp).toContain("script-src 'self'");          // stays default-restrictive
   });
 

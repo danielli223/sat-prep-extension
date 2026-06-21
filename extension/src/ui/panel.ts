@@ -7,9 +7,7 @@ import type { Attempt } from '../types';
 // goes through Plan 2's html() helper from host.ts — the SINGLE owner of the "focused-practice"
 // TrustedTypes policy (contract §2.1 / spec §8.4). We do NOT call trustedTypes.createPolicy here: a
 // second createPolicy with the same name throws "policy already exists" in real Trusted-Types
-// browsers. "Practice [skill] on CB" / "Find on CB" are plain links to CB's QB carrying a
-// data-skill hook — the student drives the filter (D3); the integration layer (Task 5b/Task 6)
-// attaches the coachmark/badger hand-off. We never touch CB's controls and never auto-apply a filter.
+// browsers.
 // Issue #34: the VM carries the raw `attempts` so the difficulty control can re-derive locally via
 // deriveStats on change (student-own data — never question text). `difficulties` is the option list
 // (derived from the data, not hardcoded); `selected` is the chosen subset (empty = all). All three
@@ -20,9 +18,6 @@ export interface PanelVM {
   difficulties?: string[];
   selected?: Set<string>;
 }
-
-// Educator Question Bank search page (a plain link — expressly permitted, spec §4 step 1).
-export const CB_SEARCH_URL = 'https://satsuiteeducatorquestionbank.collegeboard.org/digital/search';
 
 function setHtml(el: Element, markup: string): void {
   el.innerHTML = html(markup) as unknown as string;   // host.ts owns the one policy; we just route through it
@@ -39,7 +34,6 @@ function weakAreaHtml(s: { skill: string; accuracy: number; total: number }): st
   return `<div class="fp-weak-area">
     <div class="fp-weak-head"><span class="fp-skill">${esc(s.skill)}</span><span class="fp-acc fp-acc-${tier}">${pct(s.accuracy)} (${s.total})</span></div>
     <div class="fp-bar"><div class="fp-bar-fill fp-bar-${tier}" style="width:${pct(s.accuracy)}"></div></div>
-    <a class="fp-practice-link" data-skill="${esc(s.skill)}" href="${CB_SEARCH_URL}" target="_blank" rel="noopener">Practice ${esc(s.skill)} on CB</a>
   </div>`;
 }
 
@@ -67,10 +61,6 @@ function mistakeHtml(m: Mistake): string {
   return `<li class="fp-mistake">
     <div class="fp-mistake-meta"><code>${esc(m.questionId)}</code> · ${esc(m.skill)} · ${esc(m.difficulty)} · ${day(m.lastSeenAt)}</div>
     ${note}
-    <div class="fp-mistake-actions">
-      <a class="fp-practice-link" data-skill="${esc(m.skill)}" href="${CB_SEARCH_URL}" target="_blank" rel="noopener">Practice ${esc(m.skill)}</a>
-      <a class="fp-find-link" data-skill="${esc(m.skill)}" href="${CB_SEARCH_URL}" target="_blank" rel="noopener">Find on CB</a>
-    </div>
   </li>`;
 }
 

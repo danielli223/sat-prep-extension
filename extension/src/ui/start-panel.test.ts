@@ -11,7 +11,7 @@ describe('renderStartPanel', () => {
     expect(shadow.querySelector('.fp-start-list')).not.toBeNull();
     expect(shadow.querySelector('.fp-start-random')).not.toBeNull();
     expect(shadow.querySelector('.fp-resume')).toBeNull();
-    expect(shadow.querySelector('.fp-onboarding')!.textContent).toContain('never store them');
+    expect(shadow.querySelector('.fp-onboarding')).toBeNull();
   });
 
   it('renders a ✕ close button that fires onClose', () => {

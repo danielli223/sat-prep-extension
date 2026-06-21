@@ -1,8 +1,10 @@
 // ISOLATED CB-DOM KNOWLEDGE (sibling of reader.ts/observer.ts). The only place that knows the
 // shape of CB's *results list*. Pure read: returns each row's question ID + its row node so the
 // badger can attach chips without itself touching CB's HTML. No content is read or returned —
-// only IDs + the node to anchor a chip on.
-export interface ListRow { id: string; node: Element; }
+// only IDs + the node to anchor a chip on + the row's difficulty TIER (taxonomy metadata, the same
+// class of non-content field reader.ts reads — never a stem/choice/passage). Issue #25: the nav-grid
+// colors its cells by this difficulty; empty string when the row has no .difficulty-column cell.
+export interface ListRow { id: string; node: Element; difficulty: string; }
 
 // Live CB results list (spike 2026-06-15): table.cb-table-react, each row's id is the BARE 8-hex in
 // td.id-column (no "Question ID:" prefix — that is only in the modal's <h4>). node is the <tr> so the
@@ -25,7 +27,9 @@ export function readListQuestionIds(listRoot: Element): ListRow[] {
   for (const node of table.querySelectorAll('tbody tr')) {
     const cellText = node.querySelector('.id-column')?.textContent ?? '';
     const id = ROW_ID_RE.exec(cellText)?.[1] ?? '';
-    if (id) rows.push({ id, node });
+    // Difficulty TIER only (taxonomy, never content); '' when the cell is absent.
+    const difficulty = node.querySelector('.difficulty-column')?.textContent?.trim() ?? '';
+    if (id) rows.push({ id, node, difficulty });
   }
   return rows;
 }
