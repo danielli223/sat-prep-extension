@@ -118,14 +118,21 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
 
 // The extras block (issue #22): the note + the single Calculator button. Rendered into the SEPARATE
 // extras host (last child of .answer-content) so it sits BELOW CB's native .rationale/explanation.
-function renderExtras(): string {
+function renderExtras(vm: CardVM): string {
+  // Issue #23: the calculator is a Math-only tool — pure clutter on Reading. Case-insensitive SUBSTRING
+  // match on the taxonomy section (from the VM, never a CB DOM read): any Math label variant keeps the
+  // calc; genuinely non-Math sections (Reading and Writing) drop it. A bare regex test — never throws.
+  const calcBlock = /math/i.test(vm.section)
+    ? `<div class="fp-calc">
+      <button class="fp-calc-open">Calculator</button>
+    </div>`
+    : '';
+  // The note starts COLLAPSED (no fp-note-open); renderVerdict/renderNeedAnswer open it once there's a result.
   return `<div class="fp-answer">
     <label class="fp-note-label">Why did you miss it?
       <textarea class="fp-note" rows="1" placeholder="one line — your own note"></textarea>
     </label>
-    <div class="fp-calc">
-      <button class="fp-calc-open">Calculator</button>
-    </div>
+    ${calcBlock}
   </div>`;
 }
 
@@ -133,7 +140,8 @@ function renderExtras(): string {
 function wireExtras(shadow: ShadowRoot, h: AnswerHandlers): void {
   shadow.querySelector('.fp-note')!.addEventListener('change', (e) =>
     h.onNote((e.target as HTMLTextAreaElement).value.trim()));
-  shadow.querySelector('.fp-calc-open')!.addEventListener('click', () => h.onOpenDesmos());
+  // Calc is Math-only (absent on Reading, issue #23) — optional-chain so wireExtras never throws.
+  shadow.querySelector('.fp-calc-open')?.addEventListener('click', () => h.onOpenDesmos());
 }
 
 // Mask CB's own .answer-content children (display:none + our marker) WITHOUT mounting a host. This is
@@ -275,7 +283,7 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
   wire(shadow, vm, h);
   // Note + calc live in the extras shadow (issue #22). Reuse ANSWER_CSS — it carries the .fp-note/.fp-calc styles.
   const extrasShadow = extrasHost.shadowRoot!;
-  extrasShadow.innerHTML = html(`<style>${ANSWER_CSS}</style>` + renderExtras()) as unknown as string;
+  extrasShadow.innerHTML = html(`<style>${ANSWER_CSS}</style>` + renderExtras(vm)) as unknown as string;
   wireExtras(extrasShadow, h);
   // Contract: return the INTERACTION shadow (choices/verdict live here; renderVerdict etc. target it).
   return shadow;
@@ -323,7 +331,16 @@ export function revealRationale(answerContent: HTMLElement): boolean {
   return true;
 }
 
+// Issue #23: expand (un-collapse) the note once there's a verdict/prompt. The note lives in the EXTRAS
+// shadow (issue #22), so reach it from the interaction shadow via the shared .answer-content parent.
+function openNote(interactionShadow: ShadowRoot): void {
+  const answerContent = (interactionShadow.host as HTMLElement).parentElement;
+  const extras = answerContent?.querySelector('.fp-extras-host') as HTMLElement | null;
+  extras?.shadowRoot?.querySelector('.fp-note-label')?.classList.add('fp-note-open');
+}
+
 export function renderVerdict(shadow: ShadowRoot, v: Verdict): void {
+  openNote(shadow);   // issue #23: there's a result now → expand the note (it lives in the extras shadow)
   const verdict = shadow.querySelector('.fp-verdict') as HTMLElement;
   if (!v.result.graded) {
     verdict.innerHTML = html(`<div class="fp-indeterminate">Couldn't grade this one — see College Board's answer below.</div>`) as unknown as string;
@@ -339,6 +356,7 @@ export function renderVerdict(shadow: ShadowRoot, v: Verdict): void {
 }
 
 export function renderNeedAnswer(shadow: ShadowRoot, kind: 'mc' | 'grid'): void {
+  openNote(shadow);   // issue #23: prompting the student → expand the note (in the extras shadow)
   (shadow.querySelector('.fp-verdict') as HTMLElement).innerHTML = html(
     `<div class="fp-need-answer">${kind === 'grid' ? 'Enter your answer first.' : 'Select an answer first.'}</div>`) as unknown as string;
 }
@@ -390,8 +408,11 @@ const ANSWER_CSS = `
 .fp-indeterminate{color:#92400e;font-weight:600;font-size:13px;}
 .fp-need-answer{color:#1d4ed8;font-weight:600;font-size:13px;}
 .fp-stale{color:#b45309;font-weight:600;font-size:13px;line-height:1.4;}
+/* Issue #23: the note is COLLAPSED until there's a verdict — renderVerdict/renderNeedAnswer add
+   .fp-note-open. Collapsed = the textarea hidden; the prompt label stays so the student knows it's there. */
 .fp-note-label{display:block;font-size:11px;color:#92400e;margin-bottom:12px;}
-.fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
+.fp-note{display:none;}
+.fp-note-label.fp-note-open .fp-note{display:block;width:100%;margin-top:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;
   padding:8px;font:inherit;color:#92400e;resize:vertical;box-sizing:border-box;}
 .fp-note::placeholder{color:#b45309;}
 .fp-calc{display:flex;gap:8px;}
