@@ -25,14 +25,15 @@ function cbAnswerContent(): HTMLElement {
 }
 
 describe('renders interactive UI', () => {
-  it('renders A–D choices, controls, and fires handlers (no trust badge — the student is on CB itself)', () => {
+  it('renders A–D choices, controls, and fires handlers (no trust badge and no taxonomy/position banner — the student is on CB itself)', () => {
     const ac = cbAnswerContent();
     let picked = ''; let checked = '';
     const shadow = mountAnswerOverlay(ac, vm, { ...noop(),
       onSelect: (l) => { picked = l; }, onCheck: (p) => { checked = p; } });
     expect(shadow.querySelector('.fp-trust')).toBeNull();
     expect(shadow.querySelectorAll('.fp-choice')).toHaveLength(2);
-    expect(shadow.querySelector('.fp-progress')!.textContent).toContain('Q 1 of 10');
+    // Issue #19: the "Skill › Difficulty · Q n of N" banner is removed — distracting chrome.
+    expect(shadow.querySelector('.fp-progress')).toBeNull();
     (shadow.querySelector('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
     expect(picked).toBe('B');
     (shadow.querySelector('.fp-check') as HTMLElement).click();
@@ -311,10 +312,9 @@ it('revealRationale returns false when CB has not injected a .rationale', () => 
   expect(revealRationale(bare)).toBe(false);
 });
 
-it('escapes hostile choice text / taxonomy — no live <img>/<script> reaches the shadow (esc is the XSS boundary)', () => {
+it('escapes hostile choice text — no live <img>/<script> reaches the shadow (esc is the XSS boundary for the rendered choices)', () => {
   const ac = cbAnswerContent();
   const hostileVm = { ...vm,
-    skill: '<script>steal()</script>',
     choices: [
       { letter: 'A', text: '<img src=x onerror=steal()>' },
       { letter: 'B', text: '<b>ok</b> & <i>stuff</i>' },
@@ -327,8 +327,7 @@ it('escapes hostile choice text / taxonomy — no live <img>/<script> reaches th
   // No raw HTML elements from the injected markup (b/i inside the choice text):
   expect(shadow.querySelector('.fp-choice b')).toBeNull();
   expect(shadow.querySelector('.fp-choice i')).toBeNull();
-  // The hostile text survives as TEXT (escaped), so it's visible/inert, not dropped:
-  expect(shadow.querySelector('.fp-progress')!.textContent).toContain('<script>steal()</script>');
+  // The hostile choice text survives as TEXT (escaped), so it's visible/inert, not dropped:
   expect(shadow.querySelector('.fp-choice[data-letter="A"]')!.textContent).toContain('<img src=x onerror=steal()>');
 });
 
