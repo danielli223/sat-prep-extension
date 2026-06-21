@@ -46,7 +46,6 @@ const BASE_CSS = `
   border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:20px;box-sizing:border-box;}
 .fp-start-head{display:flex;justify-content:flex-end;margin-bottom:10px;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
-.fp-onboarding{font-size:12px;color:#0c4a6e;line-height:1.5;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px;margin-bottom:14px;}
 .fp-start-title{font-size:17px;margin:0 0 12px;color:#0f172a;}
 .fp-start>button{display:block;width:100%;margin-bottom:8px;padding:11px;border-radius:9px;border:1px solid #cbd5e1;
   background:#fff;cursor:pointer;font:inherit;font-weight:600;color:#0f172a;}
@@ -71,15 +70,11 @@ const BASE_CSS = `
 .fp-bar{height:7px;background:#f1f5f9;border-radius:4px;overflow:hidden;}
 .fp-bar-fill{height:7px;border-radius:4px;background:#3b82f6;}
 .fp-bar-low{background:#dc2626;} .fp-bar-mid{background:#d97706;} .fp-bar-high{background:#16a34a;}
-.fp-weak-area .fp-practice-link,.fp-mistake-actions a{display:inline-block;margin-top:6px;font-size:12px;color:#1e40af;
-  background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:4px 9px;text-decoration:none;font-weight:600;}
 .fp-mistakes{list-style:none;margin:0;padding:0;}
 .fp-mistake{border:1px solid #e5e7eb;border-left:3px solid #dc2626;border-radius:8px;padding:10px;margin-bottom:8px;}
 .fp-mistake-meta{font-size:11px;color:#6b7280;margin-bottom:5px;}
 .fp-mistake-meta code{background:#f1f5f9;border-radius:4px;padding:1px 4px;}
 .fp-mistake-note{font-size:12px;color:#92400e;background:#fffbeb;border-radius:6px;padding:6px;margin:0 0 6px;}
-.fp-mistake-actions{display:flex;gap:6px;}
-.fp-mistake-actions .fp-find-link{background:#fff;border:1px solid #d1d5db;color:#6b7280;}
 .fp-empty{font-size:12px;color:#9ca3af;}
 `;
 

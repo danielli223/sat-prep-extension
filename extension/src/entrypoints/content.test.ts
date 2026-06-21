@@ -29,9 +29,9 @@ function inOverlay(sel: string): Element | null {
 beforeEach(() => { document.body.innerHTML = ''; history.replaceState({}, '', '/digital/results'); });
 
 describe('content loop wiring', () => {
-  it('Start → Check(correct) records one attempt, writes the session, and headers "Q n of N"', async () => {
+  it('Start → Check(correct) records one attempt and writes the session', async () => {
     const db = await freshDb();
-    // CB's loaded results list (10 rows) is on the page BEFORE Start, so N = 10 for the header.
+    // CB's loaded results list (10 rows) is on the page BEFORE Start.
     const rows = Array.from({ length: 10 }, () => '<tr><td>row</td></tr>').join('');
     document.body.innerHTML += `<table class="results-list"><tbody>${rows}</tbody></table>`;
 
@@ -42,9 +42,6 @@ describe('content loop wiring', () => {
     // The overlay mounts INSIDE CB's .answer-content (not the body host).
     await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
     expect(inOverlay('.fp-choice')).not.toBeNull();   // our interaction rendered in CB's answer region
-
-    // header is "Q n of N" (N = loaded results), NOT "Q n of n".
-    expect(inOverlay('.fp-progress')!.textContent).toContain('Q 1 of 10');
 
     (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
     (inOverlay('.fp-check') as HTMLElement).click();
@@ -197,32 +194,6 @@ describe('content loop wiring', () => {
 
     await vi.waitFor(() => expect(cbNextClicked).toHaveBeenCalledTimes(1));   // advanced via CB's Next
     expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull();   // NOT removed — it follows CB
-  });
-
-  it('headers "Q n of N" from the live cb-table-react results list', async () => {
-    const db = await freshDb();
-    document.body.innerHTML +=
-      '<table class="cb-table-react"><tbody>' +
-      Array.from({ length: 5 }, () => '<tr><td>q</td></tr>').join('') + '</tbody></table>';
-    const shadow = await runLoop(document, db, 'dev-1');
-    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
-    document.body.innerHTML += mc;
-    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
-    expect(inOverlay('.fp-progress')!.textContent).toContain('Q 1 of 5');
-  });
-
-  it('reads N at SHOW time, so "Q n of N" is right even if the list was not in the DOM at Start', async () => {
-    // Live 2026-06-16: starting before the list rendered (or from a single-question view) left N at the
-    // fallback 1 → "Q 2 of 1". The list is in the DOM behind the modal by show time; read it then.
-    const db = await freshDb();
-    const shadow = await runLoop(document, db, 'dev-1');   // NO list present at Start
-    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
-    document.body.innerHTML +=
-      '<table class="cb-table-react"><tbody>' +
-      Array.from({ length: 7 }, () => '<tr><td>q</td></tr>').join('') + '</tbody></table>';
-    document.body.innerHTML += mc;                          // list + question arrive after Start
-    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
-    expect(inOverlay('.fp-progress')!.textContent).toContain('Q 1 of 7');   // not "Q 1 of 1"
   });
 
   it('Check with no answer prompts to answer (NOT "couldn\'t grade"), records nothing, and stays re-checkable', async () => {
@@ -577,8 +548,9 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
   });
 });
 
-// --- Plan 3 additions (badger + panel toggle + coachmark + resume) ---
-import { refreshBadges, mountPanelToggle, bindPanelCoachmarks, resumeFor, handleMessage, findResultsList, watchResultsList } from './content';
+// --- Plan 3 additions (badger + stats widget + resume) ---
+import { refreshBadges, mountStatsWidget, updateStatsWidget, setStatsWidgetVisible, resumeFor, handleMessage, findResultsList, watchResultsList } from './content';
+import { observeQuestionPresence } from '../cb/observer';
 import { HOST_ID } from '../ui/host';
 import { recordAttempt, saveSession } from '../store';
 import { makeAttempt, makeSession } from '../model';
@@ -604,19 +576,39 @@ describe('content wiring (Plan 3)', () => {
     expect(chips[1]!.getAttribute('data-state')).toBe('new');      // ef56ab78 unseen
   });
 
-  it('mountPanelToggle adds a single toggle button (idempotent)', () => {
-    mountPanelToggle(document);
-    mountPanelToggle(document);
-    expect(document.querySelectorAll('.fp-panel-toggle')).toHaveLength(1);
+  it('mountStatsWidget adds a single widget (idempotent) and renders the supplied numbers', () => {
+    mountStatsWidget(document);
+    mountStatsWidget(document);
+    expect(document.querySelectorAll('.fp-stats-widget')).toHaveLength(1);   // one widget, not two
+
+    updateStatsWidget(document, { total: 12, accuracy: 0.75, streakDays: 3 });
+    const text = document.querySelector('.fp-stats-widget')!.textContent ?? '';
+    expect(text).toContain('12');     // done count
+    expect(text).toContain('75%');    // Math.round(accuracy * 100)%
+    expect(text).toContain('3');      // day streak
   });
 
-  it('mountPanelToggle: the launcher swallows its own pointer events so CB never closes the open question modal', () => {
-    // The Journal launcher lives in the LIGHT DOM (doc.body), OUTSIDE our overlay host's stopPropagation
-    // guard. CB closes its question modal on an outside pointer-down/click, so without its own guard a
-    // click on the launcher bubbles to the document and trips CB's close — the open problem page vanishes
-    // (reported 2026-06-18). The launcher must stop its own pointer events, exactly like the host does.
+  it('updateStatsWidget is a no-op when the widget is not mounted', () => {
+    // The boot mounts before first update, but a stray update must not throw or create a widget.
+    expect(() => updateStatsWidget(document, { total: 5, accuracy: 0.5, streakDays: 1 })).not.toThrow();
+    expect(document.querySelector('.fp-stats-widget')).toBeNull();
+  });
+
+  it('clicking the widget opens the journal (onOpen handler)', () => {
     const onOpen = vi.fn();
-    const btn = mountPanelToggle(document, onOpen);
+    const btn = mountStatsWidget(document, onOpen);
+    btn.click();
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('the widget swallows its own pointer events so CB never closes the open question modal', () => {
+    // The stats widget lives in the LIGHT DOM (doc.body), OUTSIDE our overlay host's stopPropagation
+    // guard. CB closes its question modal on an outside pointer-down/click, so without its own guard a
+    // click on the widget bubbles to the document and trips CB's close — the open problem page vanishes
+    // (reported 2026-06-18, carried over from the old launcher). The widget must stop its own pointer
+    // events, exactly like the host does.
+    const onOpen = vi.fn();
+    const btn = mountStatsWidget(document, onOpen);
     const onDocPointerdown = vi.fn();
     const onDocMousedown = vi.fn();
     const onDocClick = vi.fn();
@@ -631,25 +623,43 @@ describe('content wiring (Plan 3)', () => {
     expect(onDocPointerdown).not.toHaveBeenCalled();   // stopped at the button — never reaches CB's listener
     expect(onDocMousedown).not.toHaveBeenCalled();
     expect(onDocClick).not.toHaveBeenCalled();
-    expect(onOpen).toHaveBeenCalledTimes(1);            // ...yet the launcher's own open-journal handler still fires
+    expect(onOpen).toHaveBeenCalledTimes(1);            // ...yet the widget's own open-journal handler still fires
     document.removeEventListener('pointerdown', onDocPointerdown);
     document.removeEventListener('mousedown', onDocMousedown);
     document.removeEventListener('click', onDocClick);
   });
 
-  it('bindPanelCoachmarks: clicking a Practice link drops a coachmark whose confirm re-badges', async () => {
-    const db = await freshDb();
-    document.body.innerHTML = LIST;
-    const hostEl = document.createElement('div'); document.body.appendChild(hostEl);
-    const host = hostEl.attachShadow({ mode: 'open' });
-    host.innerHTML = '<a class="fp-practice-link" data-skill="Inferences" href="#">Practice Inferences on CB</a>';
+  it('setStatsWidgetVisible toggles the widget between hidden and shown', () => {
+    mountStatsWidget(document);
+    const widget = document.querySelector<HTMLElement>('.fp-stats-widget')!;
 
-    bindPanelCoachmarks(host, db, document.querySelector('.results-page')!);
-    (host.querySelector('a.fp-practice-link') as HTMLElement).click();
-    const mark = host.querySelector('.fp-coachmark')!;
-    expect(mark.textContent).toContain('Inferences');             // coachmark names the skill to filter
-    (host.querySelector('.fp-coachmark-confirm') as HTMLElement).click();
-    expect(document.querySelectorAll('.fp-badge').length).toBe(2); // confirm re-ran the badger (highlight)
+    setStatsWidgetVisible(document, false);
+    expect(widget.style.display).toBe('none');         // hidden while a question modal is open
+
+    setStatsWidgetVisible(document, true);
+    expect(widget.style.display).not.toBe('none');     // re-shown back on the results list
+  });
+
+  it('integration: observeQuestionPresence hides the widget while the modal is open and re-shows it on the list', async () => {
+    // No chrome boot needed — wire the CB-presence signal straight to the widget's visibility, the way
+    // guardedStart will: hidden when a question is open, shown when back on the list.
+    history.replaceState({}, '', '/digital/results');
+    document.body.innerHTML = '';
+    mountStatsWidget(document);
+    const widget = document.querySelector<HTMLElement>('.fp-stats-widget')!;
+
+    const stop = observeQuestionPresence(document, (open) => setStatsWidgetVisible(document, !open));
+
+    // Append (not replace) so the widget node itself survives — only the CB modal comes and goes.
+    const modal = document.createElement('div');
+    modal.innerHTML = mc;
+    document.body.appendChild(modal);                  // CB renders a question modal → widget should hide
+    await vi.waitFor(() => expect(widget.style.display).toBe('none'));
+
+    modal.remove();                                    // modal closed, back on the list → widget shown
+    await vi.waitFor(() => expect(widget.style.display).not.toBe('none'));
+
+    stop();
   });
 
   it('resumeFor reads getSession and scrolls to lastQuestionId (contract §2.3)', async () => {
@@ -710,22 +720,20 @@ describe('content wiring against the LIVE cb-table-react DOM (no .results-page w
     expect(chips[1]!.getAttribute('data-state')).toBe('new');      // ef56ab78 unseen
   });
 
-  it('handleMessage renders the panel and binds a real .fp-practice-link → coachmark → re-badge', async () => {
+  it('handleMessage mounts the panel with NO dead .fp-practice-link / coachmark hand-off (#33)', async () => {
     const db = await freshDb();
-    // One missed attempt → a weak-area row is rendered with a real a.fp-practice-link for its skill.
+    // One missed attempt → a weak-area row IS rendered for its skill; #33 just strips the dead links.
     await recordAttempt(db, makeAttempt({ deviceId: 'd', questionId: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'Inferences', difficulty: 'Hard', pick: 'B', correct: false }));
     document.body.innerHTML = LIVE_LIST;
 
-    await handleMessage(db, { type: 'open-journal' });   // mounts panel AND binds its coachmark links
+    await handleMessage(db, { type: 'open-journal' });   // mounts the panel
     const host = document.getElementById(HOST_ID)!.shadowRoot!;
-    const link = host.querySelector('a.fp-practice-link') as HTMLElement;
-    expect(link).not.toBeNull();   // the panel actually rendered a Practice link
-
-    link.click();                                                  // bound by handleMessage, not boot
-    const mark = host.querySelector('.fp-coachmark')!;
-    expect(mark.textContent).toContain('Inferences');
-    (host.querySelector('.fp-coachmark-confirm') as HTMLElement).click();
-    expect(document.querySelectorAll('.fp-badge').length).toBe(2); // confirm re-ran the badger
+    expect(host.querySelector('.fp-panel')).not.toBeNull();        // panel mounted
+    expect(host.querySelector('.fp-weak-area')).not.toBeNull();    // weak-area row still rendered
+    // Issue #33: the bare-/search links and their coachmark hand-off are gone — nothing to bind.
+    expect(host.querySelector('a.fp-practice-link')).toBeNull();
+    expect(host.querySelector('a.fp-find-link')).toBeNull();
+    expect(host.querySelector('.fp-coachmark')).toBeNull();
   });
 
   it('resumeFor scrolls to lastQuestionId using the live cb-table-react container (D9)', async () => {
@@ -988,5 +996,182 @@ describe('content telemetry hand-off', () => {
     const ev = ended.find((m) => m.event.props.accuracy_bucket === '85-100' && m.event.props.attempted_bucket === '1-5');
     expect(ev).toBeTruthy();
     expect(ev.event.props.duration_bucket).toBeDefined();
+  });
+});
+
+// --- Issue #31: Randomize (loaded results) — GUIDED shuffle navigation -----------------------------
+// Random mode must FOLLOW shuffleIds(loadedIds, seed) by scrolling the next row into view (the Resume
+// posture), NEVER by auto-loading or id-navigating CB (bright lines #1 & #4). It must NOT click CB's
+// native "Next" (that yields CB list order). The seed is read back from the persisted session so the
+// expected order is computed from the REAL minted seed — deterministic and seed-agnostic.
+import { shuffleIds } from '../order';
+import { readListQuestionIds } from '../cb/list-reader';
+
+// A real cb-table-react results list with MULTIPLE real-8-hex rows so shuffleIds actually permutes and
+// readListQuestionIds finds every row. ab12cd34 is the MC fixture's question id, so opening that
+// fixture forms the session over THIS loaded set. Synthetic ids only — no CB content.
+const RANDOM_LIST = `<table class="cb-table-react"><tbody>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ab12cd34</button></td></tr>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ef56ab78</button></td></tr>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">99ff00aa</button></td></tr>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">dead0001</button></td></tr>
+  <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">beef0002</button></td></tr>
+</tbody></table>`;
+
+// The <tr> node for a given id within the on-page list (the same node readListQuestionIds/scrollToResume
+// targets), so we can spy scrollIntoView on the EXACT row the extension should guide to.
+function rowFor(id: string): Element {
+  const row = readListQuestionIds(findResultsList(document)!).find((r) => r.id === id);
+  expect(row, `expected loaded row for ${id}`).toBeTruthy();
+  return row!.node;
+}
+
+describe('Issue #31 — random mode follows the shuffled order by GUIDED scrolling', () => {
+  beforeEach(() => { document.body.innerHTML = ''; history.replaceState({}, '', '/digital/results'); });
+
+  it('random START scrolls the FIRST shuffled-order row into view (computed from the persisted seed)', async () => {
+    const db = await freshDb();
+    document.body.innerHTML += RANDOM_LIST;            // loaded results present BEFORE Start
+
+    // Spy scrollIntoView on EVERY loaded row up front: we can't know which is first-in-order until the
+    // seed is minted, so we instrument all of them, then assert only the shuffled-order[0] row scrolled.
+    const loadedIds = readListQuestionIds(findResultsList(document)!).map((r) => r.id);
+    const spies = new Map(loadedIds.map((id) => [id, vi.spyOn(rowFor(id), 'scrollIntoView').mockImplementation(() => {})]));
+
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-random') as HTMLElement).click();   // RANDOM start
+
+    document.body.innerHTML += mc;                     // CB renders question ab12cd34 → session forms
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    // Read the REAL minted seed back from the persisted random session.
+    const session = await getSession(db, 'SAT|Math|Algebra|Hard');
+    expect(session!.orderMode).toBe('random');
+    expect(session!.shuffleSeed).not.toBe(0);
+    const order = shuffleIds(loadedIds, session!.shuffleSeed);
+
+    // The extension must have guided the student to the FIRST question of the shuffled order — by
+    // scrolling that row into view, never by opening it.
+    await vi.waitFor(() => expect(spies.get(order[0]!)!).toHaveBeenCalled());
+  });
+
+  it('random NEXT scrolls the NEXT shuffled-order row into view and does NOT click CB\'s native Next', async () => {
+    const db = await freshDb();
+    document.body.innerHTML += RANDOM_LIST;
+
+    const loadedIds = readListQuestionIds(findResultsList(document)!).map((r) => r.id);
+
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-random') as HTMLElement).click();
+
+    document.body.innerHTML += mc;                     // open ab12cd34 → random session forms
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    // A spied CB native "Next" (light DOM, like the existing list-mode onNext test) — random mode must
+    // NOT actuate it (clicking it would advance in CB LIST order, defeating the shuffle). Appended AFTER
+    // `+= mc` so the live button keeps its listener (the `+=` idiom re-parses the body and would detach a
+    // node added earlier, making the negative assertion vacuous).
+    const cbNext = document.createElement('button');
+    cbNext.textContent = 'Next';
+    const cbNextClicked = vi.fn();
+    cbNext.addEventListener('click', cbNextClicked);
+    document.body.appendChild(cbNext);
+
+    const session = await getSession(db, 'SAT|Math|Algebra|Hard');
+    expect(session!.orderMode).toBe('random');
+    const order = shuffleIds(loadedIds, session!.shuffleSeed);
+
+    // Spy the NEXT shuffled-order row (position 1 — start guided position 0). On our Next, random mode
+    // must scroll THIS row into view, returning the student to the list to click it themselves.
+    const nextRow = rowFor(order[1]!);
+    const nextScroll = vi.spyOn(nextRow, 'scrollIntoView').mockImplementation(() => {});
+
+    (inOverlay('.fp-next') as HTMLElement).click();    // our Next, in random mode
+
+    await vi.waitFor(() => expect(nextScroll).toHaveBeenCalled());   // guided to the next shuffled row
+    expect(cbNextClicked).not.toHaveBeenCalled();                    // CB's native Next NOT actuated
+  });
+});
+
+// --- Issue #38: answer-content FOUC (flash of CB's unstyled answers before our overlay loads) ---
+//
+// THE BUG: observeQuestions (src/cb/observer.ts) DEBOUNCES its read by 150ms — it emits the view, and
+// thus mounts the overlay (the FIRST thing that masks CB's `.answer-content` children via display:none),
+// only AFTER CB's modal stops mutating. So for >=150ms after CB paints `.answer-content`, its native
+// `.answer-choices` are fully VISIBLE and unstyled — that flash is the FOUC.
+//
+// THE FIX: the instant CB's answer region is OBSERVED — decoupled from the 150ms read-debounce — drop an
+// opaque "white rectangle" host over it (mountCurtain) that both hides CB's raw children AND covers the
+// area, so nothing flashes. The real interactive overlay fills that SAME host later, on the settled read.
+//
+// We use a comment-free inline MC modal (NOT the multiple-choice.html fixture) on purpose: happy-dom
+// mis-parses the HTML comments in that .html fixture and re-parents `.answer-choices` so it is NOT a
+// direct child of `.answer-content` — which would make the masking (a direct-child sweep) unobservable
+// here. The neighbouring "ASYNC-injected rationale" test documents the same comment-parse hazard.
+const FOUC_MC_MODAL =
+  '<div role="dialog" class="cb-modal-container"><div class="cb-dialog-container">' +
+  '<div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
+  '<div class="cb-dialog-content">' +
+  '<table class="cb-table"><tbody>' +
+  '<tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>' +
+  '<tr><td>SAT</td><td>Math</td><td>Algebra</td><td>S</td><td>Hard</td></tr></tbody></table>' +
+  '<div class="question-content"><div class="question">stem [SYNTHETIC]</div></div>' +
+  '<div class="answer-content"><div class="answer-choices"><ul><li>3 [SYNTHETIC]</li><li>5 [SYNTHETIC]</li>' +
+  '<li>7 [SYNTHETIC]</li><li>15 [SYNTHETIC]</li></ul></div></div>' +
+  '</div></div></div>';
+
+describe('answer-content FOUC (#38): CB\'s raw choices are masked BEFORE the overlay mounts', () => {
+  beforeEach(() => { document.body.innerHTML = ''; history.replaceState({}, '', '/digital/results'); });
+
+  it('masks CB\'s native .answer-choices at the first microtask — before (not after) the 150ms-debounced overlay mount', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();   // masking is only active during a session
+
+    document.body.innerHTML += FOUC_MC_MODAL;                          // CB paints .answer-content
+    // setTimeout(0) flushes happy-dom's MutationObserver microtask (where an EARLY mask would run) but is
+    // FAR below observeQuestions' 150ms read-debounce — so the overlay has NOT mounted yet at this instant.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const choices = document.querySelector('.answer-content .answer-choices') as HTMLElement;
+    // FOUC is CLOSED at this instant: CB's raw choices are hidden AND an opaque white rectangle
+    // (.fp-curtain) covers the region...
+    expect(choices.style.display).toBe('none');
+    expect(document.querySelector('.answer-content .fp-curtain')).not.toBeNull();
+    // ...but the real interactive overlay host has NOT mounted yet (it waits for the 150ms-debounced read).
+    expect(document.querySelector('.answer-content .fp-answer-host')).toBeNull();
+
+    // Now let the read settle: the real overlay mounts (~150ms later), the white rectangle is removed,
+    // and the choices stay masked.
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect(document.querySelector('.answer-content .fp-curtain')).toBeNull();
+    expect((document.querySelector('.answer-content .answer-choices') as HTMLElement).style.display).toBe('none');
+  });
+
+  it('curtains the region even when CB paints the header BEFORE .answer-content (the real race)', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // Stage 1: CB paints ONLY the modal header (Question ID) — .answer-content not in the DOM yet.
+    document.body.innerHTML +=
+      '<div role="dialog" class="cb-modal-container"><div class="cb-dialog-container" id="fouc-m1">' +
+      '<div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div></div></div>';
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.querySelector('.answer-content')).toBeNull();   // nothing to curtain yet
+
+    // Stage 2: CB paints .cb-dialog-content (with .answer-content) a beat later. The curtain must land
+    // NOW — before the 150ms-debounced mount — even though the early hook already saw the bare modal.
+    document.getElementById('fouc-m1')!.innerHTML +=
+      '<div class="cb-dialog-content">' +
+      '<table class="cb-table"><tbody><tr><th>A</th><th>S</th><th>D</th><th>Sk</th><th>Df</th></tr>' +
+      '<tr><td>SAT</td><td>Math</td><td>Algebra</td><td>S</td><td>Hard</td></tr></tbody></table>' +
+      '<div class="question-content"><div class="question">stem [SYNTHETIC]</div></div>' +
+      '<div class="answer-content"><div class="answer-choices"><ul><li>3 [SYNTHETIC]</li><li>5 [SYNTHETIC]</li></ul></div></div></div>';
+    await new Promise((r) => setTimeout(r, 0));
+
+    // FOUC closed: choices hidden AND the white rectangle present — both before the debounced overlay mount.
+    expect((document.querySelector('.answer-content .answer-choices') as HTMLElement).style.display).toBe('none');
+    expect(document.querySelector('.answer-content .fp-curtain')).not.toBeNull();
   });
 });
