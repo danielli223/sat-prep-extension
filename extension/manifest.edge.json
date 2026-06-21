@@ -6,17 +6,21 @@
   "permissions": ["storage", "alarms"],
   "host_permissions": [
     "*://satsuiteeducatorquestionbank.collegeboard.org/*",
+    "*://mypractice.collegeboard.org/questionbank/*",
     "https://config.focusedpractice.app/*",
     "https://us.i.posthog.com/*",
     "https://api.focusedpractice.app/*"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.geogebra.org"
+    "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
-      "matches": ["*://satsuiteeducatorquestionbank.collegeboard.org/*"],
+      "matches": [
+        "*://satsuiteeducatorquestionbank.collegeboard.org/*",
+        "*://mypractice.collegeboard.org/questionbank/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
