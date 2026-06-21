@@ -113,3 +113,53 @@ describe('readQuestion', () => {
     expect(v.choices[1]!.imgSrc).toBe('https://cb.org/b.png');
   });
 });
+
+// Issue #55 — STUDENT bank (mypractice.collegeboard.org/questionbank/results).
+// CHARACTERIZATION: the student bank shares the entire INNER question DOM with the
+// educator bank, so `readQuestion` should work unchanged when handed the student modal
+// root (`.cb-modal-container`, the [role=dialog]). These tests prove the shared-DOM
+// thesis and LOCK reader.ts against a regression once the maker generalizes the root.
+// If any of these ever fail, reader.ts has actually diverged for the student shape and
+// the maker must address it (the spec's "reader.ts needs no change" claim is wrong).
+const loadStudent = (name: string) => {
+  document.body.innerHTML = readFileSync(join(here, '__fixtures__', name), 'utf8');
+  return document.querySelector('.cb-modal-container')!;
+};
+
+describe('readQuestion — student bank (.cb-modal-container root)', () => {
+  it('reads a student multiple-choice question (revealed)', () => {
+    const v = readQuestion(loadStudent('student-mc.html'))!;
+    expect(v).not.toBeNull();
+    expect(v.id).toBe('ab12cd34');
+    // Taxonomy is read by COLUMN position [Assessment, Section, Domain, Skill, Difficulty].
+    expect(v.section).toBe('Reading and Writing');
+    expect(v.domain).toBe('Information and Ideas');
+    expect(v.skill).toBe('Central Ideas and Details');
+    expect(v.difficulty).toBe('Medium');
+    // Letters are derived from <li> index; four bare choices → A,B,C,D.
+    expect(v.choices.map((c) => c.letter)).toEqual(['A', 'B', 'C', 'D']);
+    expect(v.choices.map((c) => c.text)).toEqual([
+      'Alpha placeholder choice [SYNTHETIC]',
+      'Bravo placeholder choice [SYNTHETIC]',
+      'Charlie placeholder choice [SYNTHETIC]',
+      'Delta placeholder choice [SYNTHETIC]',
+    ]);
+    // Stem text is read (CB's <h5> "Reading and Writing"/"Difficulty:" chrome must NOT leak in).
+    expect(v.stem).toBe('Lorem ipsum dolor sit amet placeholder stem. [SYNTHETIC]');
+    expect(v.stem).not.toMatch(/Difficulty/);
+    // Correct answer comes from the injected `.rationale` (present in this revealed fixture).
+    expect(v.correctAnswer).toBe('B');
+  });
+
+  it('reads a student grid-in question (no choices, numeric answer)', () => {
+    const v = readQuestion(loadStudent('student-grid-in.html'))!;
+    expect(v).not.toBeNull();
+    expect(v.id).toBe('ef56ab78');
+    expect(v.section).toBe('Math');
+    expect(v.domain).toBe('Algebra');
+    expect(v.skill).toBe('Linear equations in two variables');
+    expect(v.difficulty).toBe('Hard');
+    expect(v.choices).toHaveLength(0);
+    expect(v.correctAnswer).toBe('5');
+  });
+});
