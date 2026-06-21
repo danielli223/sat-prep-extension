@@ -144,6 +144,45 @@ describe('unmountAnswerOverlay', () => {
   });
 });
 
+describe('seen-before badge (.fp-seen) — issue #28', () => {
+  it('renders a "missed" badge when the question was missed before', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, { ...vm, priorStatus: 'missed' }, noop());
+    const seen = shadow.querySelector('.fp-seen');
+    expect(seen).not.toBeNull();
+    expect(seen!.getAttribute('data-prior')).toBe('missed');
+    expect(seen!.textContent).toContain('missed');
+  });
+
+  it('renders a "done" badge when the question was answered correctly before', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, { ...vm, priorStatus: 'done' }, noop());
+    const seen = shadow.querySelector('.fp-seen');
+    expect(seen).not.toBeNull();
+    expect(seen!.getAttribute('data-prior')).toBe('done');
+    expect(seen!.textContent).toContain('got it right');
+  });
+
+  it('renders a "new" badge for a never-seen question', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, { ...vm, priorStatus: 'new' }, noop());
+    const seen = shadow.querySelector('.fp-seen');
+    expect(seen).not.toBeNull();
+    expect(seen!.getAttribute('data-prior')).toBe('new');
+    expect(seen!.textContent).toContain('New to you');
+  });
+
+  it('the badge text is ONE of the three fixed labels — never any CB-derived string (leak guard)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, { ...vm, priorStatus: 'missed' }, noop());
+    const text = shadow.querySelector('.fp-seen')!.textContent!.trim();
+    // The label is one of the three fixed strings — no stem (there is none in the VM by design) and
+    // no choice text bleeds into it.
+    expect(['New to you', 'Seen before — got it right', 'Seen before — missed it']).toContain(text);
+    expect(text).not.toContain('5');   // a choice text from `vm` must not appear in the badge
+  });
+});
+
 it('revealRationale un-hides CB\'s native .rationale', () => {
   const ac = cbAnswerContent();
   mountAnswerOverlay(ac, vm, noop());

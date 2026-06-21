@@ -321,6 +321,38 @@ describe('content loop wiring', () => {
     const attempts = await getAttempts(db);
     expect(attempts[0]!.correct).toBe(false);
   });
+
+  // Issue #28: the overlay shows a "seen before" badge derived from the student's OWN attempt journal.
+  // (recordAttempt/makeAttempt are imported lower in this file; ESM hoists those imports, so they're
+  // available here at run time.)
+  it('shows the seen-before badge for a previously MISSED question', async () => {
+    const db = await freshDb();
+    // The current question (ab12cd34) was attempted WRONG in a previous sitting → getSeen → 'missed'.
+    await recordAttempt(db, makeAttempt({ deviceId: 'dev-1', questionId: 'ab12cd34', section: 'Math', domain: 'Algebra', skill: 'X', difficulty: 'Hard', pick: 'A', correct: false }));
+
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;                                        // CB renders question ab12cd34
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    const seen = inOverlay('.fp-seen');
+    expect(seen).not.toBeNull();
+    expect(seen!.getAttribute('data-prior')).toBe('missed');   // looked up against the student's journal
+    expect(seen!.textContent).toContain('missed');
+  });
+
+  it('shows "New to you" for a never-seen question', async () => {
+    const db = await freshDb();                                           // fresh journal → ab12cd34 unseen
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    const seen = inOverlay('.fp-seen');
+    expect(seen).not.toBeNull();
+    expect(seen!.getAttribute('data-prior')).toBe('new');
+    expect(seen!.textContent).toContain('New to you');
+  });
 });
 
 // Spike addendum (2026-06-15): CB injects the correct answer into the DOM ONLY once its
