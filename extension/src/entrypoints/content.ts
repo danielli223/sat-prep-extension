@@ -1,7 +1,7 @@
 import type { IDBPDatabase } from 'idb';
 import { openStore, recordAttempt, saveNote, saveSession, getSession, getAttempts } from '../store';
 import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
-import { observeQuestions } from '../cb/observer';
+import { observeQuestions, QUESTION_MODAL_SELECTOR } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score } from '../scoring';
 import { mountHost, cardSlot } from '../ui/host';
@@ -75,9 +75,12 @@ function countLoadedResults(doc: Document): number {
 // checked; it is absent (not merely hidden) otherwise. Reads the rendered DOM + toggles ONE control
 // on the CURRENT user-chosen question — no API call, no enumeration, no prefetch. The focus card
 // overlays the dimmed CB page (D2), so the student never sees CB's revealed answer until our own
-// verdict/explanation step. Selector observed live in the spike (.hide-rationale-checkbox).
+// verdict/explanation step. The reveal control differs by bank: educator = `.hide-rationale-checkbox
+// input`, student (issue #55) = `.cb-checkbox.inline-rationale-toggle input` (a class-less checkbox).
+// Both inject the same `.rationale` outcome, so we match either control and gate on that goal.
 function ensureAnswerRevealed(doc: Document): void {
-  const box = doc.querySelector<HTMLInputElement>('.hide-rationale-checkbox input[type="checkbox"]');
+  const box = doc.querySelector<HTMLInputElement>(
+    '.hide-rationale-checkbox input[type="checkbox"], .cb-checkbox.inline-rationale-toggle input[type="checkbox"]');
   if (!box) return;
   if (doc.querySelector('.rationale')) return;   // goal already met — rationale is in the DOM, nothing to do
   // No rationale yet. Drive CB's reveal with real CLICKS ONLY — never by assigning `box.checked`. From
@@ -118,7 +121,7 @@ function currentModal(doc: Document, id: string): Element | null {
   // real match. The 8-hex validation is the load-bearing guard.)
   if (!/^[0-9a-f]{8}$/i.test(id)) return null;
   const re = new RegExp(`Question ID:\\s*${id}`, 'i');
-  return [...doc.querySelectorAll('.cb-dialog-container')]
+  return [...doc.querySelectorAll(QUESTION_MODAL_SELECTOR)]
     .find((el) => re.test(el.textContent ?? '')) ?? null;
 }
 
