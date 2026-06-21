@@ -18,7 +18,7 @@ import type { Session, Attempt } from '../types';
 import { badge } from '../ui/badger';
 import { getSeen, getMistakes } from '../journal';
 import { deriveStats } from '../stats';
-import { resumeSession, type ResumeResult } from '../ui/resume';
+import { resumeSession, scrollToResume, nextRandomId, type ResumeResult } from '../ui/resume';
 import { dropCoachmark, COACHMARK_CLASS } from '../ui/coachmark';
 import { OPEN_JOURNAL } from '../messages';
 import { emit } from '../telemetry/emit';
@@ -252,13 +252,27 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   function start(orderMode: 'list' | 'random'): void {
     cardSlot(shadow).replaceChildren();   // dismiss the start panel so the student can open a CB question
     total = countLoadedResults(doc);   // read N once, before the first card paints
+    // Issue #31: mint the random seed UP FRONT (not lazily in the first-question observer) so the
+    // shuffled order exists before the student opens anything — and so the session created below carries
+    // this SAME seed. While the results list is still on the page, GUIDE the student to the first
+    // shuffled-order row by scrolling it into view (the Resume posture; no auto-load, no id-navigation,
+    // bright lines #1 & #4). List not yet rendered ⇒ no-op, exactly like Resume.
+    const seed = orderMode === 'random' ? newSeed() : 0;
+    if (orderMode === 'random') {
+      const list = findResultsList(doc);
+      if (list) {
+        const ids = readListQuestionIds(list).map((r) => r.id);
+        const first = nextRandomId(seed, ids, 0);
+        if (first) scrollToResume(list, first);
+      }
+    }
     let started = false;
     stop = observeQuestions(doc, (view) => {
       if (!started) {
         started = true;
         session = makeSession({
           deviceId: dev, filterContext: filterContextOf(view), orderMode,
-          shuffleSeed: orderMode === 'random' ? newSeed() : 0,
+          shuffleSeed: seed,
         });
         sessionStartMs = Date.now(); attempted = 0; correct = 0;   // start the session_ended stat window
         // Fire-and-forget from inside the MutationObserver callback. The observer outlives a single
@@ -393,10 +407,27 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       session.dirty = true;
       await safeWrite(saveSession(db, session));
     }
-    // Advance: actuate CB's own Next so it loads the next question; observeQuestions then re-mounts the
-    // overlay for it (no spurious "the card just closed"). Only dismiss the overlay when CB has no next
-    // question (last item / single-question view), so the student isn't left staring at a stale overlay.
-    // The fallback tears down our overlay AND restores CB's masked native nodes; CB's question stays put.
+    // Issue #31: random mode follows the shuffled order by GUIDED scrolling — it must NOT actuate CB's
+    // native Next (that yields CB LIST order, defeating the shuffle). `index` is the position counter
+    // (0 while the first question shows; bumped above), so it now points at the next shuffled-order slot.
+    // Tear our overlay down (restoring CB's masked native nodes) to return the student to the loaded
+    // list, then scroll the next shuffled row into view for them to click. Past the end / empty list
+    // (nextId === null) ⇒ just tear down, no next (same end-state as list mode's last item).
+    if (session && session.orderMode === 'random') {
+      const modal = currentModal(doc, view.id);
+      const ac = modal ? findAnswerContent(modal) : null;
+      if (ac) unmountAnswerOverlay(ac);
+      const list = findResultsList(doc);
+      const ids = list ? readListQuestionIds(list).map((r) => r.id) : [];
+      const nextId = nextRandomId(session.shuffleSeed, ids, index);
+      if (list && nextId) scrollToResume(list, nextId);
+      return;
+    }
+    // List mode (or no session yet): actuate CB's own Next so it loads the next question; observeQuestions
+    // then re-mounts the overlay for it (no spurious "the card just closed"). Only dismiss the overlay
+    // when CB has no next question (last item / single-question view), so the student isn't left staring
+    // at a stale overlay. The fallback tears down our overlay AND restores CB's masked native nodes;
+    // CB's question stays put.
     if (!clickCbNext(doc)) {
       const modal = currentModal(doc, view.id);
       const ac = modal ? findAnswerContent(modal) : null;
