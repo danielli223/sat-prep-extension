@@ -35,9 +35,11 @@ reordering the choices themselves.
 ## The change (all in `extension/src/ui/answer-overlay.ts`)
 
 1. **Gate the calculator on section.** Render the `.fp-calc` block only when the question is Math.
-   Use a tolerant, case-insensitive check on `vm.section` (`/math/i`) rather than an exact string match
-   so a CB taxonomy-label tweak degrades to *showing* the calculator (safe), never to a crash. Reading's
-   section is `"Reading and Writing"`, which does not match, so the calculator disappears there.
+   Use a case-insensitive *substring* check on `vm.section` (`/math/i`) rather than an exact string
+   match, so any Math label variant (a renamed `"Math"` / `"Mathematics"`) still shows the calculator
+   and only genuinely non-Math sections drop it — and a bare regex test on a plain string can never
+   crash. Reading's section is `"Reading and Writing"`, which does not match, so the calculator
+   disappears there.
 2. **Collapse the note until a verdict exists.** The note label/textarea render collapsed by default
    (compact, single-line, not pushing the choices down). `renderVerdict` / `renderNeedAnswer` expand it
    (add an `fp-note-open` state) so it is full-size exactly when the student wants to journal a miss.
