@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard, maskAnswerContent } from './answer-overlay';
+import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard, maskAnswerContent, mountCurtain } from './answer-overlay';
 import { score } from '../scoring';
 import type { CardVM } from './view-model';
 
@@ -175,6 +175,57 @@ describe('maskAnswerContent (#38 early mask) — fail-safe, host-less reversibil
     expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('');
     expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('');
     // ...and our hide markers are cleared so a later real mount + teardown stays correct.
+    expect(ac.querySelector('[data-fp-hidden]')).toBeNull();
+  });
+});
+
+// Issue #38 (curtain): the FOUC fix is an OPAQUE host ("white rectangle") dropped the instant CB's
+// answer region appears — it both hides CB's raw content AND covers the area with white, so the student
+// never sees raw choices before the real overlay fills the SAME host.
+describe('mountCurtain (#38 white-rectangle FOUC curtain)', () => {
+  it('hides CB\'s raw content and drops an opaque white rectangle, with NO overlay host yet', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    // CB's native content is masked...
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('none');
+    expect((ac.querySelector('.rationale') as HTMLElement).style.display).toBe('none');
+    // ...and the white rectangle is the FIRST child (covering the region)...
+    const curtain = ac.querySelector('.fp-curtain') as HTMLElement;
+    expect(curtain).not.toBeNull();
+    expect(ac.firstElementChild).toBe(curtain);
+    // ...but the real interactive overlay host is NOT mounted yet.
+    expect(ac.querySelector('.fp-answer-host')).toBeNull();
+  });
+
+  it('is idempotent — repeated calls keep a single curtain', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    mountCurtain(ac);
+    expect(ac.querySelectorAll('.fp-curtain')).toHaveLength(1);
+  });
+
+  it('mountAnswerOverlay removes the rectangle and mounts the real overlay over it', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    expect(ac.querySelector('.fp-curtain')).toBeNull();              // white rectangle gone
+    expect(ac.querySelectorAll('.fp-answer-host')).toHaveLength(1);   // real overlay up (single host)
+    expect(shadow.querySelector('.fp-actions')).not.toBeNull();
+  });
+
+  it('does not add a curtain once the real overlay is already mounted', () => {
+    const ac = cbAnswerContent();
+    mountAnswerOverlay(ac, vm, noop());
+    mountCurtain(ac);   // e.g. a late early-mask mutation after the overlay already mounted
+    expect(ac.querySelector('.fp-curtain')).toBeNull();
+  });
+
+  it('unmount tears the curtain down and restores CB\'s content (fail-safe, no real mount)', () => {
+    const ac = cbAnswerContent();
+    mountCurtain(ac);
+    unmountAnswerOverlay(ac);
+    expect(ac.querySelector('.fp-curtain')).toBeNull();
+    expect((ac.querySelector('.answer-choices') as HTMLElement).style.display).toBe('');
     expect(ac.querySelector('[data-fp-hidden]')).toBeNull();
   });
 });

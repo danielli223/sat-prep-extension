@@ -84,3 +84,64 @@ describe('observeQuestions', () => {
     stop();
   });
 });
+
+// #38 (FOUC): the early-mask hook must fire when the maskable region (.answer-content) is actually
+// present — NOT merely when the modal header appears (CB renders the header first) — and must re-fire
+// when CB swaps .answer-content for a new element on the in-place "Next". The original latched on the
+// modal element and so missed both cases, leaving the flash the fix was meant to close.
+describe('early FOUC hook — onModalAppear (#38)', () => {
+  const HEADER_ONLY =
+    '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div></div>';
+  const withAnswerContent = (id = 'ab12cd34') =>
+    '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: ' + id + '</h4></div>' +
+    '<div class="cb-dialog-content">' +
+    '<table class="cb-table"><tbody><tr><th>A</th><th>S</th><th>D</th><th>Sk</th><th>Df</th></tr>' +
+    '<tr><td>SAT</td><td>Math</td><td>Algebra</td><td>S</td><td>Hard</td></tr></tbody></table>' +
+    '<div class="answer-content"><div class="answer-choices"><ul><li>3</li></ul></div></div></div></div>';
+
+  it('does NOT fire until .answer-content exists, then fires once it does (header-first render)', async () => {
+    history.replaceState({}, '', '/digital/results');
+    document.body.innerHTML = '';
+    const onModalAppear = vi.fn();
+    const stop = observeQuestions(document, vi.fn(), onModalAppear);
+
+    document.body.innerHTML = HEADER_ONLY;                 // header only — region not painted yet
+    await new Promise((r) => setTimeout(r, 20));
+    expect(onModalAppear).not.toHaveBeenCalled();          // must NOT latch onto the bare modal
+
+    document.body.innerHTML = withAnswerContent();         // .answer-content arrives a beat later
+    await vi.waitFor(() => expect(onModalAppear).toHaveBeenCalledTimes(1));
+    expect(onModalAppear.mock.calls[0]![0].querySelector('.answer-content')).not.toBeNull();
+    stop();
+  });
+
+  it('re-fires for a NEW .answer-content (CB\'s in-place "Next" replaces the region)', async () => {
+    history.replaceState({}, '', '/digital/results');
+    document.body.innerHTML = '';
+    const onModalAppear = vi.fn();
+    const stop = observeQuestions(document, vi.fn(), onModalAppear);
+
+    document.body.innerHTML = withAnswerContent('ab12cd34');
+    await vi.waitFor(() => expect(onModalAppear).toHaveBeenCalledTimes(1));
+
+    const content = document.querySelector('.cb-dialog-content')!;
+    content.querySelector('.answer-content')!.remove();    // Next: old region detaches…
+    const fresh = document.createElement('div');
+    fresh.className = 'answer-content';
+    fresh.innerHTML = '<div class="answer-choices"><ul><li>9</li></ul></div>';
+    content.appendChild(fresh);                            // …a NEW region attaches
+    await vi.waitFor(() => expect(onModalAppear).toHaveBeenCalledTimes(2));
+    stop();
+  });
+
+  it('does not fire onModalAppear off the results page', async () => {
+    history.replaceState({}, '', '/digital/search');
+    document.body.innerHTML = '';
+    const onModalAppear = vi.fn();
+    const stop = observeQuestions(document, vi.fn(), onModalAppear);
+    document.body.innerHTML = withAnswerContent();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(onModalAppear).not.toHaveBeenCalled();
+    stop();
+  });
+});

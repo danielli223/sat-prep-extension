@@ -7,8 +7,8 @@ import { score } from '../scoring';
 import { mountHost, cardSlot } from '../ui/host';
 import { toCardVM } from '../ui/view-model';
 import {
-  findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, maskAnswerContent, renderVerdict,
-  renderNeedAnswer, renderStaleCard, revealRationale, HIDDEN_ATTR, type AnswerHandlers,
+  findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, mountCurtain, renderVerdict,
+  renderNeedAnswer, renderStaleCard, revealRationale, type AnswerHandlers,
 } from '../ui/answer-overlay';
 import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
@@ -272,15 +272,14 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       }
       showQuestion(view);
     }, (modal) => {
-      // Issue #38 (FOUC): mask CB's raw .answer-content the instant its modal is observed — BEFORE the
-      // observer's 150ms read-debounce mounts the overlay — so CB's native choices never flash visible.
-      // Only fires after Start (a session is running), never on the boot/resume probe. The mask reuses
-      // the overlay's hide primitive, so the later mount is idempotent and unmount restores CB's nodes.
-      // Mask only when this container isn't already masked by us (our HIDDEN_ATTR marker is absent): the
-      // first sight of the modal closes the FOUC flash, and re-firing on later mutations of the same
-      // modal is a no-op — we don't re-run the observer disconnect/reinstall once the region is hidden.
+      // Issue #38 (FOUC): the instant CB's answer region is observed — BEFORE the observer's 150ms
+      // read-debounce mounts the overlay — drop an opaque "curtain" host over it and hide CB's raw
+      // content, so CB's native choices never flash. The real overlay later fills this SAME host (the
+      // nice UI loads over the white rectangle). Only fires after Start (a session is running), never on
+      // the boot/resume probe. mountCurtain is idempotent and never clobbers a live overlay; the degrade/
+      // close path (unmountAnswerOverlay) restores CB's nodes.
       const answerContent = findAnswerContent(modal);
-      if (answerContent && !answerContent.querySelector(`[${HIDDEN_ATTR}]`)) maskAnswerContent(answerContent);
+      if (answerContent) mountCurtain(answerContent);
     });
   }
 

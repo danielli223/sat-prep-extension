@@ -24,23 +24,29 @@ export function observeQuestions(
 ): () => void {
   let lastSig: string | null = null;
   let settle: ReturnType<typeof setTimeout> | null = null;
-  let lastSignaled: Element | null = null;   // #38: the modal we last fired onModalAppear for (dedup)
+  let lastMasked: Element | null = null;   // #38: the .answer-content we last fired onModalAppear for (dedup)
 
-  // #38: detect CB's question modal under the SAME gates the read uses (results page + the
-  // "Question ID:" heading present), and signal it once before the 150ms settle. Resets the dedup when
-  // no modal is on screen so a re-opened modal re-fires.
+  // #38 (FOUC): detect CB's question modal under the SAME gates the read uses (results page + the
+  // "Question ID:" heading), and signal it before the 150ms settle so the orchestrator can curtain CB's
+  // raw answer region early. CRITICAL: latch on the `.answer-content` ELEMENT, not the modal. CB renders
+  // the header BEFORE `.answer-content`, and swaps `.answer-content` for a NEW element on the in-place
+  // "Next". The original latched on the modal: it fired once on the header (when `.answer-content` did
+  // not exist yet, so nothing got curtained) and never re-fired when the region appeared or was replaced
+  // — the exact FOUC this was meant to close. Gating on `.answer-content` fires the instant it exists and
+  // re-fires for each new one. Resets when no modal/region is present so a re-opened question re-fires.
   const signalModal = () => {
     if (!onModalAppear) return;
-    // Cheap short-circuit before the DOM scan: once we've signaled a modal that's STILL connected, this
-    // mutation can't be its first appearance, so skip the scan entirely (it would dedup anyway). This
-    // keeps the un-debounced per-mutation hook nearly free until the modal is actually swapped/removed.
-    if (lastSignaled && lastSignaled.isConnected) return;
-    if (!doc.location.pathname.includes('/digital/results')) { lastSignaled = null; return; }
+    // Cheap short-circuit: once we've curtained an `.answer-content` that's STILL connected, later
+    // mutations can't be its first appearance (a same-element re-render is handled by the mask's own
+    // child observer), so skip the scan. Falls through the instant CB replaces it (the old node detaches).
+    if (lastMasked && lastMasked.isConnected) return;
+    if (!doc.location.pathname.includes('/digital/results')) { lastMasked = null; return; }
     const modal = [...doc.querySelectorAll('.cb-dialog-container')]
       .find((el) => /Question ID:/i.test(el.textContent ?? '')) ?? null;
-    if (!modal) { lastSignaled = null; return; }
-    if (modal === lastSignaled) return;   // already masked this modal — don't thrash on every mutation
-    lastSignaled = modal;
+    if (!modal) { lastMasked = null; return; }
+    const answerContent = modal.querySelector('.answer-content');
+    if (!answerContent) return;          // region not rendered yet — retry on the next mutation (don't latch)
+    lastMasked = answerContent;
     onModalAppear(modal);
   };
 
