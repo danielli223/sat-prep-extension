@@ -46,19 +46,6 @@ const BASE_CSS = `
   border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.35);padding:20px;box-sizing:border-box;}
 .fp-start-head{display:flex;justify-content:flex-end;margin-bottom:10px;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
-/* SIDE-DOCKED (issue #37): a full-height panel flush to the LEFT edge, mirroring College Board's Math
-   UI, which docks its Desmos calculator to the side rather than floating it. LEFT (not right) so it
-   never collides with the right-docked .fp-panel journal. A flex column: a slim header bar (label + ✕)
-   over the iframe, which fills the rest. overflow:hidden so the iframe clips to the panel's rounded
-   right edge. (Was a floating bottom-left box; the dock is closer to the test-day experience.) */
-.fp-geogebra{position:fixed;left:0;top:0;width:440px;max-width:92vw;height:100vh;
-  border:1px solid #cbd5e1;border-left:0;border-radius:0 14px 14px 0;box-shadow:14px 0 50px rgba(0,0,0,.28);background:#fff;
-  display:flex;flex-direction:column;overflow:hidden;}
-.fp-geogebra-head{display:flex;justify-content:space-between;align-items:center;flex:none;padding:6px 6px 6px 12px;
-  border-bottom:1px solid #e5e7eb;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#475569;}
-.fp-geogebra-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:26px;height:26px;cursor:pointer;font-size:12px;line-height:1;}
-.fp-geogebra-frame{flex:1;width:100%;border:0;}
-.fp-onboarding{font-size:12px;color:#0c4a6e;line-height:1.5;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px;margin-bottom:14px;}
 .fp-start-title{font-size:17px;margin:0 0 12px;color:#0f172a;}
 .fp-start>button{display:block;width:100%;margin-bottom:8px;padding:11px;border-radius:9px;border:1px solid #cbd5e1;
   background:#fff;cursor:pointer;font:inherit;font-weight:600;color:#0f172a;}
@@ -83,15 +70,11 @@ const BASE_CSS = `
 .fp-bar{height:7px;background:#f1f5f9;border-radius:4px;overflow:hidden;}
 .fp-bar-fill{height:7px;border-radius:4px;background:#3b82f6;}
 .fp-bar-low{background:#dc2626;} .fp-bar-mid{background:#d97706;} .fp-bar-high{background:#16a34a;}
-.fp-weak-area .fp-practice-link,.fp-mistake-actions a{display:inline-block;margin-top:6px;font-size:12px;color:#1e40af;
-  background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:4px 9px;text-decoration:none;font-weight:600;}
 .fp-mistakes{list-style:none;margin:0;padding:0;}
 .fp-mistake{border:1px solid #e5e7eb;border-left:3px solid #dc2626;border-radius:8px;padding:10px;margin-bottom:8px;}
 .fp-mistake-meta{font-size:11px;color:#6b7280;margin-bottom:5px;}
 .fp-mistake-meta code{background:#f1f5f9;border-radius:4px;padding:1px 4px;}
 .fp-mistake-note{font-size:12px;color:#92400e;background:#fffbeb;border-radius:6px;padding:6px;margin:0 0 6px;}
-.fp-mistake-actions{display:flex;gap:6px;}
-.fp-mistake-actions .fp-find-link{background:#fff;border:1px solid #d1d5db;color:#6b7280;}
 .fp-empty{font-size:12px;color:#9ca3af;}
 `;
 
