@@ -9,6 +9,8 @@ const vm: CardVM = {
   kind: 'mc', choices: [{ letter: 'A', text: '3' }, { letter: 'B', text: '5' }],
   answerKnown: true, position: { index: 1, total: 10 },
 };
+// A Reading vm — CB's non-Math section label. The calculator gate (/math/i) must NOT match this.
+const readingVm: CardVM = { ...vm, section: 'Reading and Writing', domain: 'Information and Ideas' };
 // The unified calculator: a SINGLE button wired to onOpenDesmos. onToggleCalc (the old GeoGebra
 // in-page toggle) is gone from AnswerHandlers — issue #17 collapses the two controls into one.
 const noop = () => ({
@@ -111,6 +113,84 @@ describe('renders interactive UI', () => {
     expect(labels).not.toContain('Open real Desmos');
     expect(extras.querySelector('.fp-desmos')).toBeNull();     // the old second-button selector is gone
     expect(extras.querySelector('.fp-calc-pin')).toBeNull();   // the old GeoGebra-toggle selector is gone
+  });
+});
+
+// Issue #23 — Reading declutter. The Math-only calculator must not render on Reading,
+// the note field is collapsed until a verdict exists, and the answer stays near the top.
+//
+// CONTRACT NOTE for the maker: the collapsed/open state is carried by the `fp-note-open`
+// class on the `.fp-note-label` element (the note container). renderVerdict and
+// renderNeedAnswer add it; a freshly mounted overlay must NOT have it. These tests assert
+// against `.fp-note-label` — keep the class on that stable selector.
+describe('Reading declutter (issue #23)', () => {
+  it('omits the Math-only calculator block on a Reading & Writing question (pure clutter there)', () => {
+    const ac = cbAnswerContent();
+    mountAnswerOverlay(ac, readingVm, noop());
+    // The calculator lives in the extras shadow (issue #22); on Reading it is gated out entirely (#23).
+    const extras = (ac.querySelector('.fp-extras-host') as HTMLElement).shadowRoot!;
+    expect(extras.querySelector('.fp-calc')).toBeNull();
+    expect(extras.querySelector('.fp-calc-open')).toBeNull();
+  });
+
+  it('keeps the calculator block on a Math question (Math-only tool stays for Math)', () => {
+    const ac = cbAnswerContent();
+    mountAnswerOverlay(ac, vm, noop());
+    const extras = (ac.querySelector('.fp-extras-host') as HTMLElement).shadowRoot!;
+    expect(extras.querySelector('.fp-calc')).not.toBeNull();
+    expect(extras.querySelector('.fp-calc-open')).not.toBeNull();
+  });
+
+  it('still renders the note field on Reading and fires onNote with the trimmed value (feature preserved)', () => {
+    const ac = cbAnswerContent();
+    let noted = '';
+    mountAnswerOverlay(ac, readingVm, { ...noop(), onNote: (t) => { noted = t; } });
+    const extras = (ac.querySelector('.fp-extras-host') as HTMLElement).shadowRoot!;
+    expect(extras.querySelector('.fp-note-label')).not.toBeNull();
+    const note = extras.querySelector('.fp-note') as HTMLTextAreaElement;
+    expect(note).not.toBeNull();
+    note.value = '  missed the transition word  ';
+    note.dispatchEvent(new Event('change'));
+    expect(noted).toBe('missed the transition word');
+  });
+
+  it('starts the note collapsed (no fp-note-open) on a fresh mount', () => {
+    const ac = cbAnswerContent();
+    mountAnswerOverlay(ac, readingVm, noop());
+    const extras = (ac.querySelector('.fp-extras-host') as HTMLElement).shadowRoot!;
+    const noteLabel = extras.querySelector('.fp-note-label')!;
+    expect(noteLabel.classList.contains('fp-note-open')).toBe(false);
+  });
+
+  it('expands the note (adds fp-note-open) once renderVerdict writes a result', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, readingVm, noop());
+    const extras = (ac.querySelector('.fp-extras-host') as HTMLElement).shadowRoot!;
+    expect(extras.querySelector('.fp-note-label')!.classList.contains('fp-note-open')).toBe(false);
+    shadow.querySelector('.fp-choice[data-letter="B"]')!.setAttribute('data-correct', 'true');
+    renderVerdict(shadow, { pick: 'B', result: score('B', 'B') });
+    expect(extras.querySelector('.fp-note-label')!.classList.contains('fp-note-open')).toBe(true);
+  });
+
+  it('expands the note (adds fp-note-open) once renderNeedAnswer prompts the student', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, readingVm, noop());
+    const extras = (ac.querySelector('.fp-extras-host') as HTMLElement).shadowRoot!;
+    expect(extras.querySelector('.fp-note-label')!.classList.contains('fp-note-open')).toBe(false);
+    renderNeedAnswer(shadow, 'mc');
+    expect(extras.querySelector('.fp-note-label')!.classList.contains('fp-note-open')).toBe(true);
+  });
+
+  it('renders the answer choices before the actions row in DOM order (answer stays near the top)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, readingVm, noop());
+    const choices = shadow.querySelector('.fp-choices')!;
+    const actions = shadow.querySelector('.fp-actions')!;
+    expect(choices).not.toBeNull();
+    expect(actions).not.toBeNull();
+    // DOCUMENT_POSITION_FOLLOWING => actions comes AFTER choices in document order.
+    const rel = choices.compareDocumentPosition(actions);
+    expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
