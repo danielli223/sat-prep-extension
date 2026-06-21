@@ -12,7 +12,7 @@ import {
 } from '../ui/answer-overlay';
 import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
-import { toggleGeoGebra, openDesmos } from '../ui/calculator';
+import { openDesmos } from '../ui/calculator';
 import { newSeed } from '../order';
 import type { Session, Attempt } from '../types';
 import { badge } from '../ui/badger';
@@ -331,9 +331,8 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         }
       },
       onNext: () => onNext(view),
-      // Calculator toggles in the BODY host (the mountHost shadow), NOT the overlay shadow, so it
-      // survives across questions and lives in the persistent extras slot.
-      onToggleCalc: () => { toggleGeoGebra(shadow); emit(buildCalculatorOpened({ sessionId: session?.sessionId ?? '', calculatorType: 'geogebra' })); },
+      // The one calculator IS the real Desmos (issue #17): open it externally — never an in-page
+      // embed. A new window each click; nothing persists in our shadow.
       onOpenDesmos: () => { openDesmos(); emit(buildCalculatorOpened({ sessionId: session?.sessionId ?? '', calculatorType: 'desmos' })); },
       // ✕ tears down our overlay AND restores CB's masked native nodes, so closing never leaves CB's
       // own question blanked at display:none.
