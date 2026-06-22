@@ -638,6 +638,7 @@ export function installOverlayLifecycle(
   doc: Document,
   activate: () => void,
   deactivate: () => void,
+  pollMs = 500,   // href-poll cadence; overridable so tests can drive a short, REAL interval
 ): () => void {
   const view = doc.defaultView!;
   let active = false;
@@ -660,12 +661,24 @@ export function installOverlayLifecycle(
   const onPopState = (): void => evaluate();
   view.addEventListener('popstate', onPopState);
 
+  // The history patches above run in the content script's ISOLATED world, so they do NOT catch CB's OWN
+  // (main-world) SPA navigations — the live educator "Search" routes /digital/search → /digital/results
+  // with no reload and no popstate, and our patched history never fires (verified live: the overlay stayed
+  // dark until a manual reload). A cheap href poll is the cross-world-safe fallback: on any URL change,
+  // re-evaluate. evaluate() is idempotent, so a redundant double-fire with the patches is a harmless no-op.
+  let lastUrl = view.location.pathname + view.location.search;
+  const pollId = setInterval(() => {
+    const cur = view.location.pathname + view.location.search;
+    if (cur !== lastUrl) { lastUrl = cur; evaluate(); }
+  }, pollMs);
+
   evaluate();   // initial state (off a QB page on first install ⇒ nothing happens, no spurious deactivate)
 
   return () => {
     view.history.pushState = origPush;
     view.history.replaceState = origReplace;
     view.removeEventListener('popstate', onPopState);
+    clearInterval(pollId);
   };
 }
 
