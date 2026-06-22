@@ -4,7 +4,7 @@ import { indexedDB } from 'fake-indexeddb';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { planResume, scrollToResume, resumeSession, nextRandomId } from './resume';
+import { planResume, scrollToResume, resumeSession, nextRandomId, openListQuestion } from './resume';
 import { shuffleIds } from '../order';
 import { openStore, saveSession } from '../store';
 import { makeSession } from '../model';
@@ -61,6 +61,72 @@ describe('scrollToResume', () => {
   it('returns null when the target id is not present in the list', () => {
     const root = loadList();
     expect(scrollToResume(root, 'not-loaded')).toBeNull();
+  });
+});
+
+// Issue #76: cell-click in the nav-grid should OPEN the question, not merely scroll the list. The open
+// is implemented by clicking the matching row's own CB affordance — the already-rendered
+// `.id-column button` (the synthetic fixture carries `<button class="cb-btn">{id}</button>`). That is a
+// user-initiated click on an in-DOM node: no fetch, no enumeration, no prefetch (invariants #1/#4).
+describe('openListQuestion (issue #76 — cell-click opens the question)', () => {
+  it('clicks the matching row\'s .id-column button exactly once and returns that row node', () => {
+    const root = loadList();
+    const targetRow = root.querySelector('.result-row')!;           // ab12cd34 row
+    const btn = targetRow.querySelector('.id-column button')!;      // CB's own open affordance
+    const spy = vi.spyOn(btn as HTMLElement, 'click').mockImplementation(() => {});
+
+    const node = openListQuestion(root, 'ab12cd34');
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(node).toBe(targetRow);
+  });
+
+  it('targets the MATCHING id only — does not click another row\'s button', () => {
+    const root = loadList();
+    const firstBtn = root.querySelector('.result-row .id-column button')!;       // ab12cd34
+    const secondRow = root.querySelector('.result-row:nth-child(2)')!;           // ef56ab78
+    const secondBtn = secondRow.querySelector('.id-column button')!;
+    const firstSpy = vi.spyOn(firstBtn as HTMLElement, 'click').mockImplementation(() => {});
+    const secondSpy = vi.spyOn(secondBtn as HTMLElement, 'click').mockImplementation(() => {});
+
+    openListQuestion(root, 'ef56ab78');
+
+    expect(secondSpy).toHaveBeenCalledOnce();
+    expect(firstSpy).not.toHaveBeenCalled();
+  });
+
+  it('falls back to scrollIntoView (no throw) when the matching row has no clickable button', () => {
+    const root = loadList();
+    const targetRow = root.querySelector('.result-row')!;          // ab12cd34 row
+    // Simulate a row whose CB open button isn't present (e.g. scrolled out of a virtualized window)
+    // while the id text remains readable by readListQuestionIds (so the row is still found by id).
+    targetRow.querySelector('.id-column')!.textContent = 'ab12cd34';
+    const scrollSpy = vi.spyOn(targetRow as HTMLElement, 'scrollIntoView').mockImplementation(() => {});
+
+    let node: Element | null = null;
+    expect(() => { node = openListQuestion(root, 'ab12cd34'); }).not.toThrow();
+    expect(scrollSpy).toHaveBeenCalledOnce();
+    expect(node).toBe(targetRow);
+  });
+
+  it('returns null and clicks nothing for an unknown id', () => {
+    const root = loadList();
+    const anyBtn = root.querySelector('.result-row .id-column button')!;
+    const spy = vi.spyOn(anyBtn as HTMLElement, 'click').mockImplementation(() => {});
+
+    expect(openListQuestion(root, 'not-loaded')).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('performs NO network: opening a question never calls fetch (invariants #1/#4)', () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const root = loadList();
+    vi.spyOn(root.querySelector('.id-column button') as HTMLElement, 'click').mockImplementation(() => {});
+
+    openListQuestion(root, 'ab12cd34');
+
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 
