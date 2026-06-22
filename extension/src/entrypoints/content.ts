@@ -506,10 +506,10 @@ export async function refreshBadges(db: IDBPDatabase, listRoot: Element): Promis
 
 /** Issue #16: the at-a-glance numbers the top-right widget renders. `accuracy` is 0..1. A superset of
  *  this (`Stats`) comes straight from deriveStats, so the boot can pass derived stats in directly. */
-export interface StatsWidgetView { total: number; accuracy: number; streakDays: number; }
+export interface StatsWidgetView { total: number; accuracy: number; }
 
 /** Mount the top-right at-a-glance stats widget (idempotent). Clicking opens the journal (onOpen).
- *  Replaces the cryptic "📓 Journal" pill: the value (done / accuracy% / day streak) is visible without
+ *  Replaces the cryptic "📓 Journal" pill: the value (done / accuracy%) is visible without
  *  clicking, and the boot auto-hides it whenever a CB question modal is open (setStatsWidgetVisible). */
 export function mountStatsWidget(doc: Document, onOpen: () => void = () => {}): HTMLButtonElement {
   const existing = doc.querySelector<HTMLButtonElement>('.fp-stats-widget');
@@ -524,9 +524,12 @@ export function mountStatsWidget(doc: Document, onOpen: () => void = () => {}): 
     'cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);display:inline-flex;gap:10px;align-items:center;';
   // Three labelled segments; numbers are filled in by updateStatsWidget via textContent (never innerHTML).
   const done = doc.createElement('span'); done.className = 'fp-stats-done';
+  // A muted "·" between the two segments so "12 done" and "75%" never read cramped (the flex gap is
+  // belt; this dot is suspenders — it survives even if CB's page CSS interferes with the gap).
+  const sep = doc.createElement('span'); sep.className = 'fp-stats-sep'; sep.textContent = '·';
+  sep.setAttribute('aria-hidden', 'true'); sep.style.opacity = '0.6';
   const acc = doc.createElement('span'); acc.className = 'fp-stats-acc';
-  const streak = doc.createElement('span'); streak.className = 'fp-stats-streak';
-  btn.append(done, acc, streak);
+  btn.append(done, sep, acc);
   // This widget is in the LIGHT DOM, OUTSIDE the overlay host — so it misses the host's pointer guard
   // (host.ts). CB closes its open question modal on an outside pointer-down/click, so a real click here
   // would bubble to the document and trip that close, dismissing the open problem page (reported
@@ -544,10 +547,8 @@ export function updateStatsWidget(doc: Document, view: StatsWidgetView): void {
   if (!btn) return;
   const done = btn.querySelector('.fp-stats-done');
   const acc = btn.querySelector('.fp-stats-acc');
-  const streak = btn.querySelector('.fp-stats-streak');
   if (done) done.textContent = `${view.total} done`;
   if (acc) acc.textContent = `${Math.round(view.accuracy * 100)}%`;
-  if (streak) streak.textContent = `🔥 ${view.streakDays}`;
 }
 
 /** Show/hide the widget. The boot calls (doc, false) when a question modal is open, (doc, true) on the
