@@ -1375,4 +1375,28 @@ describe('Issue #70 — installOverlayLifecycle (path-aware, SPA-navigation-awar
     expect(activate).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe('/questionbank/results');   // ...but pushState still navigates
   });
+
+  it('CROSS-WORLD: activates via the URL poll when the page navigates behind our patched history (real-browser SPA)', async () => {
+    history.replaceState({}, '', '/login');                                 // not a QB page
+    const origReplace = window.history.replaceState.bind(window.history);   // the REAL replaceState, captured pre-install
+    const activate = vi.fn();
+    const deactivate = vi.fn();
+    const teardown = installOverlayLifecycle(document, activate, deactivate, 5);   // 5ms real poll for the test
+    expect(activate).not.toHaveBeenCalled();
+
+    // The live bug: CB's own (main-world) router changes the URL; a content script's isolated-world
+    // pushState/replaceState patch never sees it. Simulate by navigating through the ORIGINAL
+    // replaceState, bypassing the patch — exactly what happens on the educator "Search".
+    origReplace({}, '', '/questionbank/results');
+    expect(window.location.pathname).toBe('/questionbank/results');         // the URL moved…
+    expect(activate).not.toHaveBeenCalled();                                // …but the patch did NOT fire (the bug)
+
+    await new Promise((r) => setTimeout(r, 30));                            // let the URL poll tick…
+    expect(activate).toHaveBeenCalledTimes(1);                              // …and catch the navigation
+
+    teardown();
+    origReplace({}, '', '/dashboard');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(deactivate).not.toHaveBeenCalled();                             // poll cleared on teardown → no more evaluation
+  });
 });
