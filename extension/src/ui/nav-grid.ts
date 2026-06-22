@@ -13,6 +13,8 @@ import type { SeenMap } from '../stats';
 
 export const NAV_GRID_CLASS = 'fp-nav-grid';
 export const NAV_CELL_CLASS = 'fp-nav-cell';
+// Stable, unique id for the expandable region (cells + legend) that the toggle's aria-controls points at.
+const NAV_REGION_ID = `${NAV_GRID_CLASS}-region`;
 
 export interface NavCell {
   id: string;
@@ -90,6 +92,15 @@ export function renderNavGrid(
     'box-sizing:border-box;max-height:40vh;overflow:auto;background:#fff;border-top:1px solid #e5e7eb;' +
     'box-shadow:0 -8px 24px rgba(0,0,0,.18);display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;';
 
+  // Issue #76: COLLAPSED BY DEFAULT. The toggle ("Questions · N") is the only thing on screen until the
+  // student expands; the cells + legend live in a region (referenced by aria-controls) that we hide while
+  // collapsed so the strip no longer permanently covers the page. The cells still EXIST in the DOM when
+  // collapsed — we hide the region, never remove the cells.
+  const region = doc.createElement('div');
+  region.id = NAV_REGION_ID;
+  region.className = 'fp-nav-region';
+  region.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;flex-basis:100%;';
+
   for (const cell of cells) {
     const tier = normalizeDifficulty(cell.difficulty);
     const el = doc.createElement('button');
@@ -104,10 +115,36 @@ export function renderNavGrid(
     // textContent ONLY — a number + one fixed state glyph; no CB content can leak in.
     el.textContent = `${cell.n} ${GLYPH[cell.state]}`;
     el.addEventListener('click', () => handlers.onJump(cell.id));   // navigation delegated; no network here
-    grid.appendChild(el);
+    region.appendChild(el);
   }
+  region.appendChild(buildLegend(doc));
 
-  grid.appendChild(buildLegend(doc));
+  // The disclosure toggle: a generic "Questions · N" label (no SAT/CB branding), aria-expanded +
+  // aria-controls so it is unambiguously the control for the region. NOT a .fp-nav-cell.
+  const toggle = doc.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'fp-nav-toggle';
+  toggle.style.cssText = 'pointer-events:auto;cursor:pointer;border:1px solid rgba(0,0,0,.12);' +
+    'border-radius:7px;padding:4px 10px;background:#fff;' +
+    'font:700 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1f2937;';
+  toggle.setAttribute('aria-controls', NAV_REGION_ID);
+  toggle.textContent = `Questions · ${cells.length}`;   // count reflects the full loaded set
+
+  // Collapse/expand purely in place (ephemeral DOM — never persisted). aria-expanded drives the region's
+  // visibility; data-collapsed mirrors it so the closed state is also detectable as an attribute flag.
+  const setExpanded = (expanded: boolean): void => {
+    toggle.setAttribute('aria-expanded', String(expanded));
+    region.style.display = expanded ? 'flex' : 'none';
+    if (expanded) region.removeAttribute('data-collapsed');
+    else region.setAttribute('data-collapsed', '');
+  };
+  setExpanded(false);   // collapsed by default
+  toggle.addEventListener('click', () => {
+    setExpanded(toggle.getAttribute('aria-expanded') !== 'true');
+  });
+
+  grid.appendChild(toggle);   // toggle first — the only thing visible while collapsed
+  grid.appendChild(region);
   host.appendChild(grid);
 }
 
