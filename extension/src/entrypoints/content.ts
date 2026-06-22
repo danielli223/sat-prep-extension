@@ -406,6 +406,10 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
       })));
       attempted++; if (result.correct) correct++;   // feed session_ended's accuracy/attempted buckets
+      // Bug fix: refresh the in-session seen map so re-opening this question (CB's in-place Next, or
+      // leaving and coming back) shows the result instead of reverting to "New to you" — the issue #28
+      // snapshot was held stable for the whole sitting. Only the just-answered id is touched.
+      priorSeen[view.id] = result.correct ? 'done' : 'missed';
       // Reflect the just-recorded result on the underlying results list NOW, so its done/missed chip
       // updates without a manual page refresh. The list sits behind the modal; watchResultsList only
       // repaints when the row-ID set changes, not when the student's own data does — so this answer-

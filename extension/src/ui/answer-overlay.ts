@@ -327,12 +327,13 @@ export interface Verdict { pick: string; result: ScoreResult; }
 export function revealRationale(answerContent: HTMLElement): boolean {
   const r = childByClass(answerContent, 'rationale');
   if (!r) return false;
-  // #20: move CB's explanation ABOVE our interaction host so it renders directly under the question —
-  // co-visible with our (tall) UI rather than buried below it. Reposition CB's own node; never copy
-  // its text into our shadow root. The move is a childList mutation, so flag REVEALED_ATTR before
-  // un-hiding so the masking observer's hideCbNode doesn't re-hide this deliberate reveal.
+  // Place CB's explanation BELOW our interaction host (under the choices + Next button) but ABOVE the
+  // extras host (note + calc), which stays LAST. Reposition CB's own node; never copy its text into our
+  // shadow root. The move is a childList mutation, so flag REVEALED_ATTR before un-hiding so the masking
+  // observer's hideCbNode doesn't re-hide this deliberate reveal.
   const host = childByClass(answerContent, HOST_CLASS);
-  if (host && r.nextSibling !== host) answerContent.insertBefore(r, host);
+  if (host && host.nextSibling !== r) answerContent.insertBefore(r, host.nextSibling);
+  reanchorExtras(answerContent);   // keep note/calc LAST — just below the explanation
   r.setAttribute(REVEALED_ATTR, '');
   r.style.display = '';
   r.removeAttribute(HIDDEN_ATTR);
@@ -368,6 +369,11 @@ export function renderVerdict(shadow: ShadowRoot, v: Verdict): void {
     verdict.innerHTML = html(`<div class="fp-indeterminate">Couldn't grade this one — see College Board's answer below.</div>`) as unknown as string;
     return;
   }
+  // Bug fix: refresh the seen-before badge to reflect the just-graded result — it was rendered "New to
+  // you" at mount from the prior journal status and otherwise never updated after the student finished.
+  const seenStatus: PriorStatus = v.result.correct ? 'done' : 'missed';
+  const seenEl = shadow.querySelector('.fp-seen') as HTMLElement | null;
+  if (seenEl) { seenEl.setAttribute('data-prior', seenStatus); seenEl.textContent = SEEN_LABEL[seenStatus]; }
   shadow.querySelectorAll('.fp-choice').forEach((li) => {
     const letter = (li as HTMLElement).dataset.letter!;
     if (letter === v.pick && !v.result.correct) li.classList.add('fp-wrong');
