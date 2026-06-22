@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { mkdir, copyFile } from 'node:fs/promises';
+import { mkdir, copyFile, readdir } from 'node:fs/promises';
 import { readFileSync, existsSync } from 'node:fs';
 // Load extension/.env (KEY=VALUE lines) into process.env without a dependency.
 const envPath = new URL('../.env', import.meta.url);
@@ -36,4 +36,8 @@ await build({
 });
 await copyFile(cfg.manifest, `${cfg.out}/manifest.json`);
 await copyFile('popup.html', `${cfg.out}/popup.html`);
+await mkdir(`${cfg.out}/icons`, { recursive: true });
+for (const file of await readdir('icons')) {
+  if (file.endsWith('.png')) await copyFile(`icons/${file}`, `${cfg.out}/icons/${file}`);
+}
 console.log(`Built ${target} extension to ${cfg.out}/`);
