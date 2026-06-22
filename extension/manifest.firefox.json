@@ -3,8 +3,16 @@
   "name": "Focused Practice",
   "version": "0.0.1",
   "description": "Scoring, a mistake journal, weak-area tracking, and a calculator that work on top of the official SAT Question Bank.",
-  "browser_specific_settings": { "gecko": { "id": "focused-practice@focusedpractice.app", "strict_min_version": "121.0" } },
-  "permissions": ["storage", "alarms"],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "focused-practice@focusedpractice.app",
+      "strict_min_version": "121.0"
+    }
+  },
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
   "host_permissions": [
     "*://satsuiteeducatorquestionbank.collegeboard.org/*",
     "*://mypractice.collegeboard.org/*",
@@ -15,16 +23,36 @@
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   },
-  "background": { "scripts": ["background.js"] },
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
   "content_scripts": [
     {
       "matches": [
         "*://satsuiteeducatorquestionbank.collegeboard.org/*",
         "*://mypractice.collegeboard.org/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
-  "action": { "default_title": "Focused Practice", "default_popup": "popup.html" }
+  "action": {
+    "default_title": "Focused Practice",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "24": "icons/icon24.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }
