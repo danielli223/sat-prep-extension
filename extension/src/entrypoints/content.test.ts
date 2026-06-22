@@ -333,6 +333,37 @@ describe('content loop wiring', () => {
     expect(seen!.getAttribute('data-prior')).toBe('new');
     expect(seen!.textContent).toContain('New to you');
   });
+
+  it('keeps the seen badge after answering when you go to another question and come back (priorSeen refresh)', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // Q1 (ab12cd34) — never seen → "New to you".
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect(inOverlay('.fp-seen')!.getAttribute('data-prior')).toBe('new');
+
+    // Answer it correctly (choice B): records 'done' AND must refresh the in-session seen map.
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    expect(inOverlay('.fp-seen')!.getAttribute('data-prior')).toBe('done');   // immediate, in-place
+
+    // Go FORWARD to Q2 (grid-in, ef56ab78)…
+    document.querySelector('.cb-modal-container')!.remove();
+    document.body.innerHTML += gridIn;
+    await vi.waitFor(() => expect(inOverlay('.fp-gridin')).not.toBeNull());
+
+    // …then COME BACK to Q1 (ab12cd34) — CB re-renders it, the observer re-mounts our overlay.
+    document.querySelector('.cb-modal-container')!.remove();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(inOverlay('.fp-choice')).not.toBeNull());
+
+    // THE BUG: without refreshing priorSeen, the re-mounted Q1 badge reverts to "New to you".
+    expect(inOverlay('.fp-seen')!.getAttribute('data-prior')).toBe('done');
+    expect(inOverlay('.fp-seen')!.textContent).toContain('got it right');
+  });
 });
 
 // Spike addendum (2026-06-15): CB injects the correct answer into the DOM ONLY once its
