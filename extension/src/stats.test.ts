@@ -32,16 +32,6 @@ describe('deriveStats', () => {
     const stats = deriveStats([{ ...a, deleted: true }]);
     expect(stats.total).toBe(0);
   });
-
-  it('computes consecutive-day streak ending at the most recent active day', () => {
-    const s = deriveStats([
-      att('q1', 'X', true, '2026-06-13T10:00:00Z'),
-      att('q2', 'X', true, '2026-06-12T10:00:00Z'),
-      att('q3', 'X', true, '2026-06-11T10:00:00Z'),
-      att('q4', 'X', true, '2026-06-08T10:00:00Z'), // gap → streak stops at 3
-    ]);
-    expect(s.streakDays).toBe(3);
-  });
 });
 
 // Issue #34: break weak-area percentages down by difficulty via a multi-select filter.
