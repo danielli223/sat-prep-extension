@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Focused Practice (dev)",
+  "name": "Focused Practice",
   "version": "0.0.1",
-  "description": "A study companion that adds scoring, a mistake journal, and a calculator on top of the official SAT question bank. Not affiliated with, authorized, or endorsed by College Board; SAT is a trademark of the College Board.",
+  "description": "Scoring, a mistake journal, weak-area tracking, and a calculator that work on top of the official SAT Question Bank.",
   "browser_specific_settings": { "gecko": { "id": "focused-practice@focusedpractice.app", "strict_min_version": "121.0" } },
   "permissions": ["storage", "alarms"],
   "host_permissions": [
