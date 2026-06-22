@@ -17,7 +17,7 @@ const stats: Stats = {
     { skill: 'Inferences', total: 4, correct: 1, accuracy: 0.25 },
     { skill: 'Linear equations', total: 8, correct: 8, accuracy: 1 },
   ],
-  seen: {}, streakDays: 3,
+  seen: {},
 };
 const mistakes: Mistake[] = [
   { questionId: 'ab12cd34', skill: 'Inferences', difficulty: 'Hard', lastSeenAt: '2026-06-13T00:00:00.000Z', note: 'fell for the trap' },
@@ -25,13 +25,13 @@ const mistakes: Mistake[] = [
 const vm: PanelVM = { stats, mistakes };
 
 describe('renderPanel', () => {
-  it('shows done/accuracy/streak stats', () => {
+  it('shows done/accuracy stats', () => {
     const root = shadow();
     renderPanel(root, vm);
     const text = root.textContent ?? '';
     expect(text).toContain('12');     // done (total)
     expect(text).toContain('75%');    // accuracy
-    expect(text).toContain('3');      // streak days
+    expect(text).not.toContain('day streak');  // streak removed from the panel
   });
 
   it('renders weak-area bars worst-first with NO dead Practice-on-CB link (#33)', () => {

@@ -79,7 +79,6 @@ export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
     <div class="fp-stats">
       <div class="fp-stat"><span class="fp-stat-n">${stats.total}</span><span class="fp-stat-l">done</span></div>
       <div class="fp-stat"><span class="fp-stat-n">${pct(stats.accuracy)}</span><span class="fp-stat-l">accuracy</span></div>
-      <div class="fp-stat"><span class="fp-stat-n">${stats.streakDays}</span><span class="fp-stat-l">day streak</span></div>
     </div>
     ${controlHtml}
     <h3>Weak areas (worst first)</h3>
