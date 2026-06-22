@@ -1,12 +1,3 @@
-<!--
-  INTERNAL STATUS (not user-facing): DRAFT covering the opt-in analytics feature.
-  Per docs/specs/2026-06-17-telemetry-design.md this policy is a compliance deliverable
-  that must (1) receive IP/privacy-attorney sign-off, (2) match the Chrome Web Store
-  data-disclosure form verbatim in substance, and (3) ship at the same moment
-  TELEMETRY_UI_ENABLED is flipped true (rollout step 6). Until then the analytics
-  opt-in is not user-reachable and nothing is sent to any third party.
--->
-
 # Privacy Policy — Focused Practice
 
 _Last updated: 2026-06-21_
