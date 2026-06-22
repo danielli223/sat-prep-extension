@@ -110,6 +110,7 @@ function renderBody(vm: CardVM): string {
       <button class="fp-next">Next</button>
     </div>
     <div class="fp-verdict" aria-live="polite"></div>
+    <div class="fp-disclaimer">Not affiliated with or endorsed by College Board.</div>
   </div>`;
 }
 
@@ -449,4 +450,7 @@ const ANSWER_CSS = `
 .fp-note::placeholder{color:#b45309;}
 .fp-calc{display:flex;gap:8px;}
 .fp-calc-open{background:#f1f5f9;color:#334155;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;}
+/* Trademark hardening: a small, persistent non-affiliation line at the foot of the focus card (the
+   student is layered over CB's real page). Distinct from the deliberately-removed .fp-trust badge. */
+.fp-disclaimer{margin-top:12px;padding-top:8px;border-top:1px solid #eee;font-size:10px;color:#9ca3af;text-align:center;}
 `;

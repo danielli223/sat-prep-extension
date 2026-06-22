@@ -45,6 +45,16 @@ describe('renders interactive UI', () => {
     expect(checked).toBe('B');
   });
 
+  it('renders a small non-affiliation disclaimer at the foot of the focus card (distinct from the removed .fp-trust badge)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    const disclaimer = shadow.querySelector('.fp-disclaimer');
+    expect(disclaimer).not.toBeNull();
+    expect(disclaimer!.textContent).toMatch(/not affiliated with.*college board/i);
+    // Must NOT reintroduce the deliberately-removed trust badge.
+    expect(shadow.querySelector('.fp-trust')).toBeNull();
+  });
+
   it('renders a grid-in input for kind "grid" and Check (always visible) reads the typed value', () => {
     const ac = cbAnswerContent();
     const gridVm = { ...vm, kind: 'grid' as const, choices: [] };
