@@ -24,6 +24,12 @@ Three layers, following the project's wiki convention:
 |---|---|
 | [`project-brief.md`](project-brief.md) | One-page brief: the product, the core legal principle, v1 feature set, tech stack, bright-line guardrails, status. Start here. |
 
+## Dev workflow
+
+| Doc | What it is |
+|---|---|
+| [`running-multiple-dev-builds.md`](running-multiple-dev-builds.md) | Runbook: launch several dev-Chrome windows at once (one per worktree/branch), each self-labeled by purpose via `DEV_LABEL` + a unique `CDP_PORT`, for comparing builds side by side without instances colliding. |
+
 ## Legal — derived analysis
 
 | Doc | What it is |
