@@ -622,16 +622,16 @@ describe('content wiring (Plan 3)', () => {
     mountStatsWidget(document);
     expect(document.querySelectorAll('.fp-stats-widget')).toHaveLength(1);   // one widget, not two
 
-    updateStatsWidget(document, { total: 12, accuracy: 0.75, streakDays: 3 });
+    updateStatsWidget(document, { total: 12, accuracy: 0.75 });
     const text = document.querySelector('.fp-stats-widget')!.textContent ?? '';
     expect(text).toContain('12');     // done count
     expect(text).toContain('75%');    // Math.round(accuracy * 100)%
-    expect(text).toContain('3');      // day streak
+    expect(text).not.toContain('🔥'); // streak removed — no flame in the badge
   });
 
   it('updateStatsWidget is a no-op when the widget is not mounted', () => {
     // The boot mounts before first update, but a stray update must not throw or create a widget.
-    expect(() => updateStatsWidget(document, { total: 5, accuracy: 0.5, streakDays: 1 })).not.toThrow();
+    expect(() => updateStatsWidget(document, { total: 5, accuracy: 0.5 })).not.toThrow();
     expect(document.querySelector('.fp-stats-widget')).toBeNull();
   });
 
