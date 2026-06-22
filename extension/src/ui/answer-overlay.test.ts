@@ -289,10 +289,10 @@ describe('mountAnswerOverlay', () => {
     // Revealing the rationale does not change the relative order: extras still trails the explanation.
     revealRationale(ac);
     expect(rationale.compareDocumentPosition(extras) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Per #20, revealing moves CB's rationale ABOVE the interaction host (explanation directly under the
-    // question); the extras host (note + calc) still trails LAST, so note/calc stay below the explanation.
+    // Revealing now places CB's explanation BELOW the interaction host (under the choices + Next button)
+    // but still ABOVE the extras host (note + calc), which stays LAST.
     const answerHost = ac.querySelector('.fp-answer-host') as HTMLElement;
-    expect(rationale.compareDocumentPosition(answerHost) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(answerHost.compareDocumentPosition(rationale) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(ac.lastElementChild).toBe(extras);
   });
 
@@ -419,6 +419,29 @@ describe('seen-before badge (.fp-seen) — issue #28', () => {
     expect(seen!.textContent).toContain('New to you');
   });
 
+  it('updates the badge to done/missed after grading (bug: it stayed "New to you" after finishing)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, { ...vm, priorStatus: 'new' }, noop());
+    expect(shadow.querySelector('.fp-seen')!.getAttribute('data-prior')).toBe('new');
+    // A correct grade flips the badge from "New to you" to "done".
+    shadow.querySelector('.fp-choice[data-letter="B"]')!.setAttribute('data-correct', 'true');
+    renderVerdict(shadow, { pick: 'B', result: score('B', 'B') });
+    expect(shadow.querySelector('.fp-seen')!.getAttribute('data-prior')).toBe('done');
+    expect(shadow.querySelector('.fp-seen')!.textContent).toContain('got it right');
+    // A wrong grade flips it to "missed" (fresh mount resets the badge to "new" first).
+    const shadow2 = mountAnswerOverlay(ac, { ...vm, priorStatus: 'new' }, noop());
+    renderVerdict(shadow2, { pick: 'A', result: score('A', 'B') });
+    expect(shadow2.querySelector('.fp-seen')!.getAttribute('data-prior')).toBe('missed');
+    expect(shadow2.querySelector('.fp-seen')!.textContent).toContain('missed');
+  });
+
+  it('does NOT touch the badge on an ungraded result (we do not know right/wrong)', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, { ...vm, priorStatus: 'new' }, noop());
+    renderVerdict(shadow, { pick: 'A', result: score('A', '') });   // empty correct answer → ungraded
+    expect(shadow.querySelector('.fp-seen')!.getAttribute('data-prior')).toBe('new');
+  });
+
   it('the badge text is ONE of the three fixed labels — never any CB-derived string (leak guard)', () => {
     const ac = cbAnswerContent();
     const shadow = mountAnswerOverlay(ac, { ...vm, priorStatus: 'missed' }, noop());
@@ -529,7 +552,7 @@ it('revealRationale un-hides CB\'s native .rationale', () => {
 // interaction UI) so the student can read both at once — not be buried below our host. revealRationale
 // must move CB's native .rationale ABOVE .fp-answer-host in document order, keep it visible even after
 // the masking observer flushes, and NEVER copy its text into our shadow root (CB's node, repositioned).
-it('revealRationale repositions CB\'s native .rationale above our interaction host (#20)', async () => {
+it('revealRationale repositions CB\'s native .rationale below our interaction host (above the note + calc)', async () => {
   const ac = cbAnswerContent();
   const shadow = mountAnswerOverlay(ac, vm, noop());
 
@@ -538,10 +561,13 @@ it('revealRationale repositions CB\'s native .rationale above our interaction ho
   const kids = Array.from(ac.children);
   const rationaleIdx = kids.findIndex((c) => c.classList.contains('rationale'));
   const hostIdx = kids.findIndex((c) => c.classList.contains('fp-answer-host'));
+  const extrasIdx = kids.findIndex((c) => c.classList.contains('fp-extras-host'));
   expect(rationaleIdx).toBeGreaterThanOrEqual(0);
   expect(hostIdx).toBeGreaterThanOrEqual(0);
-  // The explanation now precedes our interaction UI, so it renders directly beneath the question.
-  expect(rationaleIdx).toBeLessThan(hostIdx);
+  // The explanation now sits BELOW our interaction UI (under the choices + Next button) …
+  expect(rationaleIdx).toBeGreaterThan(hostIdx);
+  // … but ABOVE the extras host (note + calc).
+  expect(extrasIdx).toBeGreaterThan(rationaleIdx);
 
   // Moving a node is a childList mutation — the masking observer must NOT re-hide the node we just
   // deliberately revealed. Flush the (async, happy-dom) observer callback, then assert still visible.
