@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { mkdir, copyFile, readdir } from 'node:fs/promises';
+import { mkdir, copyFile, readdir, writeFile } from 'node:fs/promises';
 import { readFileSync, existsSync } from 'node:fs';
 // Load extension/.env (KEY=VALUE lines) into process.env without a dependency.
 const envPath = new URL('../.env', import.meta.url);
@@ -34,7 +34,19 @@ await build({
   legalComments: 'none',
   define: { __POSTHOG_PROJECT_TOKEN__: JSON.stringify(process.env.POSTHOG_PROJECT_TOKEN ?? '') },
 });
-await copyFile(cfg.manifest, `${cfg.out}/manifest.json`);
+// Copy the manifest, optionally relabeling the extension for side-by-side dev builds. Set
+// DEV_LABEL to a short purpose string (e.g. DEV_LABEL="main: icon") to suffix the name shown
+// on chrome://extensions and the toolbar tooltip, so multiple dev Chromes are tellable apart.
+// Leave DEV_LABEL UNSET for store/release builds — the published name must ship as written.
+// Runbook: docs/running-multiple-dev-builds.md
+const devLabel = process.env.DEV_LABEL?.trim();
+if (devLabel) {
+  const manifest = JSON.parse(readFileSync(cfg.manifest, 'utf8'));
+  manifest.name = `${manifest.name} — ${devLabel}`;
+  await writeFile(`${cfg.out}/manifest.json`, JSON.stringify(manifest, null, 2));
+} else {
+  await copyFile(cfg.manifest, `${cfg.out}/manifest.json`);
+}
 await copyFile('popup.html', `${cfg.out}/popup.html`);
 await mkdir(`${cfg.out}/icons`, { recursive: true });
 for (const file of await readdir('icons')) {
