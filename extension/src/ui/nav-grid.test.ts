@@ -198,6 +198,130 @@ describe('renderNavGrid', () => {
   });
 });
 
+// Issue #76: the navigator must be COLLAPSED BY DEFAULT behind a toggle ("Questions · N") that the
+// student clicks to reveal the full grid of cells + legend and clicks again to hide them — it no longer
+// permanently covers the page. When expanded it shows a cell for EVERY loaded question (no implicit cap).
+// The toggle carries aria-expanded + aria-controls; the expandable region is what those reference.
+describe('renderNavGrid — collapsible "show all" (issue #76)', () => {
+  const ROWS = [
+    { id: 'ab12cd34', difficulty: 'Hard' },
+    { id: 'ef56ab78', difficulty: 'Medium' },
+    { id: '99ff00aa', difficulty: 'Easy' },
+  ];
+  const noop = { onJump: () => {} };
+
+  // The toggle is the only control visible while collapsed: a button that carries aria-expanded and
+  // aria-controls (so it is unambiguously the disclosure control, not a cell).
+  function toggleOf(host: Element): HTMLElement {
+    const grid = host.querySelector(`.${NAV_GRID_CLASS}`)!;
+    const btn = grid.querySelector('[aria-expanded][aria-controls]') as HTMLElement | null;
+    expect(btn, 'expected a toggle control with aria-expanded + aria-controls').not.toBeNull();
+    return btn!;
+  }
+
+  // The expandable region holding the cells + legend — referenced by the toggle's aria-controls.
+  function regionOf(host: Element): HTMLElement {
+    const toggle = toggleOf(host);
+    const id = toggle.getAttribute('aria-controls')!;
+    const region = host.querySelector(`#${CSS.escape(id)}`) as HTMLElement | null;
+    expect(region, `aria-controls "${id}" must reference an existing region`).not.toBeNull();
+    return region!;
+  }
+
+  // "Hidden" is satisfied either by display:none on the cells/legend region OR a data-collapsed flag.
+  // We require AT LEAST ONE of those collapse signals so a no-op (always-open) renderer fails, while a
+  // real collapse implementation — whichever mechanism it chooses — passes.
+  function isCollapsed(host: Element): boolean {
+    const toggle = toggleOf(host);
+    if (toggle.getAttribute('aria-expanded') === 'true') return false;
+    const grid = host.querySelector(`.${NAV_GRID_CLASS}`) as HTMLElement;
+    const region = regionOf(host);
+    const flagged = grid.hasAttribute('data-collapsed') || region.hasAttribute('data-collapsed')
+      || grid.getAttribute('data-expanded') === 'false' || region.getAttribute('data-expanded') === 'false';
+    const hidden = region.style.display === 'none' || region.hidden;
+    return flagged || hidden;
+  }
+
+  it('is COLLAPSED BY DEFAULT: a toggle shows the count while the cells + legend region is hidden', () => {
+    const host = mount();
+    renderNavGrid(host, buildNavCells(ROWS, {}), noop);
+
+    const toggle = toggleOf(host);
+    // The toggle advertises the closed state and the count of loaded questions.
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.textContent ?? '').toMatch(/3/);          // N === number of cells
+    expect(toggle.textContent ?? '').toMatch(/Question/i);  // a generic "Questions" label (no SAT/CB branding)
+
+    // The cells + legend are NOT visible until the student expands.
+    expect(isCollapsed(host)).toBe(true);
+  });
+
+  it('EXPANDS on toggle click: reveals the cells + legend and flips aria-expanded to "true"', () => {
+    const host = mount();
+    renderNavGrid(host, buildNavCells(ROWS, {}), noop);
+
+    toggleOf(host).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    const toggle = toggleOf(host);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(isCollapsed(host)).toBe(false);
+
+    // The full encoding is present once expanded: a cell per row + the legend's both keys.
+    const grid = host.querySelector(`.${NAV_GRID_CLASS}`) as HTMLElement;
+    expect(grid.querySelectorAll(`.${NAV_CELL_CLASS}`)).toHaveLength(3);
+    expect(grid.textContent ?? '').toMatch(/Correct/);
+    expect(grid.textContent ?? '').toMatch(/Easy/);
+  });
+
+  it('COLLAPSES again on a second toggle click: re-hides the region and flips aria-expanded back to "false"', () => {
+    const host = mount();
+    renderNavGrid(host, buildNavCells(ROWS, {}), noop);
+
+    const toggle = toggleOf(host);
+    toggle.dispatchEvent(new MouseEvent('click', { bubbles: true })); // expand
+    expect(toggleOf(host).getAttribute('aria-expanded')).toBe('true');
+
+    toggleOf(host).dispatchEvent(new MouseEvent('click', { bubbles: true })); // collapse again
+    expect(toggleOf(host).getAttribute('aria-expanded')).toBe('false');
+    expect(isCollapsed(host)).toBe(true);
+  });
+
+  it('SHOWS ALL (no implicit cap): a >10-cell input renders one cell per entry when expanded', () => {
+    const host = mount();
+    // 13 synthetic rows — bare 8-hex ids, rotating difficulties. More than CB's ~10-row window.
+    const many = Array.from({ length: 13 }, (_, i) => ({
+      id: `dead${i.toString(16).padStart(4, '0')}`,
+      difficulty: ['Easy', 'Medium', 'Hard'][i % 3]!,
+    }));
+    renderNavGrid(host, buildNavCells(many, {}), noop);
+
+    toggleOf(host).dispatchEvent(new MouseEvent('click', { bubbles: true })); // expand to reveal all
+
+    const grid = host.querySelector(`.${NAV_GRID_CLASS}`) as HTMLElement;
+    const cells = [...grid.querySelectorAll(`.${NAV_CELL_CLASS}`)];
+    expect(cells).toHaveLength(many.length);          // every entry, no cap
+    expect(cells[12]!.textContent ?? '').toMatch(/13/); // the 13th cell really is rendered
+    // The toggle's count reflects the full set, not a capped subset.
+    expect(toggleOf(host).textContent ?? '').toMatch(/13/);
+  });
+
+  it('ACCESSIBILITY: the toggle exposes aria-expanded and aria-controls referencing the expandable region', () => {
+    const host = mount();
+    renderNavGrid(host, buildNavCells(ROWS, {}), noop);
+
+    const toggle = toggleOf(host);
+    expect(toggle.hasAttribute('aria-expanded')).toBe(true);
+
+    const controls = toggle.getAttribute('aria-controls');
+    expect(controls, 'toggle must carry aria-controls').toBeTruthy();
+
+    // The id it points at must exist in the rendered DOM and be the region that holds the cells.
+    const region = host.querySelector(`#${CSS.escape(controls!)}`);
+    expect(region, 'aria-controls must reference a real element id').not.toBeNull();
+    expect(region!.querySelector(`.${NAV_CELL_CLASS}`), 'controlled region holds the cells').not.toBeNull();
+  });
+});
+
 // Type-level contract: NavCell carries exactly id/n/state/difficulty. (Kept as a compile-time check;
 // the import above fails first while nav-grid.ts is absent, which is the intended failing state.)
 const _cellShape: NavCell = { id: 'x', n: 1, state: 'review', difficulty: '' };
