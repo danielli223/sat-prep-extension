@@ -43,6 +43,23 @@ export function scrollToResume(listRoot: Element, id: string): Element | null {
   return row.node;
 }
 
+// Issue #76: open the question for `id` by clicking that row's OWN already-rendered CB open affordance
+// (`.id-column button` — the same kind of in-DOM CB button clickCbNext actuates). A user-initiated click
+// on an existing node: no fetch, no enumeration, no prefetch (bright lines #1/#4). Unknown id → null
+// (click nothing); a row with no button falls back to scrolling it into view. The `.id-column button`
+// selector is CB-shape knowledge, kept here beside the existing list-reader row lookup.
+export function openListQuestion(listRoot: Element, id: string): Element | null {
+  const row = readListQuestionIds(listRoot).find((r) => r.id === id);
+  if (!row) return null;
+  const btn = row.node.querySelector('.id-column button');
+  if (btn) {
+    (btn as HTMLElement).click();
+    return row.node;
+  }
+  scrollToResume(listRoot, id);   // fallback: at least bring the row into view
+  return row.node;
+}
+
 // Contract §2.3 READ protocol — the single entry point the content script calls on Resume.
 // Reads the persisted session for this filter, rebuilds its order from shuffleSeed, and scrolls to
 // lastQuestionId. Returns null when there is no session to resume.
