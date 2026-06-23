@@ -333,6 +333,37 @@ describe('content loop wiring', () => {
     expect(seen!.getAttribute('data-prior')).toBe('new');
     expect(seen!.textContent).toContain('New to you');
   });
+
+  it('keeps the seen badge after answering when you go to another question and come back (priorSeen refresh)', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // Q1 (ab12cd34) — never seen → "New to you".
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect(inOverlay('.fp-seen')!.getAttribute('data-prior')).toBe('new');
+
+    // Answer it correctly (choice B): records 'done' AND must refresh the in-session seen map.
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    expect(inOverlay('.fp-seen')!.getAttribute('data-prior')).toBe('done');   // immediate, in-place
+
+    // Go FORWARD to Q2 (grid-in, ef56ab78)…
+    document.querySelector('.cb-modal-container')!.remove();
+    document.body.innerHTML += gridIn;
+    await vi.waitFor(() => expect(inOverlay('.fp-gridin')).not.toBeNull());
+
+    // …then COME BACK to Q1 (ab12cd34) — CB re-renders it, the observer re-mounts our overlay.
+    document.querySelector('.cb-modal-container')!.remove();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(inOverlay('.fp-choice')).not.toBeNull());
+
+    // THE BUG: without refreshing priorSeen, the re-mounted Q1 badge reverts to "New to you".
+    expect(inOverlay('.fp-seen')!.getAttribute('data-prior')).toBe('done');
+    expect(inOverlay('.fp-seen')!.textContent).toContain('got it right');
+  });
 });
 
 // Spike addendum (2026-06-15): CB injects the correct answer into the DOM ONLY once its
@@ -622,16 +653,16 @@ describe('content wiring (Plan 3)', () => {
     mountStatsWidget(document);
     expect(document.querySelectorAll('.fp-stats-widget')).toHaveLength(1);   // one widget, not two
 
-    updateStatsWidget(document, { total: 12, accuracy: 0.75, streakDays: 3 });
+    updateStatsWidget(document, { total: 12, accuracy: 0.75 });
     const text = document.querySelector('.fp-stats-widget')!.textContent ?? '';
     expect(text).toContain('12');     // done count
     expect(text).toContain('75%');    // Math.round(accuracy * 100)%
-    expect(text).toContain('3');      // day streak
+    expect(text).not.toContain('🔥'); // streak removed — no flame in the badge
   });
 
   it('updateStatsWidget is a no-op when the widget is not mounted', () => {
     // The boot mounts before first update, but a stray update must not throw or create a widget.
-    expect(() => updateStatsWidget(document, { total: 5, accuracy: 0.5, streakDays: 1 })).not.toThrow();
+    expect(() => updateStatsWidget(document, { total: 5, accuracy: 0.5 })).not.toThrow();
     expect(document.querySelector('.fp-stats-widget')).toBeNull();
   });
 
@@ -1374,5 +1405,29 @@ describe('Issue #70 — installOverlayLifecycle (path-aware, SPA-navigation-awar
     history.pushState({}, '', '/questionbank/results');       // after teardown → no re-evaluation
     expect(activate).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe('/questionbank/results');   // ...but pushState still navigates
+  });
+
+  it('CROSS-WORLD: activates via the URL poll when the page navigates behind our patched history (real-browser SPA)', async () => {
+    history.replaceState({}, '', '/login');                                 // not a QB page
+    const origReplace = window.history.replaceState.bind(window.history);   // the REAL replaceState, captured pre-install
+    const activate = vi.fn();
+    const deactivate = vi.fn();
+    const teardown = installOverlayLifecycle(document, activate, deactivate, 5);   // 5ms real poll for the test
+    expect(activate).not.toHaveBeenCalled();
+
+    // The live bug: CB's own (main-world) router changes the URL; a content script's isolated-world
+    // pushState/replaceState patch never sees it. Simulate by navigating through the ORIGINAL
+    // replaceState, bypassing the patch — exactly what happens on the educator "Search".
+    origReplace({}, '', '/questionbank/results');
+    expect(window.location.pathname).toBe('/questionbank/results');         // the URL moved…
+    expect(activate).not.toHaveBeenCalled();                                // …but the patch did NOT fire (the bug)
+
+    await new Promise((r) => setTimeout(r, 30));                            // let the URL poll tick…
+    expect(activate).toHaveBeenCalledTimes(1);                              // …and catch the navigation
+
+    teardown();
+    origReplace({}, '', '/dashboard');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(deactivate).not.toHaveBeenCalled();                             // poll cleared on teardown → no more evaluation
   });
 });
