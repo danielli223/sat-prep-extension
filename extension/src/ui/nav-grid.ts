@@ -81,16 +81,15 @@ export function renderNavGrid(
 
   const grid = doc.createElement('div');
   grid.className = NAV_GRID_CLASS;
-  // Fixed bottom strip inside the overlay host's shadow root. The host is pointer-events:none and
-  // click-through (host.ts mountHost), and a statically-positioned div would neither sit at the
-  // bottom nor be clickable — so we pin it (position:fixed;bottom:0;left:0;right:0) and re-enable
-  // pointer-events:auto here. z-index:2 keeps it above the dimmed card backdrop (.fp-card-slot is
-  // z-index:1) but below the extras slot (z-index:3) so it never buries the calculator/journal.
-  // max-height + overflow:auto so a long grid scrolls instead of covering the page. Cells keep the
-  // existing flex/wrap/gap.
-  grid.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2;pointer-events:auto;' +
-    'box-sizing:border-box;max-height:40vh;overflow:auto;background:#fff;border-top:1px solid #e5e7eb;' +
-    'box-shadow:0 -8px 24px rgba(0,0,0,.18);display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;';
+  // Pinned inside the overlay host's shadow root (host is pointer-events:none + click-through, so we
+  // re-enable pointer-events:auto and pin to the bottom-left corner). z-index:2 keeps it above the
+  // dimmed card backdrop (.fp-card-slot z-index:1) but below the extras slot (z-index:3) so it never
+  // buries the calculator/journal.
+  // COLLAPSED = just the floating "Questions · N" toggle by itself, NO full-width bar. The white panel
+  // chrome (full width via right:0, background, border-top, shadow, scroll) is painted ONLY when
+  // expanded — see setExpanded — so the lone toggle sits with no rectangle behind it.
+  grid.style.cssText = 'position:fixed;left:0;bottom:0;z-index:2;pointer-events:auto;' +
+    'box-sizing:border-box;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;';
 
   // Issue #76: COLLAPSED BY DEFAULT. The toggle ("Questions · N") is the only thing on screen until the
   // student expands; the cells + legend live in a region (referenced by aria-controls) that we hide while
@@ -135,6 +134,14 @@ export function renderNavGrid(
   const setExpanded = (expanded: boolean): void => {
     toggle.setAttribute('aria-expanded', String(expanded));
     region.style.display = expanded ? 'flex' : 'none';
+    // Paint the full-width white panel ONLY when expanded; collapsed leaves the toggle floating alone
+    // (no background/border/shadow, not full width) so there is no white rectangle behind it.
+    grid.style.right = expanded ? '0' : '';
+    grid.style.background = expanded ? '#fff' : '';
+    grid.style.borderTop = expanded ? '1px solid #e5e7eb' : '';
+    grid.style.boxShadow = expanded ? '0 -8px 24px rgba(0,0,0,.18)' : '';
+    grid.style.maxHeight = expanded ? '40vh' : '';
+    grid.style.overflow = expanded ? 'auto' : '';
     if (expanded) region.removeAttribute('data-collapsed');
     else region.setAttribute('data-collapsed', '');
   };
