@@ -406,6 +406,10 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
       })));
       attempted++; if (result.correct) correct++;   // feed session_ended's accuracy/attempted buckets
+      // Bug fix: refresh the in-session seen map so re-opening this question (CB's in-place Next, or
+      // leaving and coming back) shows the result instead of reverting to "New to you" — the issue #28
+      // snapshot was held stable for the whole sitting. Only the just-answered id is touched.
+      priorSeen[view.id] = result.correct ? 'done' : 'missed';
       // Reflect the just-recorded result on the underlying results list NOW, so its done/missed chip
       // updates without a manual page refresh. The list sits behind the modal; watchResultsList only
       // repaints when the row-ID set changes, not when the student's own data does — so this answer-
@@ -506,10 +510,10 @@ export async function refreshBadges(db: IDBPDatabase, listRoot: Element): Promis
 
 /** Issue #16: the at-a-glance numbers the top-right widget renders. `accuracy` is 0..1. A superset of
  *  this (`Stats`) comes straight from deriveStats, so the boot can pass derived stats in directly. */
-export interface StatsWidgetView { total: number; accuracy: number; streakDays: number; }
+export interface StatsWidgetView { total: number; accuracy: number; }
 
 /** Mount the top-right at-a-glance stats widget (idempotent). Clicking opens the journal (onOpen).
- *  Replaces the cryptic "📓 Journal" pill: the value (done / accuracy% / day streak) is visible without
+ *  Replaces the cryptic "📓 Journal" pill: the value (done / accuracy%) is visible without
  *  clicking, and the boot auto-hides it whenever a CB question modal is open (setStatsWidgetVisible). */
 export function mountStatsWidget(doc: Document, onOpen: () => void = () => {}): HTMLButtonElement {
   const existing = doc.querySelector<HTMLButtonElement>('.fp-stats-widget');
@@ -524,9 +528,12 @@ export function mountStatsWidget(doc: Document, onOpen: () => void = () => {}): 
     'cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);display:inline-flex;gap:10px;align-items:center;';
   // Three labelled segments; numbers are filled in by updateStatsWidget via textContent (never innerHTML).
   const done = doc.createElement('span'); done.className = 'fp-stats-done';
+  // A muted "·" between the two segments so "12 done" and "75%" never read cramped (the flex gap is
+  // belt; this dot is suspenders — it survives even if CB's page CSS interferes with the gap).
+  const sep = doc.createElement('span'); sep.className = 'fp-stats-sep'; sep.textContent = '·';
+  sep.setAttribute('aria-hidden', 'true'); sep.style.opacity = '0.6';
   const acc = doc.createElement('span'); acc.className = 'fp-stats-acc';
-  const streak = doc.createElement('span'); streak.className = 'fp-stats-streak';
-  btn.append(done, acc, streak);
+  btn.append(done, sep, acc);
   // This widget is in the LIGHT DOM, OUTSIDE the overlay host — so it misses the host's pointer guard
   // (host.ts). CB closes its open question modal on an outside pointer-down/click, so a real click here
   // would bubble to the document and trip that close, dismissing the open problem page (reported
@@ -544,10 +551,8 @@ export function updateStatsWidget(doc: Document, view: StatsWidgetView): void {
   if (!btn) return;
   const done = btn.querySelector('.fp-stats-done');
   const acc = btn.querySelector('.fp-stats-acc');
-  const streak = btn.querySelector('.fp-stats-streak');
   if (done) done.textContent = `${view.total} done`;
   if (acc) acc.textContent = `${Math.round(view.accuracy * 100)}%`;
-  if (streak) streak.textContent = `🔥 ${view.streakDays}`;
 }
 
 /** Show/hide the widget. The boot calls (doc, false) when a question modal is open, (doc, true) on the
@@ -633,6 +638,7 @@ export function installOverlayLifecycle(
   doc: Document,
   activate: () => void,
   deactivate: () => void,
+  pollMs = 500,   // href-poll cadence; overridable so tests can drive a short, REAL interval
 ): () => void {
   const view = doc.defaultView!;
   let active = false;
@@ -655,12 +661,24 @@ export function installOverlayLifecycle(
   const onPopState = (): void => evaluate();
   view.addEventListener('popstate', onPopState);
 
+  // The history patches above run in the content script's ISOLATED world, so they do NOT catch CB's OWN
+  // (main-world) SPA navigations — the live educator "Search" routes /digital/search → /digital/results
+  // with no reload and no popstate, and our patched history never fires (verified live: the overlay stayed
+  // dark until a manual reload). A cheap href poll is the cross-world-safe fallback: on any URL change,
+  // re-evaluate. evaluate() is idempotent, so a redundant double-fire with the patches is a harmless no-op.
+  let lastUrl = view.location.pathname + view.location.search;
+  const pollId = setInterval(() => {
+    const cur = view.location.pathname + view.location.search;
+    if (cur !== lastUrl) { lastUrl = cur; evaluate(); }
+  }, pollMs);
+
   evaluate();   // initial state (off a QB page on first install ⇒ nothing happens, no spurious deactivate)
 
   return () => {
     view.history.pushState = origPush;
     view.history.replaceState = origReplace;
     view.removeEventListener('popstate', onPopState);
+    clearInterval(pollId);
   };
 }
 
