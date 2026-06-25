@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "statusMessage": "Rebuilding extension/dist…",
+            "command": "INPUT=$(cat); EXT=\"$(printf '%s' \"$INPUT\" | jq -r '.cwd // \".\"')/extension\"; [ -d \"$EXT\" ] || exit 0; NEED=0; [ -f \"$EXT/dist/content.js\" ] || NEED=1; [ -n \"$(find \"$EXT/src\" -newer \"$EXT/dist/content.js\" 2>/dev/null | head -1)\" ] && NEED=1; [ \"$NEED\" = 1 ] || exit 0; if ( cd \"$EXT\" && npm run build ) >/tmp/fp-autobuild.log 2>&1; then printf '{\"systemMessage\":\"\\ud83d\\udd28 Auto-rebuilt extension/dist \\u2014 reload the unpacked extension + hard-refresh CB to see changes\"}'; else printf '{\"systemMessage\":\"\\u26a0\\ufe0f Auto-build FAILED \\u2014 see /tmp/fp-autobuild.log\"}'; fi; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -21,4 +21,5 @@ deletion-worker/.wrangler/
 !/.claude/agents/
 !/.claude/commands/
 !/.claude/skills/
+!/.claude/settings.json
 deploy-todo.md
