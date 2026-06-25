@@ -398,7 +398,12 @@ export function renderStaleCard(shadow: ShadowRoot): void {
 }
 
 const ANSWER_CSS = `
-.fp-answer{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;}
+/* The overlay mounts inside CB's .answer-content, which renders questions in CB's own serif (live-probed
+   as Noto Serif). INHERIT it so our answer text matches CB's questions exactly — and follows CB
+   automatically if they ever swap fonts (we never hardcode CB's font name). Interactive controls + meta
+   labels are pinned back to the system UI font at the end of this sheet, so buttons stay crisp sans like
+   CB's own Roboto chrome. */
+.fp-answer{font-size:14px;line-height:1.5;font-family:inherit;color:#1f2937;}
 .fp-answer-head{display:flex;justify-content:flex-end;align-items:center;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
 /* issue #28: seen-before pill — colored per prior status to match the badger palette */
@@ -459,4 +464,9 @@ const ANSWER_CSS = `
 /* Trademark hardening: a small, persistent non-affiliation line at the foot of the focus card (the
    student is layered over CB's real page). Distinct from the deliberately-removed .fp-trust badge. */
 .fp-disclaimer{margin-top:12px;padding-top:8px;border-top:1px solid #eee;font-size:10px;color:#9ca3af;text-align:center;}
+/* Keep the chrome — controls, inputs, status + meta labels — in the system UI font so ONLY the answer
+   choices adopt CB's serif. Listed last so it wins over the per-control \`font:inherit\` shorthands above. */
+.fp-overlay-close,.fp-seen,.fp-gridin-label,.fp-gridin,.fp-check,.fp-reveal,.fp-next,.fp-note-label,
+.fp-note,.fp-calc-open,.fp-verdict,.fp-indeterminate,.fp-need-answer,.fp-stale,.fp-disclaimer,
+.fp-choice .fp-pick::after{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
 `;
