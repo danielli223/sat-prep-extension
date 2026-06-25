@@ -29,6 +29,25 @@ function cbAnswerContent(): HTMLElement {
   return findAnswerContent(document.querySelector('.cb-dialog-container')!)!;
 }
 
+describe("answer text matches College Board's question font", () => {
+  // CB renders its questions in its own serif (live-probed as Noto Serif on .answer-content). Our overlay
+  // mounts INSIDE .answer-content, so the answer base must INHERIT CB's font rather than pin our own sans
+  // stack — that's what makes our choices read in the exact font CB uses for its questions, and follow CB
+  // automatically if they ever change it. Controls stay in the system UI font so buttons read as crisp chrome.
+  function mountedCss(): string {
+    const shadow = mountAnswerOverlay(cbAnswerContent(), vm, noop());
+    return shadow.querySelector('style')!.textContent!.replace(/\s+/g, ' ');
+  }
+  it('inherits CB\'s font for the answer base instead of hardcoding a sans stack', () => {
+    const css = mountedCss();
+    expect(css).toMatch(/\.fp-answer\s*\{[^}]*font-family:\s*inherit/);
+    expect(css).not.toMatch(/\.fp-answer\s*\{[^}]*apple-system/);
+  });
+  it('keeps interactive controls (e.g. Check) in the system UI font so they stay crisp sans', () => {
+    expect(mountedCss()).toMatch(/\.fp-check[^{}]*\{[^}]*apple-system/);
+  });
+});
+
 describe('renders interactive UI', () => {
   it('renders A–D choices, controls, and fires handlers (no trust badge and no taxonomy/position banner — the student is on CB itself)', () => {
     const ac = cbAnswerContent();
