@@ -245,6 +245,54 @@ describe('readQuestion — faithful math in answer choices (#35)', () => {
   });
 });
 
+// Live Question Bank (observed 2026-06-25): CB renders choice math as inline <img class="math-img">
+// (self-contained data:image/png), NOT MathJax. A choice that pairs two expressions is an ORDERED
+// sequence "[img] and [img]" inside p.choice_paragraph. The reader only captured a lone <img> (when the
+// <li> had NO text); here the literal " and " makes textContent non-empty, so the choice fell through to
+// plain text = "and", dropping BOTH images. The reader must capture the ordered parts so the overlay can
+// render every image + the connective.
+describe('readQuestion — image-based multi-part answer choices ["[img] and [img]"]', () => {
+  const choices = () => readQuestion(load('math-img-choice.html'))!.choices;
+
+  it('reads four lettered choices and the revealed correct answer', () => {
+    const v = readQuestion(load('math-img-choice.html'))!;
+    expect(v.id).toBe('7f81d0c3');
+    expect(v.section).toBe('Math');
+    expect(v.choices.map((c) => c.letter)).toEqual(['A', 'B', 'C', 'D']);
+    expect(v.correctAnswer).toBe('C');
+  });
+
+  it('captures the ordered parts [img, "and", img] — not just the connective "and"', () => {
+    const parts = choices()[0]!.parts;
+    expect(parts).toBeDefined();
+    expect(parts!.map((p) => p.kind)).toEqual(['img', 'text', 'img']);
+    const texts = parts!.filter((p) => p.kind === 'text') as Array<{ value: string }>;
+    expect(texts.map((p) => p.value)).toEqual(['and']);
+  });
+
+  it('each img part carries the inline data:image src and its alt', () => {
+    const imgs = choices()[0]!.parts!.filter((p) => p.kind === 'img') as Array<{ src: string; alt: string }>;
+    expect(imgs).toHaveLength(2);
+    expect(imgs[0]!.src).toMatch(/^data:image\/png/);
+    expect(imgs[0]!.alt).toBe('p equals 1');
+    expect(imgs[1]!.alt).toBe('p equals 4');
+  });
+
+  it('sets a meaningful text fallback (both alts + connective), not just "and"', () => {
+    const c = choices()[0]!;
+    expect(c.text).toContain('p equals 1');
+    expect(c.text).toContain('p equals 4');
+    expect(c.text).toContain('and');
+    expect(c.text).not.toBe('and');
+  });
+
+  it('regression: a lone-image choice (no connective) still uses imgSrc, not parts', () => {
+    const v = readQuestion(load('image-choice.html'))!;
+    expect(v.choices.every((c) => c.parts === undefined)).toBe(true);
+    expect(v.choices[0]!.imgSrc).toBe('https://example-cb.org/img/choice-a.png');
+  });
+});
+
 // Issue #36: parabola questions render each answer choice as an inline <svg> graph. The choice
 // reader read raw li.textContent, leaking the SVG's <style> CSS, its <title>/<desc> a11y prose,
 // and MathJax-verbalized math into choice.text. The fix must (1) strip that noise from the text and

@@ -757,6 +757,52 @@ describe('faithful math rendering in choices (#35)', () => {
   });
 });
 
+// Live Question Bank: CB renders choice math as inline <img class="math-img"> (data:image/png), and a
+// choice that pairs two expressions is an ordered "[img] and [img]" sequence (ChoiceVM.parts). The
+// overlay must render EVERY image plus the connective text — not collapse the choice to just "and".
+describe('image-based multi-part choices render every <img> + the connective', () => {
+  const dataPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+  it('renders both math images and the literal connective inside the choice', () => {
+    const ac = cbAnswerContent();
+    const partsVm: CardVM = { ...vm, choices: [
+      { letter: 'A', text: 'p equals 1 and p equals 4', parts: [
+        { kind: 'img', src: dataPng, alt: 'p equals 1' },
+        { kind: 'text', value: 'and' },
+        { kind: 'img', src: dataPng, alt: 'p equals 4' },
+      ] },
+      { letter: 'B', text: '5' },
+    ] };
+    const shadow = mountAnswerOverlay(ac, partsVm, noop());
+    const a = shadow.querySelector('.fp-choice[data-letter="A"]')!;
+    const imgs = a.querySelectorAll('img');
+    expect(imgs.length).toBe(2);
+    expect(imgs[0]!.getAttribute('alt')).toBe('p equals 1');
+    expect(imgs[1]!.getAttribute('alt')).toBe('p equals 4');
+    expect(imgs[0]!.getAttribute('src')).toBe(dataPng);
+    expect(a.textContent).toContain('and');
+  });
+
+  it('XSS: hostile part values are escaped — no live <script>/onerror reaches the shadow', () => {
+    const ac = cbAnswerContent();
+    const hostileVm: CardVM = { ...vm, choices: [
+      { letter: 'A', text: 'x', parts: [
+        { kind: 'text', value: '<script>steal()</script>' },
+        { kind: 'img', src: 'x" onerror="steal()', alt: 'y' },
+      ] },
+      { letter: 'B', text: '5' },
+    ] };
+    const shadow = mountAnswerOverlay(ac, hostileVm, noop());
+    expect(shadow.querySelector('script')).toBeNull();
+    const a = shadow.querySelector('.fp-choice[data-letter="A"]')!;
+    // hostile text survives only as inert escaped text:
+    expect(a.textContent).toContain('<script>steal()</script>');
+    // the quote-breakout in src did NOT create a real onerror attribute:
+    expect(a.querySelector('img')!.hasAttribute('onerror')).toBe(false);
+    expect(a.querySelector('img')!.getAttribute('src')).toBe('x" onerror="steal()');
+  });
+});
+
 // Issue #2 — answer choices were rendered with the answer text as a loose text node directly
 // inside the .fp-pick button, beside the letter span:
 //   <button class="fp-pick"><span class="fp-letter">A</span> 3</button>

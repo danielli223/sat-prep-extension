@@ -76,6 +76,15 @@ function renderMath(n: MathNode): string {
 }
 
 function choiceBody(c: ChoiceVM): string {
+  // Image-based multi-part choice ("[img] and [img]"): render every inline math image plus the
+  // connective text in order. esc() (the sole XSS boundary) runs on each img src/alt and each text run,
+  // so a hostile data: src or alt can never break out of the attribute or inject markup.
+  if (c.parts && c.parts.length) {
+    return c.parts.map((p) => p.kind === 'img'
+      ? `<img src="${esc(p.src)}" alt="${esc(p.alt)}" class="fp-choice-img fp-choice-img-inline" />`
+      : `<span class="fp-choice-conn">${esc(p.value)}</span>`,
+    ).join(' ');
+  }
   if (c.imgSrc) {
     return `<img src="${esc(c.imgSrc)}" alt="${esc(c.text || c.letter)}" class="fp-choice-img" />`;
   }
@@ -419,6 +428,9 @@ const ANSWER_CSS = `
 .fp-choice .fp-letter{flex:none;font-weight:700;}
 .fp-choice .fp-choice-text{flex:1;min-width:0;}
 .fp-choice-img{max-height:2.5em;width:auto;vertical-align:middle;}
+/* multi-part image choice ("[img] and [img]"): images sit inline with the connective word */
+.fp-choice-img-inline{max-height:1.6em;margin:0 .15em;}
+.fp-choice-conn{margin:0 .15em;}
 /* faithful math (#35): stacked fraction with a bar, and a radical with an overline */
 .fp-frac{display:inline-flex;flex-direction:column;text-align:center;vertical-align:middle;margin:0 .15em;line-height:1.1;}
 .fp-frac-num{padding:0 .25em;}

@@ -15,7 +15,14 @@ export type MathNode =
   | { kind: 'frac'; num: MathNode; den: MathNode }
   | { kind: 'sqrt'; radicand: MathNode };
 
-export interface Choice { letter: string; text: string; imgSrc?: string; math?: MathNode; }
+// Ordered inline content for a choice that mixes images and text — e.g. CB renders each math
+// expression as an inline <img class="math-img"> (a self-contained data:image/png) and pairs two of
+// them with a literal connective: "[img] and [img]". RAM-only, like the rest of the view-model.
+export type ChoicePart =
+  | { kind: 'text'; value: string }
+  | { kind: 'img'; src: string; alt: string };
+
+export interface Choice { letter: string; text: string; imgSrc?: string; math?: MathNode; parts?: ChoicePart[]; }
 export interface QuestionView {
   id: string;
   section: string; domain: string; skill: string; difficulty: string;
@@ -146,6 +153,46 @@ function readChoiceText(li: Element): string {
   return collapse(clone.textContent);
 }
 
+// Image-based multi-part choice reader. CB renders each math expression as an inline
+// <img class="math-img"> (a self-contained data:image/png) and joins paired expressions with a literal
+// connective: "[img] and [img]". Walk the choice content IN ORDER, collecting img parts (src + alt) and
+// the connective text between them, so the overlay can render every image. Returns undefined when the
+// choice is NOT a multi-part image choice — no <img> at all, or a single bare image with no surrounding
+// text (that stays on the simpler imgSrc path, so #39's single-image behaviour is unchanged).
+function readChoiceParts(li: Element): ChoicePart[] | undefined {
+  if (!li.querySelector('img')) return undefined;
+  const clone = li.cloneNode(true) as Element;
+  clone.querySelectorAll('style, script, title, desc').forEach((n) => n.remove());   // mirror text hygiene (#36)
+  const root = clone.querySelector('p') ?? clone;
+  const parts: ChoicePart[] = [];
+  const walk = (node: Node) => {
+    for (const n of Array.from(node.childNodes)) {
+      if (n.nodeType === 3) {
+        const value = collapse(n.textContent);
+        if (value) parts.push({ kind: 'text', value });
+      } else if (n.nodeType === 1) {
+        const el = n as Element;
+        if (el.localName === 'img') {
+          const src = el.getAttribute('src') ?? '';
+          if (src) parts.push({ kind: 'img', src, alt: collapse(el.getAttribute('alt')) });
+        } else {
+          walk(el);                                       // descend through span.math_expression wrappers
+        }
+      }
+    }
+  };
+  walk(root);
+  if (parts.filter((p) => p.kind === 'img').length === 0) return undefined;   // no usable image
+  if (parts.length < 2) return undefined;                                     // lone image → imgSrc path
+  return parts;
+}
+
+// Readable RAM-only fallback string for a parts choice: the connective text plus each image's alt, in
+// order (e.g. "p equals 1 and p equals 4"). For a11y / observer dedup; never persisted.
+function partsText(parts: ChoicePart[]): string {
+  return collapse(parts.map((p) => (p.kind === 'img' ? p.alt : p.value)).join(' '));
+}
+
 // Some CB Math choices are inline <svg> parabola graphs with no text/<img> (#36). Serialize the <svg>
 // to a self-contained data: URL the overlay can render as an inert <img>. Clone, drop <script> nodes
 // (defense in depth — an img-loaded SVG won't run scripts anyway), ensure the xmlns is present (a
@@ -189,6 +236,12 @@ export function readQuestion(root: Element): QuestionView | null {
     // textContent (visual glyph layer + TeX stripped) for the a11y/fallback string.
     const math = readChoiceMath(li);
     if (math) return { letter, text: readChoiceText(li), math };
+    // Image-based multi-part choice ("[img] and [img]"): each math expression is an inline
+    // <img class="math-img"> joined by literal connective text. Capture the ordered parts so the overlay
+    // renders every image, not just the connective (which alone read as "and"). A lone image with no
+    // surrounding text returns undefined here and stays on the imgSrc path below.
+    const parts = readChoiceParts(li);
+    if (parts) return { letter, text: partsText(parts), parts };
     // No <math>: clone + strip style/script and SVG a11y prose (title/desc) so an inline-SVG graph
     // choice doesn't leak its CSS/verbalized-math into text (#36); then image / SVG / plain-text.
     const clone = li.cloneNode(true) as Element;

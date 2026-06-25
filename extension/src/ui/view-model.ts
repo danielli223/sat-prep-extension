@@ -1,10 +1,10 @@
-import type { QuestionView, MathNode } from '../cb/reader';
+import type { QuestionView, MathNode, ChoicePart } from '../cb/reader';
 import type { PriorStatus } from '../stats';
 
 // CardVM is what the overlay renderer (answer-overlay.ts renderBody) consumes. It DELIBERATELY
 // excludes stem: that field is RAM-only, used for observer dedup and discarded — never modelled
 // into anything that could reach the store.
-export interface ChoiceVM { letter: string; text: string; imgSrc?: string; math?: MathNode; }
+export interface ChoiceVM { letter: string; text: string; imgSrc?: string; math?: MathNode; parts?: ChoicePart[]; }
 export interface CardVM {
   id: string;
   section: string; domain: string; skill: string; difficulty: string;
@@ -29,7 +29,7 @@ export function toCardVM(
     id: view.id,
     section: view.section, domain: view.domain, skill: view.skill, difficulty: view.difficulty,
     kind: view.choices.length > 0 ? 'mc' : 'grid',
-    choices: view.choices.map((c) => ({ letter: c.letter, text: c.text, imgSrc: c.imgSrc, math: c.math })),
+    choices: view.choices.map((c) => ({ letter: c.letter, text: c.text, imgSrc: c.imgSrc, math: c.math, parts: c.parts })),
     answerKnown: view.correctAnswer !== null,
     position: { index: index0 + 1, total },
     priorStatus,
