@@ -10,15 +10,12 @@
     }
   },
   "permissions": [
-    "storage",
-    "alarms"
+    "storage"
   ],
   "host_permissions": [
     "*://satsuiteeducatorquestionbank.collegeboard.org/*",
     "*://mypractice.collegeboard.org/*",
-    "https://config.focusedpractice.app/*",
-    "https://us.i.posthog.com/*",
-    "https://api.focusedpractice.app/*"
+    "https://config.focusedpractice.app/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"

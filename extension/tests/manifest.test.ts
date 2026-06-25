@@ -32,10 +32,25 @@ describe('manifest CSP', () => {
 });
 
 for (const file of ['manifest.json', 'manifest.firefox.json', 'manifest.edge.json']) {
-  it(`${file} grants telemetry egress + alarms`, () => {
-    const m = loadManifest(file); // use the helper this test file already defines
-    expect(m.permissions).toContain('alarms');
-    expect(m.host_permissions).toContain('https://us.i.posthog.com/*');
-    expect(m.host_permissions).toContain('https://api.focusedpractice.app/*');
+  // v0.0.1 ships with telemetry gated OFF (TELEMETRY_UI_ENABLED=false). The analytics plumbing
+  // is unreachable, so its permissions must NOT be declared yet: a Chrome Web Store reviewer
+  // rejects host permissions / APIs the shipped code never exercises. The alarms permission and
+  // the PostHog/delete hosts get RE-ADDED in the same release that flips telemetry live
+  // (Rollout step 6), alongside the published privacy policy + data disclosure.
+  it(`${file} does NOT declare unused telemetry egress/alarms until telemetry ships`, () => {
+    const m = loadManifest(file);
+    expect(m.permissions).not.toContain('alarms');
+    expect(m.host_permissions).not.toContain('https://us.i.posthog.com/*');
+    expect(m.host_permissions).not.toContain('https://api.focusedpractice.app/*');
+  });
+
+  // The kill-switch config host is a resilience invariant (#6) and IS exercised on every load,
+  // so it stays. The two College Board content hosts are the extension's core function.
+  it(`${file} keeps the kill-switch config host + CB content hosts and storage`, () => {
+    const m = loadManifest(file);
+    expect(m.permissions).toContain('storage');
+    expect(m.host_permissions).toContain('https://config.focusedpractice.app/*');
+    expect(m.host_permissions).toContain('*://satsuiteeducatorquestionbank.collegeboard.org/*');
+    expect(m.host_permissions).toContain('*://mypractice.collegeboard.org/*');
   });
 }

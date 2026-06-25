@@ -4,15 +4,12 @@
   "version": "0.0.1",
   "description": "Scoring, a mistake journal, weak-area tracking, and a calculator that work on top of the official SAT Question Bank.",
   "permissions": [
-    "storage",
-    "alarms"
+    "storage"
   ],
   "host_permissions": [
     "*://satsuiteeducatorquestionbank.collegeboard.org/*",
     "*://mypractice.collegeboard.org/*",
-    "https://config.focusedpractice.app/*",
-    "https://us.i.posthog.com/*",
-    "https://api.focusedpractice.app/*"
+    "https://config.focusedpractice.app/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"

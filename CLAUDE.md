@@ -5,7 +5,7 @@
 > knowledge live, and how to keep the `docs/` knowledge base current.
 >
 > **Not legal advice** lives throughout — the legal claims here are an engineering
-> synthesis; an IP attorney signs off before launch.
+> synthesis.
 
 ## What this is
 
