@@ -458,6 +458,59 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     expect(rationale.textContent).toContain('Subtract 7');
   });
 
+  // BUG 2 (issue #84): the Reveal control must TOGGLE. A first click un-hides CB's OWN native .rationale
+  // (revealRationale — never copies/feeds CB text to a model, invariant §3); a SECOND click while it's
+  // shown must HIDE it again. On hide, CB's node must go back to display:none AND regain the
+  // data-fp-hidden (HIDDEN_ATTR) marker so unmountAnswerOverlay's teardown still restores it (teardown
+  // clears [data-fp-hidden],[data-fp-revealed]); the data-fp-revealed (REVEALED_ATTR) marker must be
+  // cleared on hide. The hide is a pure visibility flip of CB's own node — its text is never read/copied
+  // into our shadow. The button label reflects state: "Reveal explanation" ↔ "Hide explanation".
+  // Comment-free inline modal (mirrors the reveal test above): happy-dom mis-parses the .html fixture's
+  // HTML comments, corrupting the direct-children scan revealRationale/the hide loop rely on.
+  it('Reveal TOGGLES: a second click re-hides CB\'s own rationale, restores HIDDEN_ATTR, and flips the label back', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML +=
+      '<div role="dialog" class="cb-modal-container"><div class="cb-dialog-container">' +
+      '<div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
+      '<div class="cb-dialog-content">' +
+      '<table class="cb-table"><tbody>' +
+      '<tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>' +
+      '<tr><td>SAT</td><td>Math</td><td>Algebra</td><td>S</td><td>Hard</td></tr></tbody></table>' +
+      '<div class="question-content"><div class="question">If 3x + 7 = 22, x = ? [SYNTHETIC]</div></div>' +
+      '<div class="answer-content"><div class="answer-choices"><ul><li>3</li><li>5</li><li>7</li><li>15</li></ul></div>' +
+      '<div class="rationale"><p>Correct Answer: B</p><div>Subtract 7, divide by 3. [SYNTHETIC]</div></div>' +
+      '</div></div></div></div>';
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    const rationale = document.querySelector('.answer-content .rationale') as HTMLElement;
+    const reveal = () => inOverlay('.fp-reveal') as HTMLElement;
+    expect(rationale.style.display).toBe('none');                 // hidden by the overlay on mount
+    expect(rationale.hasAttribute('data-fp-hidden')).toBe(true);  // …with our restore marker
+    expect(reveal().textContent).toContain('Reveal explanation'); // label starts in the "show" affordance
+
+    // FIRST click → shown (the existing reveal behavior). Label flips to "Hide".
+    reveal().click();
+    expect(rationale.style.display).toBe('');                     // CB's own node now visible
+    expect(rationale.hasAttribute('data-fp-revealed')).toBe(true);
+    expect(rationale.hasAttribute('data-fp-hidden')).toBe(false);
+    expect(reveal().textContent).toContain('Hide explanation');   // label reflects the shown state
+
+    // SECOND click → hidden again. THIS is the lock that fails on current code (the second click is a
+    // no-op today: rationale stays visible, HIDDEN_ATTR is never restored, the label never changes).
+    reveal().click();
+    expect(rationale.style.display).toBe('none');                 // re-hidden — a pure visibility flip
+    expect(rationale.hasAttribute('data-fp-hidden')).toBe(true);  // restore marker back, so teardown un-hides it
+    expect(rationale.hasAttribute('data-fp-revealed')).toBe(false); // reveal marker cleared on hide
+    expect(reveal().textContent).toContain('Reveal explanation'); // label flipped back to "Reveal"
+
+    // CB's explanation text never leaks into our shadow — we only flip CB's own node's visibility.
+    expect(overlay()!.textContent).not.toContain('Subtract 7');
+    expect(overlay()!.textContent).not.toContain('Correct Answer: B');
+  });
+
   it('polls for CB\'s answer when the rationale lands AFTER Check — no spurious "couldn\'t grade"', async () => {
     // Live 2026-06-16: a grid-in showed "couldn't grade" because CB injects the rationale a moment
     // after the reveal box is checked, and Check read an empty answer. The loop must poll, then grade.
@@ -967,6 +1020,47 @@ describe('overlay close ✕ and cross-question navigation', () => {
     // The new overlay is grid-in (no choices, a typed-answer input) — proves it re-mounted for Q2.
     await vi.waitFor(() => expect(inOverlay('.fp-gridin')).not.toBeNull());
     expect(inOverlay('.fp-choice')).toBeNull();
+  });
+
+  // BUG 1 (issue #84): the Check verdict must SURVIVE an overlay re-mount of the SAME question. CB
+  // re-renders the question's .answer-content on its in-place updates, which re-runs showQuestion →
+  // mountAnswerOverlay, and mountAnswerOverlay resets shadow.innerHTML — wiping the verdict. Nothing
+  // re-applies it on re-mount today (only the seen-before badge survives, re-derived from priorSeen),
+  // so the "Correct"/"Not quite" verdict vanishes until the student answers again. It must persist.
+  it('keeps the Check verdict visible after the SAME question\'s overlay re-mounts (CB in-place re-render)', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // Drive a graded Check to a verdict: pick B (correct) → Check, exactly like the existing tests.
+    document.body.innerHTML += mc;                          // question ab12cd34 — MC
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    // The verdict shows initially — this passes on current code.
+    await vi.waitFor(() => expect(inOverlay('.fp-verdict')?.textContent).toContain('Correct'));
+
+    // Force a re-mount of the SAME question: tear the modal down, then RE-INJECT the same mc fixture.
+    // Determinism (see observer.ts): observeQuestions dedups on a content signature and only re-emits
+    // when the sig changes from lastSig. Removing the modal resets lastSig to null only when its
+    // 150ms-debounced read() runs on the now-empty DOM. So we MUST let that debounce settle BEFORE
+    // re-injecting — otherwise the re-add lands inside the same debounce window, the sig is unchanged,
+    // and no re-mount happens (the test would pass vacuously).
+    document.querySelector('.cb-modal-container')!.remove();
+    await new Promise((r) => setTimeout(r, 220));           // let the empty-DOM read() reset lastSig → null
+    document.body.innerHTML += mc;                          // SAME question re-rendered → overlay re-mounts
+    // A fresh host means a genuine re-mount happened (the old shadow's innerHTML was reset).
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    await vi.waitFor(() => expect(inOverlay('.fp-choice')).not.toBeNull());
+
+    // THE LOCK: the verdict must STILL be shown in the live overlay shadow after the re-mount. Fails on
+    // current code (the re-mount wipes shadow.innerHTML and nothing re-applies the verdict).
+    await vi.waitFor(() => expect(inOverlay('.fp-verdict')?.textContent).toContain('Correct'));
+    // The correct choice keeps its green state and the inline Check stays morphed to "Explain" (not
+    // reverted to a re-armed "Check") — the post-grade UI is restored, not reset.
+    expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+    expect(inOverlay('.fp-check')!.classList.contains('fp-explain')).toBe(true);
   });
 });
 
