@@ -111,37 +111,21 @@ function parseChildren(els: Element[]): MathNode[] {
   return els.map(parseMathEl).filter((n): n is MathNode => n !== null);
 }
 
-// Build a choice's overall math AST by walking the cleaned <li>'s child NODES: text nodes become
-// `text`, <math> elements are parsed semantically, and other wrappers recurse. Returns undefined when
-// the <li> carries no <math> at all (regression: plain-text / image choices keep math undefined).
+// Build a choice's math AST from the SEMANTIC MathML. CB renders choice math via MathJax v3 as TWO
+// layers in the same <li>: a VISUAL SVG glyph layer in <mjx-container>, and the SEMANTIC <math> inside
+// an <mjx-assistive-mml> that MathJax nests as a CHILD of that <mjx-container> (verified live over CDP
+// 2026-06-25: removing <mjx-container> deletes the nested <math> with it). So we read the <math>
+// element(s) DIRECTLY — never by stripping <mjx-container> — which captures the real structure
+// regardless of how the visual/semantic layers nest, and never the garbled glyph text. (The previous
+// "clone, delete every <mjx-container>, then walk" approach left items=0 on the live DOM, so the choice
+// fell through to the raw-textContent fallback and rendered the flattened glyph string e.g. "m4q20z-3".)
+// Returns undefined when the <li> carries no semantic MathML (plain-text / image / inline-SVG choices).
 function readChoiceMath(li: Element): MathNode | undefined {
-  if (!li.querySelector('math')) return undefined;
-  // Drop the MathJax visual glyph layer (its textContent is garbled) before walking, so only the
-  // semantic <math> contributes — never the visual "v150"/glyph noise.
-  const clone = li.cloneNode(true) as Element;
-  clone.querySelectorAll('mjx-container').forEach((n) => n.remove());
-  const items = walkNodes(clone);
+  const items = [...li.querySelectorAll('math')]
+    .map(parseMathEl)
+    .filter((n): n is MathNode => n !== null);
   if (items.length === 0) return undefined;
   return row(items);
-}
-
-function walkNodes(parent: Node): MathNode[] {
-  const out: MathNode[] = [];
-  for (const node of Array.from(parent.childNodes)) {
-    if (node.nodeType === 3) {                         // text node
-      const value = collapse(node.textContent);
-      if (value) out.push({ kind: 'text', value });
-    } else if (node.nodeType === 1) {
-      const el = node as Element;
-      if (el.localName === 'math') {
-        const parsed = parseMathEl(el);
-        if (parsed) out.push(parsed);
-      } else {
-        out.push(...walkNodes(el));                    // recurse through wrappers
-      }
-    }
-  }
-  return out;
 }
 
 // Cleaned flattened text for a11y/fallback: drop the MathJax visual glyph layer (mjx-container, whose
