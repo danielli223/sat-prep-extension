@@ -319,6 +319,130 @@ describe('readQuestion — <mfenced> parentheses in answer choices (#80)', () =>
   });
 });
 
+// Issue #85 — REGRESSION. Multiple-choice answers whose choices are FULL SENTENCES that contain
+// inline <math> NUMBERS (e.g. Advanced Math "best interpretation of the y-intercept" questions) render
+// as NUMBERS ONLY — all prose is dropped — and the inline numbers CONCATENATE into a value that matches
+// no real choice (inline 1997 + 9,000 → "19979,000"). Cause: readChoiceMath(li) does
+// [...li.querySelectorAll('math')].map(parseMathEl), which captures ONLY the math nodes and discards the
+// interleaved plain-text prose. The fix walks the choice's child nodes IN DOCUMENT ORDER — text node →
+// text, semantic <math> (inside <mjx-assistive-mml>) → AST — skipping ONLY the visual glyph layer; the
+// interleaved content lives in the EXISTING c.math AST as a row of text + math nodes (renderMath already
+// handles { kind: 'text' }). Synthetic fixture (fabricated math + prose, per CLAUDE.md).
+describe('readQuestion — mixed prose + inline-math answer choices (#85)', () => {
+  const choices = () => readQuestion(load('math-prose-choice.html'))!.choices;
+
+  it('reads the question cleanly when choices mix prose + inline math', () => {
+    const v = readQuestion(load('math-prose-choice.html'))!;
+    expect(v.id).toBe('a1b2c3d4');
+    expect(v.section).toBe('Math');
+    expect(v.choices.map((c) => c.letter)).toEqual(['A', 'B', 'C', 'D']);
+    expect(v.correctAnswer).toBe('A');
+  });
+
+  it('keeps the PROSE WORDS in c.math alongside both inline numbers as DISTINCT values (the bug dropped the prose)', () => {
+    const c = choices()[0]!;   // "In 1997 the model estimates 9,000 subscribers."
+    expect(c.math).toBeDefined();
+    const s = flat(c.math);
+    // Distinctive prose words survive in the math AST (today they live only in the text fallback, so the
+    // rendered choice shows numbers only).
+    expect(s).toContain('subscribers');
+    expect(s).toContain('estimates');
+    // Both inline numbers survive as DISTINCT values…
+    expect(s).toContain('1997');
+    expect(s).toContain('9,000');
+  });
+
+  it('the regression symptom is gone: the two inline numbers no longer CONCATENATE into "19979,000"', () => {
+    const c = choices()[0]!;
+    const s = flat(c.math);
+    // The exact mash the bug produces (prose dropped, 1997 + 9,000 jammed together) must NOT appear.
+    expect(s).not.toContain('19979,000');
+    // And the second sentence's mash likewise.
+    expect(flat(choices()[3]!.math)).not.toContain('20104,500');
+  });
+
+  it('preserves inter-token spacing: a word adjacent to a number is NOT run together', () => {
+    const c = choices()[0]!;
+    const s = flat(c.math);
+    // The prose word before/after each number must be separated by whitespace — "In 1997", not "In1997";
+    // "9,000 subscribers", not "9,000subscribers". This forces preserving boundary whitespace, not
+    // trimming each text node before concatenating.
+    expect(s).toMatch(/In\s+1997/);
+    expect(s).toMatch(/9,000\s+subscribers/);
+    expect(s).toMatch(/1997\s+the/);
+  });
+
+  it('keeps the prose + numbers in DOCUMENT ORDER (prose-before < number < prose-after)', () => {
+    const c = choices()[0]!;
+    const s = flat(c.math);
+    const iIn = s.indexOf('In');
+    const i1997 = s.indexOf('1997');
+    const iEstimates = s.indexOf('estimates');
+    const i9000 = s.indexOf('9,000');
+    const iSubscribers = s.indexOf('subscribers');
+    // Every token was found…
+    expect([iIn, i1997, iEstimates, i9000, iSubscribers].every((x) => x >= 0)).toBe(true);
+    // …and they appear in the natural sentence order.
+    expect(iIn).toBeLessThan(i1997);
+    expect(i1997).toBeLessThan(iEstimates);
+    expect(iEstimates).toBeLessThan(i9000);
+    expect(i9000).toBeLessThan(iSubscribers);
+  });
+
+  it('structural survival: an inline <msup> exponent inside prose still yields a sup node (the #35 fix is not reverted)', () => {
+    const c = choices()[1]!;   // "The area grows as x² each year."
+    expect(c.math).toBeDefined();
+    const sups = collect(c.math, 'sup');
+    expect(sups.length).toBeGreaterThanOrEqual(1);
+    expect(sups.map((s) => (s.kind === 'sup' ? flat(s.sup) : ''))).toContain('2');
+    // The surrounding prose survives in the SAME AST (not just the text fallback).
+    const s = flat(c.math);
+    expect(s).toContain('area');
+    expect(s).toContain('year');
+  });
+
+  it('structural survival: an inline <mfrac> inside prose still yields a frac node alongside the prose', () => {
+    const c = choices()[2]!;   // "Each share decreases by 3/4 weekly."
+    expect(c.math).toBeDefined();
+    const fracs = collect(c.math, 'frac');
+    expect(fracs).toHaveLength(1);
+    const frac = fracs[0]!;
+    if (frac.kind !== 'frac') throw new Error('expected frac');
+    expect(flat(frac.num)).toBe('3');
+    expect(flat(frac.den)).toBe('4');
+    const s = flat(c.math);
+    expect(s).toContain('decreases');
+    expect(s).toContain('weekly');
+  });
+
+  it('does NOT read the garbled visual glyph layer (mjx-math) into the AST', () => {
+    for (const c of choices()) {
+      const s = flat(c.math);
+      // The deliberately-garbled mjx-math tokens (e.g. "G7x9", "Q2k0", "Vx2g", "Wf34h") must never leak.
+      expect(s).not.toContain('G7x9');
+      expect(s).not.toContain('Q2k0');
+      expect(s).not.toContain('Vx2g');
+      expect(s).not.toContain('Wf34h');
+    }
+  });
+
+  it('does NOT leak the raw <annotation> TeX into the AST', () => {
+    for (const c of choices()) {
+      const s = flat(c.math);
+      expect(s).not.toContain('\\frac');
+      expect(s).not.toContain('{,}');   // the 9{,}000 / 4{,}500 TeX form must not leak
+    }
+  });
+
+  it('regression: a PURE-expression choice still has NO stray prose text leaking into its AST', () => {
+    // Reuse math-choice.html (pure expressions, no prose). Its flattened AST must stay clean — the #85
+    // interleaving fix must not start injecting whitespace/garbage into pure-math choices.
+    const pure = readQuestion(load('math-choice.html'))!.choices;
+    expect(flat(pure[3]!.math).replace(/\s+/g, '')).toBe('xn');   // x_n — no leaked prose
+    expect(flat(pure[1]!.math)).not.toContain('subscribers');
+  });
+});
+
 // Live Question Bank (verified over CDP 2026-06-25): for EXPRESSION choices, CB renders math via
 // MathJax v3 — a visual SVG glyph layer in <mjx-container> with the semantic <math> in an
 // <mjx-assistive-mml> nested as a CHILD of that same <mjx-container>. The old reader removed the whole

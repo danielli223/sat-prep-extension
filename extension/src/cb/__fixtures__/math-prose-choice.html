@@ -1,0 +1,185 @@
+<!-- [SYNTHETIC] fabricated math + prose, per CLAUDE.md  never real CB content.
+     Fixture for issue #85: multiple-choice answers whose choices are FULL SENTENCES
+     that contain inline math NUMBERS (e.g. Advanced Math "best interpretation of the
+     y-intercept" questions). Mirrors math-choice.html / math-fenced-choice.html
+     structure (dialog container, h4 "Question ID:", cb-table taxonomy row,
+     answer-choices ul li choices). ALL question text and answers are FABRICATED and
+     marked [SYNTHETIC]; never commit real CB question content.
+
+     Bug model (issue #85): readChoiceMath(li) does
+         [...li.querySelectorAll('math')].map(parseMathEl)
+     and wraps the result in a single row. For a MIXED prose+math choice it captures
+     ONLY the inline math nodes and DROPS the interleaved plain-text prose. So a
+     sentence like "By 1997, the number of subscribers had increased by 9,000" reads
+     as just the two numbers, and they CONCATENATE into "19979,000"  a value that
+     matches no real choice. The prose vanishes entirely.
+
+     Each inline number is rendered the way the live two-layer MathJax shape looks:
+       1. a VISUAL <mjx-container> glyph layer (deliberately GARBLED text in
+          <mjx-math>, optionally wrapped in <svg>) which must NOT be read, and
+       2. a SEMANTIC <math> inside <mjx-assistive-mml> that carries the true number.
+     REAL PROSE TEXT NODES are interleaved BEFORE, BETWEEN, and AFTER the inline math
+     (with realistic surrounding whitespace) so the sentence reads naturally and the
+     fix must preserve inter-token spacing  not trim each text node into a mash.
+
+     The required behavior: walk the choice's child nodes IN DOCUMENT ORDER  text
+     node to text, semantic <math> (the one inside <mjx-assistive-mml>) to parsed AST
+      while SKIPPING ONLY the visual glyph layer, never the surrounding prose. The
+     interleaved content lives in the choice's existing c.math AST as a row of text +
+     math nodes in document order; renderMath already handles { kind: 'text' }.
+
+     The four choices below exercise:
+       A) two PLAIN <mn> numbers in a y-intercept-interpretation sentence (1997 and
+          9,000) so the concatenation symptom "19979,000" is directly testable, and
+          spacing around each number must survive.
+       B) a sentence whose inline number carries STRUCTURE (an <msup> exponent) so a
+          test proves the <math>-direct structural fix survives ALONGSIDE the prose.
+       C) a sentence whose inline number carries an <mfrac> embedded in prose
+          (structure survival, second form).
+       D) a y-intercept-style sentence with two plain numbers (2010 and 4,500).
+     NOTE: comment prose here is kept free of angle brackets and double dashes so the
+     HTML comment parser cannot mis-close them. -->
+<div role="dialog" class="cb-modal-container export-modal-container">
+  <div class="cb-dialog-container">
+    <div class="cb-dialog-header">
+      <h4 class="cb-roboto cb-font-weight-black">Question ID: a1b2c3d4</h4>
+      <button class="cb-btn cb-btn-square"><span class="sr-only">Copy</span></button>
+    </div>
+    <div class="cb-dialog-content">
+      <div class="question-info">
+        <div class="question-detail-info">
+          <div class="question-banner">
+            <table class="cb-table">
+              <tbody>
+                <tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>
+                <tr><td>SAT</td><td>Math</td><td>Advanced Math</td><td>Nonlinear functions</td><td>Hard</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="row">
+          <div class="question-content col-xs-12">
+            <h5 class="text">Math</h5>
+            <div class="prompt cb-margin-bottom-16"></div>
+            <div class="question">Which statement is the best interpretation of the y-intercept? [SYNTHETIC]</div>
+          </div>
+          <div class="answer-content col-xs-12">
+            <div class="answer-choices">
+              <ul>
+                <!-- A) Y-INTERCEPT SENTENCE with two PLAIN numbers: 1997 and 9,000. [SYNTHETIC]
+                     The sentence reads "In 1997 the model estimates 9,000 subscribers." Each number is
+                     a two-layer MathJax inline expression; the visual mjx-math is garbled. If the reader
+                     drops the prose, the AST flattens to "19979,000" (the bug's signature mash). -->
+                <li>
+                  <p class="choice_paragraph">
+                    In
+                    <mjx-container class="MathJax" jax="SVG" display="false">
+                      <svg><mjx-math aria-hidden="true">G7x9</mjx-math></svg>
+                      <mjx-assistive-mml unselectable="on" display="inline">
+                        <math xmlns="http://www.w3.org/1998/Math/MathML">
+                          <semantics>
+                            <mn>1997</mn>
+                            <annotation encoding="application/x-tex">1997</annotation>
+                          </semantics>
+                        </math>
+                      </mjx-assistive-mml>
+                    </mjx-container>
+                    the model estimates
+                    <mjx-container class="MathJax" jax="SVG" display="false">
+                      <svg><mjx-math aria-hidden="true">Q2k0</mjx-math></svg>
+                      <mjx-assistive-mml unselectable="on" display="inline">
+                        <math xmlns="http://www.w3.org/1998/Math/MathML">
+                          <semantics>
+                            <mn>9,000</mn>
+                            <annotation encoding="application/x-tex">9{,}000</annotation>
+                          </semantics>
+                        </math>
+                      </mjx-assistive-mml>
+                    </mjx-container>
+                    subscribers.
+                  </p>
+                </li>
+                <!-- B) STRUCTURED-number sentence: an inline msup exponent inside prose. [SYNTHETIC]
+                     "The area grows as x^2 each year." Proves the <math>-direct structural fix (msup)
+                     survives ALONGSIDE the prose words. -->
+                <li>
+                  <p class="choice_paragraph">
+                    The area grows as
+                    <mjx-container class="MathJax" jax="SVG" display="false">
+                      <svg><mjx-math aria-hidden="true">Vx2g</mjx-math></svg>
+                      <mjx-assistive-mml unselectable="on" display="inline">
+                        <math xmlns="http://www.w3.org/1998/Math/MathML">
+                          <semantics>
+                            <msup><mi>x</mi><mn>2</mn></msup>
+                            <annotation encoding="application/x-tex">x^2</annotation>
+                          </semantics>
+                        </math>
+                      </mjx-assistive-mml>
+                    </mjx-container>
+                    each year.
+                  </p>
+                </li>
+                <!-- C) STRUCTURED-number sentence: an inline mfrac inside prose. [SYNTHETIC]
+                     "Each share decreases by 3/4 weekly." Proves the mfrac structural fix survives
+                     alongside the prose words (second structural form). -->
+                <li>
+                  <p class="choice_paragraph">
+                    Each share decreases by
+                    <mjx-container class="MathJax" jax="SVG" display="false">
+                      <svg><mjx-math aria-hidden="true">Wf34h</mjx-math></svg>
+                      <mjx-assistive-mml unselectable="on" display="inline">
+                        <math xmlns="http://www.w3.org/1998/Math/MathML">
+                          <semantics>
+                            <mfrac><mn>3</mn><mn>4</mn></mfrac>
+                            <annotation encoding="application/x-tex">\frac{3}{4}</annotation>
+                          </semantics>
+                        </math>
+                      </mjx-assistive-mml>
+                    </mjx-container>
+                    weekly.
+                  </p>
+                </li>
+                <!-- D) Second Y-INTERCEPT SENTENCE with two plain numbers: 2010 and 4,500. [SYNTHETIC]
+                     "By 2010 the total had reached 4,500 members." A second concatenation candidate
+                     (the mash would be "20104,500"). -->
+                <li>
+                  <p class="choice_paragraph">
+                    By
+                    <mjx-container class="MathJax" jax="SVG" display="false">
+                      <svg><mjx-math aria-hidden="true">Z1m0</mjx-math></svg>
+                      <mjx-assistive-mml unselectable="on" display="inline">
+                        <math xmlns="http://www.w3.org/1998/Math/MathML">
+                          <semantics>
+                            <mn>2010</mn>
+                            <annotation encoding="application/x-tex">2010</annotation>
+                          </semantics>
+                        </math>
+                      </mjx-assistive-mml>
+                    </mjx-container>
+                    the total had reached
+                    <mjx-container class="MathJax" jax="SVG" display="false">
+                      <svg><mjx-math aria-hidden="true">P4r5</mjx-math></svg>
+                      <mjx-assistive-mml unselectable="on" display="inline">
+                        <math xmlns="http://www.w3.org/1998/Math/MathML">
+                          <semantics>
+                            <mn>4,500</mn>
+                            <annotation encoding="application/x-tex">4{,}500</annotation>
+                          </semantics>
+                        </math>
+                      </mjx-assistive-mml>
+                    </mjx-container>
+                    members.
+                  </p>
+                </li>
+              </ul>
+            </div>
+            <div class="rationale">
+              <p class="cb-margin-bottom-16 cb-font-weight-bold">Correct Answer: A</p>
+              <div>The y-intercept is the value when the input is the starting year. [SYNTHETIC]</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
