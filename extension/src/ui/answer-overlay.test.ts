@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard, maskAnswerContent, mountCurtain, morphCheckToExplain } from './answer-overlay';
 import { score } from '../scoring';
+import { readQuestion } from '../cb/reader';
+import { toCardVM } from './view-model';
 import type { CardVM } from './view-model';
 import type { MathNode } from '../cb/reader';
 
@@ -708,6 +713,32 @@ describe('faithful math rendering in choices (#35)', () => {
     const sups = a.querySelectorAll('sup');
     expect(sups.length).toBeGreaterThanOrEqual(3);
     expect([...sups].map((s) => s.textContent)).toContain('20');
+  });
+
+  // Issue #80: <mfenced> parentheses must reach the rendered choice. End-to-end through the PUBLIC path
+  // (readQuestion → toCardVM → mountAnswerOverlay) so the test fails today because the READER drops the
+  // attribute-carried parens (renderMath then has nothing to render), and passes once the reader emits
+  // them. The fixture is SYNTHETIC (fabricated MathML, per CLAUDE.md). renderMath stays unchanged — the
+  // fix is parsing-side; this locks that the restored parens actually render.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const fencedVm = (): CardVM =>
+    toCardVM(readQuestion(((): Element => {
+      document.body.innerHTML = readFileSync(
+        join(here, '..', 'cb', '__fixtures__', 'math-fenced-choice.html'), 'utf8');
+      return document.querySelector('.cb-dialog-container')!;
+    })())!, 0, 1);
+
+  it('renders the literal "(" and ")" for an <mfenced> factoring choice (parens reach the shadow)', () => {
+    const vmFenced = fencedVm();
+    const ac = cbAnswerContent();   // resets document.body to the overlay host
+    const shadow = mountAnswerOverlay(ac, vmFenced, noop());
+    const a = shadow.querySelector('.fp-choice[data-letter="A"] .fp-choice-text')!;
+    expect(a).not.toBeNull();
+    // The rendered HTML for choice A (2xy(8x²y + 7)) must carry the literal parens, not just "2xy8x²y+7".
+    expect(a.textContent).toContain('(');
+    expect(a.textContent).toContain(')');
+    // The inner superscript still renders as a <sup> alongside the restored parens.
+    expect(a.querySelector('sup')).not.toBeNull();
   });
 
   it('XSS: a hostile text value inside a math AST is ESCAPED — no live <img onerror>/<script> reaches the shadow', () => {
