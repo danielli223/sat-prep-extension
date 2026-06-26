@@ -245,6 +245,46 @@ describe('readQuestion — faithful math in answer choices (#35)', () => {
   });
 });
 
+// Live Question Bank (verified over CDP 2026-06-25): for EXPRESSION choices, CB renders math via
+// MathJax v3 — a visual SVG glyph layer in <mjx-container> with the semantic <math> in an
+// <mjx-assistive-mml> nested as a CHILD of that same <mjx-container>. The old reader removed the whole
+// <mjx-container> before reading, deleting the nested <math> with it (live probe: 0 <math> survived) →
+// empty AST → the raw-textContent fallback rendered the flattened glyph string (e.g. "m4q20z-3"). The
+// reader must read the <math> element(s) directly. The glyph layer carries a GARBLE token so a test
+// proves we read the SEMANTIC tree, never the visual glyphs.
+describe('readQuestion — MathJax <math> nested INSIDE <mjx-container> (verified live 2026-06-25)', () => {
+  const nested =
+    '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: cc33dd44</h4></div>' +
+    '<div class="answer-content"><div class="answer-choices"><ul><li><div><p>' +
+    '<mjx-container class="MathJax" jax="SVG">' +
+    '<svg><mjx-math aria-hidden="true">GARBLEm4q20z3</mjx-math></svg>' +
+    '<mjx-assistive-mml unselectable="on" display="inline">' +   /* CHILD of mjx-container — the live shape */
+    '<math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow>' +
+    '<msup><mi>m</mi><mn>4</mn></msup>' +
+    '<msup><mi>q</mi><mn>20</mn></msup>' +
+    '<msup><mi>z</mi><mrow><mo>&#x2212;</mo><mn>3</mn></mrow></msup>' +
+    '</mrow><annotation encoding="application/x-tex">m^4q^{20}z^{-3}</annotation></semantics></math>' +
+    '</mjx-assistive-mml>' +
+    '</mjx-container>' +
+    '</p></div></li></ul></div></div></div>';
+
+  it('parses the exponents even though <math> is a CHILD of <mjx-container>', () => {
+    document.body.innerHTML = nested;
+    const c = readQuestion(document.querySelector('.cb-dialog-container')!)!.choices[0]!;
+    expect(c.math).toBeDefined();
+    const sups = collect(c.math, 'sup');
+    expect(sups.length).toBeGreaterThanOrEqual(3);   // m^4, q^20, z^-3
+    expect(sups.map((s) => (s.kind === 'sup' ? flat(s.sup) : ''))).toContain('20');
+  });
+
+  it('reads the semantic tree, never the garbled visual glyph layer', () => {
+    document.body.innerHTML = nested;
+    const c = readQuestion(document.querySelector('.cb-dialog-container')!)!.choices[0]!;
+    expect(flat(c.math)).not.toContain('GARBLE');
+    expect(c.text).not.toContain('GARBLE');
+  });
+});
+
 // Live Question Bank (observed 2026-06-25): CB renders choice math as inline <img class="math-img">
 // (self-contained data:image/png), NOT MathJax. A choice that pairs two expressions is an ORDERED
 // sequence "[img] and [img]" inside p.choice_paragraph. The reader only captured a lone <img> (when the
