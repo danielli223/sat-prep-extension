@@ -135,20 +135,53 @@ function parseChildren(els: Element[]): MathNode[] {
   return els.map(parseMathEl).filter((n): n is MathNode => n !== null);
 }
 
-// Build a choice's math AST from the SEMANTIC MathML. CB renders choice math via MathJax v3 as TWO
-// layers in the same <li>: a VISUAL SVG glyph layer in <mjx-container>, and the SEMANTIC <math> inside
-// an <mjx-assistive-mml> that MathJax nests as a CHILD of that <mjx-container> (verified live over CDP
-// 2026-06-25: removing <mjx-container> deletes the nested <math> with it). So we read the <math>
-// element(s) DIRECTLY — never by stripping <mjx-container> — which captures the real structure
-// regardless of how the visual/semantic layers nest, and never the garbled glyph text. (The previous
-// "clone, delete every <mjx-container>, then walk" approach left items=0 on the live DOM, so the choice
-// fell through to the raw-textContent fallback and rendered the flattened glyph string e.g. "m4q20z-3".)
-// Returns undefined when the <li> carries no semantic MathML (plain-text / image / inline-SVG choices).
+// Collapse a TEXT NODE's whitespace for the math AST: internal whitespace runs → a single space, but
+// PRESERVE a single leading/trailing space when present (issue #85). Unlike `collapse`, we do NOT trim —
+// trimming each interleaved prose node would jam a word against the adjacent inline number ("In1997",
+// "9,000subscribers"). An all-whitespace node collapses to a single " " here; callers skip those.
+const collapseInline = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ');
+
+// Build a choice's math AST from the SEMANTIC MathML — INTERLEAVED with any surrounding prose (issue
+// #85). CB renders choice math via MathJax v3 as TWO layers in the same <li>: a VISUAL SVG glyph layer
+// (<svg>/<mjx-math> inside <mjx-container>), and the SEMANTIC <math> inside an <mjx-assistive-mml> that
+// MathJax nests as a CHILD of that <mjx-container> (verified live over CDP 2026-06-25: removing
+// <mjx-container> deletes the nested <math> with it). For a MIXED prose+math choice (a full sentence
+// with inline <math> numbers), capturing only the <math> nodes DROPPED the interleaved prose and jammed
+// the inline numbers together ("19979,000"). So we walk the <li>'s descendant nodes IN DOCUMENT ORDER:
+//   - TEXT node → a { kind: 'text' } node (whitespace collapsed but boundary spaces preserved); an
+//     all-whitespace node is skipped so pure-expression choices gain no stray nodes.
+//   - SEMANTIC <math> → parseMathEl (which already recurses); we do not descend into it further.
+//   - the VISUAL glyph layer (localName svg / mjx-math) → SKIPPED entirely (its text is garbled); we
+//     never descend into it, which keeps the garble out of the AST.
+//   - any OTHER element (p, span, mjx-container, mjx-assistive-mml, …) → descend into its children;
+//     descending through <mjx-container> is how we reach the nested <mjx-assistive-mml> > <math>.
+// Returns undefined unless at least one <math> element was found, so a plain-text / image / inline-SVG
+// choice still falls through to the parts/image/text paths in readQuestion. A pure single-expression
+// choice yields exactly the one math node (byte-for-byte as before), preserving the #35 behaviour.
 function readChoiceMath(li: Element): MathNode | undefined {
-  const items = [...li.querySelectorAll('math')]
-    .map(parseMathEl)
-    .filter((n): n is MathNode => n !== null);
-  if (items.length === 0) return undefined;
+  const items: MathNode[] = [];
+  let sawMath = false;
+  const walk = (node: Node) => {
+    for (const n of Array.from(node.childNodes)) {
+      if (n.nodeType === 3) {
+        const value = collapseInline(n.textContent);
+        if (value.trim()) items.push({ kind: 'text', value });   // skip all-whitespace nodes
+      } else if (n.nodeType === 1) {
+        const el = n as Element;
+        const name = el.localName;
+        if (name === 'math') {
+          const parsed = parseMathEl(el);
+          if (parsed) { items.push(parsed); sawMath = true; }
+        } else if (name === 'svg' || name === 'mjx-math') {
+          // CB's garbled MathJax visual glyph layer — never read, never descend.
+        } else {
+          walk(el);   // descend (p / span / mjx-container / mjx-assistive-mml / …)
+        }
+      }
+    }
+  };
+  walk(li);
+  if (!sawMath) return undefined;   // only treat the choice as "math" when it actually carries a <math>
   return row(items);
 }
 
