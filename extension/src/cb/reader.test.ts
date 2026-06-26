@@ -245,6 +245,80 @@ describe('readQuestion — faithful math in answer choices (#35)', () => {
   });
 });
 
+// Issue #80 — MathML answer choices whose PARENTHESES are carried by <mfenced> (open/close/separators
+// ATTRIBUTES) lose their parens: 2xy(8x²y + 7) renders as 2xy8x²y+7. parseMathEl has no `mfenced` case,
+// so it falls through to `default → row(parseChildren)`, which walks only child ELEMENTS and discards
+// the attribute-carried fences. The fix adds a `case 'mfenced'` that emits open + children (interleaved
+// with separators) + close as text/row — NO new MathNode kind (text+row already express fences). The
+// fixture is SYNTHETIC (fabricated MathML, per CLAUDE.md). Reuses the load()/flat()/collect() helpers.
+describe('readQuestion — <mfenced> parentheses in answer choices (#80)', () => {
+  const choices = () => readQuestion(load('math-fenced-choice.html'))!.choices;
+
+  it('reads the question cleanly when choices carry <mfenced> MathML', () => {
+    const v = readQuestion(load('math-fenced-choice.html'))!;
+    expect(v.id).toBe('fe09ab12');
+    expect(v.section).toBe('Math');
+    expect(v.choices.map((c) => c.letter)).toEqual(['A', 'B', 'C', 'D']);
+    expect(v.correctAnswer).toBe('A');
+  });
+
+  it('keeps the <mfenced> parentheses AROUND the inner expression (the bug: they were dropped)', () => {
+    const c = choices()[0]!;   // 2xy(8x²y + 7)
+    expect(c.math).toBeDefined();
+    const s = flat(c.math);
+    // The default fences are "(" and ")"; they must surround the inner 8…7 expression.
+    expect(s).toContain('(');
+    expect(s).toContain(')');
+    // Specifically the parens wrap the inner row: "(" comes before the inner content and ")" after it.
+    expect(s).toMatch(/\(.*8.*7.*\)/);
+  });
+
+  it('keeps the inner <msup> superscript intact alongside the restored fences (only parens were lost)', () => {
+    const c = choices()[0]!;   // 2xy(8x²y + 7)
+    // The msup (x²) inside the fenced expression must still parse to a `sup` node — the fix restores the
+    // parens WITHOUT flattening the superscript that already worked.
+    const sups = collect(c.math, 'sup');
+    expect(sups.length).toBeGreaterThanOrEqual(1);
+    expect(sups.map((s) => (s.kind === 'sup' ? flat(s.sup) : ''))).toContain('2');
+  });
+
+  it('honors explicit open/close attributes and interleaves the separator: [a;b]', () => {
+    const c = choices()[1]!;   // <mfenced open="[" close="]" separators=";"> a b
+    const s = flat(c.math);
+    expect(s).toContain('[');
+    expect(s).toContain(']');
+    expect(s).toContain('a');
+    expect(s).toContain('b');
+    // The separator goes BETWEEN the two children: "[a;b]".
+    expect(s).toContain(';');
+    expect(s.replace(/\s+/g, '')).toBe('[a;b]');
+  });
+
+  it('recurses into a nested <mfenced>: ((x)) — doubled parens', () => {
+    const c = choices()[2]!;   // <mfenced><mfenced><mi>x</mi></mfenced></mfenced>
+    const s = flat(c.math).replace(/\s+/g, '');
+    expect(s).toContain('((');
+    expect(s).toContain('))');
+    expect(s).toBe('((x))');
+  });
+
+  it('regression-lock: parens supplied by fence OPERATORS <mo>(</mo>…<mo>)</mo> already render (passes pre- and post-fix)', () => {
+    const c = choices()[3]!;   // <mo>(</mo> n + 1 <mo>)</mo>
+    const s = flat(c.math);
+    // mo → text already, so this never depended on the mfenced fix — it must hold both before and after.
+    expect(s).toContain('(');
+    expect(s).toContain(')');
+    expect(s.replace(/\s+/g, '')).toBe('(n+1)');
+  });
+
+  it('does NOT leak the raw <annotation> TeX (\\left( … \\right)) into the AST', () => {
+    for (const c of choices()) {
+      expect(flat(c.math)).not.toContain('\\left');
+      expect(flat(c.math)).not.toContain('\\right');
+    }
+  });
+});
+
 // Live Question Bank (verified over CDP 2026-06-25): for EXPRESSION choices, CB renders math via
 // MathJax v3 — a visual SVG glyph layer in <mjx-container> with the semantic <math> in an
 // <mjx-assistive-mml> nested as a CHILD of that same <mjx-container>. The old reader removed the whole
