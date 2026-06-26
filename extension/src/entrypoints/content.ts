@@ -7,7 +7,7 @@ import { score, type ScoreResult } from '../scoring';
 import { mountHost, cardSlot, HOST_ID, stopPointerPropagation } from '../ui/host';
 import { toCardVM } from '../ui/view-model';
 import {
-  findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, mountCurtain, renderVerdict,
+  findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, mountCurtain,
   renderNeedAnswer, renderStaleCard, toggleRationale, setRevealLabel, applyVerdict, type AnswerHandlers,
 } from '../ui/answer-overlay';
 import { renderStartPanel } from '../ui/start-panel';
@@ -411,9 +411,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       return;
     }
     const result = score(pick, answer ?? '');
-    // Issue #84: the correct A–D letter renderVerdict/applyVerdict use to light the green choice. Only a
-    // graded MC answer yields one; grid-in (turned away above by the stale-card guard) stays null so no
-    // selector is ever built from it.
+    // Issue #84: the correct answer applyVerdict uses to light the green choice. For a graded MC answer
+    // this is the A–D letter; for a grid-in it's the numeric answer string (which applyVerdict's
+    // /^[A-D]$/ guard rejects, so no choice selector is ever built from it). null when ungraded.
     const correctLetter = (result.graded && answer) ? answer.trim().toUpperCase() : null;
     if (result.graded && answer) {
       // Issue #84: cache the verdict (in-memory; student-data only, never persisted) so a re-mount of
