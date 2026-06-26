@@ -462,6 +462,68 @@ describe('readQuestion — inline-SVG (parabola) answer choices [issue #36]', ()
   });
 });
 
+// Issue #82: the #36 graph choices got an extra wrinkle in the LIVE DOM — each graph choice's <li>
+// ALSO contains a NESTED <ul><li> accessibility point-list (CB's verbalized description of the
+// graph). This breaks the reader two ways: (1) the '.answer-choices ul > li' selector over-matches,
+// so every nested <li> becomes a PHANTOM choice (far more than the 4 real A–D); (2) readChoiceMath
+// finds the a11y <math> inside the nested point-list, so the graph choice is mistaken for a MATH
+// choice — the real <svg> is dropped and the verbalized fraction prose ("StartFraction 31 Over 10
+// EndFraction", "(N comma M)") leaks in as the choice text. The fix must keep the #36 contract:
+// EXACTLY 4 lettered choices, the graph surfaced as a serialized data:image/svg+xml imgSrc, the a11y
+// MathML NOT promoted to choice.math, and no verbalized prose in choice.text. Synthetic fixture only.
+describe('readQuestion — graph (svg) answer choices with nested a11y point-lists [issue #82]', () => {
+  it('reads EXACTLY four lettered choices A–D (no phantom rows from the nested a11y point-lists)', () => {
+    const v = readQuestion(load('graph-choice.html'))!;
+    expect(v.choices).toHaveLength(4);
+    expect(v.choices.map((c) => c.letter)).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('surfaces each graph as a data:image/svg+xml imgSrc (the real graph is not dropped)', () => {
+    const v = readQuestion(load('graph-choice.html'))!;
+    for (const c of v.choices) {
+      expect(c.imgSrc).toBeDefined();
+      expect(c.imgSrc!).toMatch(/^data:image\/svg\+xml/);
+    }
+  });
+
+  it('does NOT promote the a11y point-list MathML to choice.math (the graph stays a graph)', () => {
+    const v = readQuestion(load('graph-choice.html'))!;
+    for (const c of v.choices) {
+      expect(c.math).toBeUndefined();
+    }
+  });
+
+  it('does NOT leak the verbalized a11y prose / math / CSS into choice.text', () => {
+    const v = readQuestion(load('graph-choice.html'))!;
+    for (const c of v.choices) {
+      expect(c.text).not.toContain('StartFraction');
+      expect(c.text).not.toContain('EndFraction');
+      expect(c.text).not.toContain('comma');
+      expect(c.text).not.toContain('opens upward');
+      expect(c.text).not.toContain('vertex');
+      expect(c.text).not.toContain('passes through');
+      // the SVG <style> CSS block must not leak either (mirror #36)
+      expect(c.text).not.toContain('stroke-linecap');
+      expect(c.text).not.toContain('*{');
+    }
+  });
+
+  it('strips inert <script> nodes out of the serialized SVG imgSrc (safety, mirror #36)', () => {
+    const v = readQuestion(load('graph-choice.html'))!;
+    for (const c of v.choices) {
+      expect(c.imgSrc).toBeDefined();
+      const imgSrc = c.imgSrc!;
+      expect(imgSrc).not.toContain('<script');
+      expect(decodeURIComponent(imgSrc)).not.toContain('<script');
+    }
+  });
+
+  it('still reads the correct answer from the rationale', () => {
+    const v = readQuestion(load('graph-choice.html'))!;
+    expect(v.correctAnswer).toBe('B');
+  });
+});
+
 // Issue #55 — STUDENT bank (mypractice.collegeboard.org/questionbank/results).
 // CHARACTERIZATION: the student bank shares the entire INNER question DOM with the
 // educator bank, so `readQuestion` should work unchanged when handed the student modal

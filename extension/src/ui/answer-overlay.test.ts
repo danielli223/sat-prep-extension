@@ -908,3 +908,43 @@ it('renderVerdict writes "Correct" for a correct result and "Not quite" for a wr
   expect(shadow2.querySelector('.fp-verdict')!.textContent).toContain('Not quite');
   expect(shadow2.querySelector('.fp-verdict .fp-no')).not.toBeNull();
 });
+
+// Issue #82: graph (inline-SVG) answer choices with nested a11y point-lists. End-to-end through the
+// PUBLIC path (readQuestion → toCardVM → mountAnswerOverlay), so the test fails today for the REAL
+// bug — today the reader emits phantom rows + a math choice carrying the verbalized fraction prose,
+// so the overlay renders verbalized math text instead of the graph image — and passes once the reader
+// surfaces the graph as imgSrc with clean text. The fixture is SYNTHETIC (fabricated graphs + prose,
+// per CLAUDE.md). The overlay renderer (choiceBody) already renders imgSrc as <img class="fp-choice-img">.
+describe('graph (svg) answer choices render as <img>, not verbalized prose [issue #82]', () => {
+  const here2 = dirname(fileURLToPath(import.meta.url));
+  const graphVm = (): CardVM =>
+    toCardVM(readQuestion(((): Element => {
+      document.body.innerHTML = readFileSync(
+        join(here2, '..', 'cb', '__fixtures__', 'graph-choice.html'), 'utf8');
+      return document.querySelector('.cb-dialog-container')!;
+    })())!, 0, 1);
+
+  it('renders one <img class="fp-choice-img"> per graph choice (the graph is shown, not the prose)', () => {
+    const vmGraph = graphVm();
+    const ac = cbAnswerContent();   // resets document.body to the overlay host
+    const shadow = mountAnswerOverlay(ac, vmGraph, noop());
+    // The fixture has exactly 4 graph choices; each must surface as a rendered <img>.
+    expect(shadow.querySelectorAll('.fp-choice')).toHaveLength(4);
+    expect(shadow.querySelectorAll('img.fp-choice-img')).toHaveLength(4);
+  });
+
+  it('does NOT leak the verbalized a11y prose into the rendered choices markup', () => {
+    const vmGraph = graphVm();
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vmGraph, noop());
+    const choices = shadow.querySelector('.fp-choices') as HTMLElement;
+    // The visible/serialized choice markup must not carry the verbalized fraction prose or graph
+    // narration. (choiceBody puts c.text into the <img alt>, so a leaked text would surface here too.)
+    expect(choices.innerHTML).not.toContain('StartFraction');
+    expect(choices.innerHTML).not.toContain('EndFraction');
+    expect(choices.innerHTML).not.toContain('opens upward');
+    expect(choices.innerHTML).not.toContain('passes through');
+    expect(choices.textContent).not.toContain('StartFraction');
+    expect(choices.textContent).not.toContain('opens upward');
+  });
+});
