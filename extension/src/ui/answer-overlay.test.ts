@@ -741,6 +741,39 @@ describe('faithful math rendering in choices (#35)', () => {
     expect(a.querySelector('sup')).not.toBeNull();
   });
 
+  // Issue #85 — mixed prose + inline-math choices (full sentences with inline <math> numbers) must render
+  // the WHOLE sentence with each number in place, not numbers-only. End-to-end through the PUBLIC path
+  // (readQuestion → toCardVM → mountAnswerOverlay) so the test fails today because the READER drops the
+  // interleaved prose and concatenates the two inline numbers ("19979,000"); it passes once the reader
+  // emits the prose + numbers as a row of text + math nodes in document order (renderMath already handles
+  // { kind: 'text' } via esc()). The fixture is SYNTHETIC (fabricated math + prose, per CLAUDE.md).
+  const proseVm = (): CardVM =>
+    toCardVM(readQuestion(((): Element => {
+      document.body.innerHTML = readFileSync(
+        join(here, '..', 'cb', '__fixtures__', 'math-prose-choice.html'), 'utf8');
+      return document.querySelector('.cb-dialog-container')!;
+    })())!, 0, 1);
+
+  it('renders the full prose sentence with both inline numbers in place (not numbers-only, not "19979,000")', () => {
+    const vmProse = proseVm();
+    const ac = cbAnswerContent();   // resets document.body to the overlay host
+    const shadow = mountAnswerOverlay(ac, vmProse, noop());
+    const a = shadow.querySelector('.fp-choice[data-letter="A"] .fp-choice-text')!;
+    expect(a).not.toBeNull();
+    const text = a.textContent!;
+    // The distinctive prose words reach the rendered choice (today they are dropped — numbers only).
+    expect(text).toContain('subscribers');
+    expect(text).toContain('estimates');
+    // Both inline numbers render as DISTINCT values…
+    expect(text).toContain('1997');
+    expect(text).toContain('9,000');
+    // …and never as the concatenated mash the bug produces.
+    expect(text).not.toContain('19979,000');
+    // Spacing is intact: word and number are not run together.
+    expect(text).toMatch(/In\s+1997/);
+    expect(text).toMatch(/9,000\s+subscribers/);
+  });
+
   it('XSS: a hostile text value inside a math AST is ESCAPED — no live <img onerror>/<script> reaches the shadow', () => {
     const ac = cbAnswerContent();
     const hostile: MathNode = {
