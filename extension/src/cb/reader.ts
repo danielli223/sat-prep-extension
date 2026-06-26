@@ -234,12 +234,14 @@ function partsText(parts: ChoicePart[]): string {
   return collapse(parts.map((p) => (p.kind === 'img' ? p.alt : p.value)).join(' '));
 }
 
-// Some CB Math choices are inline <svg> parabola graphs with no text/<img> (#36). Serialize the <svg>
-// to a self-contained data: URL the overlay can render as an inert <img>. Clone, drop <script> nodes
-// (defense in depth — an img-loaded SVG won't run scripts anyway), ensure the xmlns is present (a
+// Some CB Math choices are inline <svg> parabola graphs with no text/<img> (#36, #82). Serialize the
+// <svg> to a self-contained data: URL the overlay can render as an inert <img>. Clone, drop <script>
+// nodes (defense in depth — an img-loaded SVG won't run scripts anyway), ensure the xmlns is present (a
 // standalone data: URL SVG needs it), then percent-encode. Pure in-RAM serialization — never fetched.
-function serializeSvgChoice(li: Element): string | null {
-  const svg = li.querySelector('svg');
+// Takes the specific graph <svg> so a #82 choice (which ALSO holds a11y-prose siblings) serializes only
+// the real graph, not the whole <li>; passing no svg falls back to the first <svg> under the element.
+function serializeSvgChoice(elOrSvg: Element): string | null {
+  const svg = elOrSvg.localName === 'svg' ? elOrSvg : elOrSvg.querySelector('svg');
   if (!svg) return null;
   const clone = svg.cloneNode(true) as Element;
   clone.querySelectorAll('script').forEach((n) => n.remove());
@@ -265,14 +267,44 @@ export function readQuestion(root: Element): QuestionView | null {
   const cells = dataRow ? [...dataRow.querySelectorAll('td')] : [];
   const cell = (i: number) => cells[i]?.textContent?.trim() ?? '';
 
-  // Choices: <li> in .answer-choices ul. The A–D letter is CSS-generated (absent from the text),
-  // so it is derived from the list index. Present in the DOM whether or not the answer is revealed.
-  // Some CB Math questions render choices as images (e.g. complex math expressions) — textContent
-  // is empty in that case, so fall back to capturing the <img> src for overlay rendering.
-  // Mirror readStem's hygiene: clone the <li> and drop style/script and SVG a11y prose (title/desc)
-  // before reading text, or an inline-SVG graph choice leaks its CSS block + verbalized math (#36).
-  const choices: Choice[] = [...root.querySelectorAll('.answer-choices ul > li')].map((li, i) => {
+  // Choices: the TOP-LEVEL <li> of the first/outer <ul> under .answer-choices. The A–D letter is
+  // CSS-generated (absent from the text), so it is derived from the list index. Present in the DOM
+  // whether or not the answer is revealed. Some CB Math questions render choices as images (e.g.
+  // complex math expressions) — textContent is empty in that case, so fall back to capturing the
+  // <img> src for overlay rendering. Mirror readStem's hygiene: clone the <li> and drop style/script
+  // and SVG a11y prose (title/desc) before reading text, or an inline-SVG graph choice leaks its CSS
+  // block + verbalized math (#36).
+  //
+  // Scope to DIRECT children of the outer <ul>, structurally (`:scope >` is unsupported in happy-dom):
+  // a graph choice's <li> ALSO contains a NESTED a11y point-list <ul><li> (CB's verbalized graph
+  // description), and the old descendant selector `.answer-choices ul > li` over-matched those nested
+  // <li>s — 4 real choices became 28 phantom rows (#82).
+  const choiceList = root.querySelector('.answer-choices ul');
+  const choiceLis = choiceList ? [...choiceList.children].filter((el) => el.localName === 'li') : [];
+  const choices: Choice[] = choiceLis.map((li, i) => {
     const letter = 'ABCD'[i] ?? '';
+    // Graph (inline-SVG) choice BEFORE the math path (#82): a real graph <svg> must win over the a11y
+    // point-list MathML, or readChoiceMath grabs that verbalized MathML and the graph is mistaken for a
+    // math choice (dropped, prose leaked as text). The distinction from a MathJax MATH choice — which
+    // ALSO contains an <svg> glyph layer — is that the glyph <svg> is nested inside an <mjx-container>;
+    // a real graph <svg> is NOT. So a normal #35 math choice has graphSvg === undefined and still flows
+    // through readChoiceMath unchanged. (#36's bare <svg> choices have no mjx-container, so they take
+    // this graph path and still produce imgSrc + empty text — issue #36 preserved.)
+    const graphSvg = [...li.querySelectorAll('svg')].find((svg) => !svg.closest('mjx-container'));
+    if (graphSvg) {
+      const imgSrc = serializeSvgChoice(graphSvg);
+      if (imgSrc) {
+        // Build the a11y/fallback text from the <li> minus the noise: the nested point-list <ul> plus
+        // CB's SVG a11y prose and any MathML. For the graph fixture this lands empty (correct —
+        // choiceBody falls the <img alt> back to the letter); we never leak the verbalized fraction
+        // prose, narration, or CSS into choice.text.
+        const clone = li.cloneNode(true) as Element;
+        clone.querySelectorAll('ul, title, desc, style, script, math, annotation, annotation-xml').forEach((n) => n.remove());
+        return { letter, text: collapse(clone.textContent), imgSrc };
+      }
+      // FAIL SAFE (invariant #6): a non-serializable svg falls through to the existing text/img path
+      // below rather than dropping the choice or suppressing the overlay.
+    }
     // MathJax/MathML choice (issue #35): read the SEMANTIC <math> into the AST; use a CLEANED
     // textContent (visual glyph layer + TeX stripped) for the a11y/fallback string.
     const math = readChoiceMath(li);
