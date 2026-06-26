@@ -93,6 +93,30 @@ function parseMathEl(el: Element): MathNode | null {
     case 'mroot':
       if (kids.length < 1) return row([]);
       return { kind: 'sqrt', radicand: parseMathEl(kids[0]!) ?? row([]) };
+    // <mfenced> carries its fences in ATTRIBUTES, not child elements: `open`/`close` default to round
+    // parens, `separators` to a comma. The default branch walks only child ELEMENTS, so it silently
+    // dropped the parens (issue #80). Emit open + children (interleaved with separators) + close as
+    // text/row — no new MathNode kind needed. parseChildren recurses, so nested <mfenced> just works.
+    case 'mfenced': {
+      // getAttribute returns null when ABSENT → fall back to the MathML defaults. An explicit open=""
+      // is legal and means "no fence", so we emit a text node only when the string is non-empty.
+      const open = el.getAttribute('open') ?? '(';
+      const close = el.getAttribute('close') ?? ')';
+      // MathML ignores whitespace in `separators`; empty/absent degrades to a comma.
+      const seps = (el.getAttribute('separators') ?? ',').replace(/\s+/g, '') || ',';
+      const items = parseChildren(kids);
+      const out: MathNode[] = [];
+      if (open) out.push({ kind: 'text', value: open });
+      items.forEach((node, i) => {
+        // Separator for the gap BEFORE child i: spec consumes the string char-by-char with the last
+        // char repeating; exotic separator strings degrade to this last-char rule. FAIL SAFE: never
+        // index past the end (invariant #6).
+        if (i > 0) out.push({ kind: 'text', value: seps[Math.min(i - 1, seps.length - 1)]! });
+        out.push(node);
+      });
+      if (close) out.push({ kind: 'text', value: close });
+      return row(out);
+    }
     // Raw TeX must never enter the AST.
     case 'annotation': case 'annotation-xml':
       return null;
