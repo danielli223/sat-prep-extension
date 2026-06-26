@@ -3,12 +3,12 @@ import { openStore, recordAttempt, saveNote, saveSession, getSession, getAttempt
 import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
 import { observeQuestions, observeQuestionPresence, QUESTION_MODAL_SELECTOR } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
-import { score } from '../scoring';
+import { score, type ScoreResult } from '../scoring';
 import { mountHost, cardSlot, HOST_ID, stopPointerPropagation } from '../ui/host';
 import { toCardVM } from '../ui/view-model';
 import {
   findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, mountCurtain, renderVerdict,
-  renderNeedAnswer, renderStaleCard, revealRationale, morphCheckToExplain, type AnswerHandlers,
+  renderNeedAnswer, renderStaleCard, toggleRationale, setRevealLabel, applyVerdict, type AnswerHandlers,
 } from '../ui/answer-overlay';
 import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
@@ -238,6 +238,12 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   let stop: (() => void) | null = null;
   let total = 1;   // loaded-results count N for "Q n of N"; fixed at Start
   const revealedIds = new Set<string>(); // per-question reveal tracking (reset on new session, keyed by question id)
+  // Issue #84: in-memory cache of the last graded verdict per question id, so the verdict survives CB's
+  // in-place .answer-content re-render (which re-runs showQuestion → mountAnswerOverlay, resetting
+  // shadow.innerHTML) AND shows again on a revisit (Next→Back) within this sitting. IN-MEMORY ONLY —
+  // never persisted to IndexedDB / the store (invariant §2): it holds only the student's own
+  // pick/result + the A–D correct-letter, no question text.
+  const verdicts = new Map<string, { pick: string; result: ScoreResult; correctLetter: string | null }>();
 
   // Per-session stats for session_ended (emitted once on pagehide if a session is active). Reset when a
   // new session is created. Counts attempts that recorded (graded) and how many were correct.
@@ -326,9 +332,16 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       onSelect: () => {},
       onEliminate: () => {},
       onCheck: (pick) => onCheck(view, pick),
-      // Reveal: un-hide CB's OWN rationale (the overlay hid it on mount/observer) — CB renders the
-      // explanation natively now, so there's nothing for us to render. Sole un-hider.
-      onReveal: () => { revealedIds.add(view.id); revealRationale(answerContent); },
+      // Reveal: TOGGLE CB's OWN native rationale (issue #84). First click un-hides CB's explanation
+      // (the overlay hid it on mount/observer); a second click while shown re-hides it — a pure
+      // visibility flip of CB's own node, never copied into our shadow (invariant §3). The label
+      // tracks state. Resolve the live overlay shadow (CB can swap .answer-content) for the relabel.
+      onReveal: () => {
+        const shown = toggleRationale(answerContent);
+        if (shown) revealedIds.add(view.id);   // keep "revealUsed" analytics reflecting they revealed
+        const sh = overlayShadow(doc, view.id);
+        if (sh) setRevealLabel(sh, shown);
+      },
       onNote: (text) => {
         if (text) {
           void safeWrite(saveNote(db, makeNote({ deviceId: dev, questionId: view.id, text })));
@@ -349,7 +362,13 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     let mounted = false;   // set inside the thunk; stays false on the degrade path (contract failed)
     void handleQuestion(shadow, view, () => {
       mounted = true;
-      mountAnswerOverlay(answerContent, toCardVM(view, index, total, priorSeen[view.id] ?? 'new'), handlers);
+      const overlay = mountAnswerOverlay(answerContent, toCardVM(view, index, total, priorSeen[view.id] ?? 'new'), handlers);
+      // Issue #84: re-apply a cached verdict synchronously on (re-)mount. mountAnswerOverlay reset the
+      // shadow's innerHTML, wiping any prior verdict; if this question was already graded THIS session,
+      // restore the green correct-choice + verdict text + morphed Explain so the result survives CB's
+      // in-place re-render AND shows on a Next→Back revisit. In-memory cache only (no store read).
+      const cached = verdicts.get(view.id);
+      if (cached) applyVerdict(overlay, cached);
       // Trigger CB's reveal ONLY after the overlay is mounted (S1): so (a) a failed contract never
       // reveals CB's answer un-masked, and (b) the hide-observer installed by mount is live BEFORE CB
       // injects .rationale (~150ms later) → the late node gets hidden, not leaked inline. Scoring
@@ -392,15 +411,15 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       return;
     }
     const result = score(pick, answer ?? '');
+    // Issue #84: the correct A–D letter renderVerdict/applyVerdict use to light the green choice. Only a
+    // graded MC answer yields one; grid-in (turned away above by the stale-card guard) stays null so no
+    // selector is ever built from it.
+    const correctLetter = (result.graded && answer) ? answer.trim().toUpperCase() : null;
     if (result.graded && answer) {
-      // mark the correct choice on the OVERLAY shadow so renderVerdict can light it green even on a
-      // wrong pick
-      const correctLetter = answer.trim().toUpperCase();
-      // Defense-in-depth: only interpolate a known A–D letter into the selector (grid-in answers were
-      // already turned away by the stale-card guard above). Anything else → don't build a selector.
-      if (overlay && /^[A-D]$/.test(correctLetter)) {
-        overlay.querySelector(`.fp-choice[data-letter="${correctLetter}"]`)?.setAttribute('data-correct', 'true');
-      }
+      // Issue #84: cache the verdict (in-memory; student-data only, never persisted) so a re-mount of
+      // this question's overlay can re-apply it. applyVerdict (below + on re-mount) stamps the correct
+      // choice, renders the verdict, and morphs Check → Explain.
+      verdicts.set(view.id, { pick, result, correctLetter });
       await safeWrite(recordAttempt(db, makeAttempt({
         deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
         skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
@@ -427,11 +446,15 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       skill: view.skill, difficulty: view.difficulty,
     }));
     if (!result.graded) emit({ event: UNSCORED_FALLBACK, props: { session_id: session?.sessionId ?? '', question_id: view.id } });
-    if (overlay) renderVerdict(overlay, { pick, result });   // graded===false → non-verdict state (contract §2.4)
-    // Issue #26: a real grade attempt happened (correct/wrong/ungraded) — morph the inline Check into
-    // "Explain" (relabel + reroute to the existing reveal of CB's own rationale; never a model). NOT
-    // reached on the renderNeedAnswer / renderStaleCard early-returns above.
-    if (overlay) morphCheckToExplain(overlay);
+    // Issue #84 defensive: RE-RESOLVE the live overlay shadow AFTER the awaits above (awaitCorrectAnswer /
+    // recordAttempt). CB can swap .answer-content during an await, detaching the shadow captured at the
+    // top; rendering the verdict into a fresh resolve guarantees it lands in the on-screen overlay. (The
+    // early-return paths above ran before/at the awaits and keep the top reference.)
+    // applyVerdict = stamp the correct choice green + render the verdict + morph Check → Explain (issue
+    // #26); graded===false → renderVerdict shows the non-verdict state (contract §2.4) and correctLetter
+    // is null so no choice is stamped. NOT reached on the renderNeedAnswer / renderStaleCard early-returns.
+    const liveOverlay = overlayShadow(doc, view.id) ?? overlay;
+    if (liveOverlay) applyVerdict(liveOverlay, { pick, result, correctLetter });
   }
 
   async function onNext(view: QuestionView): Promise<void> {

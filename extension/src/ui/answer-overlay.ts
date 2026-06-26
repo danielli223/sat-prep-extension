@@ -349,6 +349,56 @@ export function revealRationale(answerContent: HTMLElement): boolean {
   return true;
 }
 
+// Issue #84: the mirror of revealRationale — RE-HIDE CB's own native .rationale (the toggle's hide
+// side). A PURE visibility flip of CB's OWN node: set display:none, restore the HIDDEN_ATTR marker so
+// unmountAnswerOverlay's teardown still un-hides it ([data-fp-hidden],[data-fp-revealed] both cleared
+// there), and clear REVEALED_ATTR. Never reads/copies/moves CB's text into our shadow (invariant §3).
+// Returns true if it re-hid a revealed rationale; false if there was nothing revealed to hide.
+export function hideRationale(answerContent: HTMLElement): boolean {
+  const r = childByClass(answerContent, 'rationale');
+  if (!r || !r.hasAttribute(REVEALED_ATTR)) return false;
+  r.style.display = 'none';
+  r.setAttribute(HIDDEN_ATTR, '');
+  r.removeAttribute(REVEALED_ATTR);
+  return true;
+}
+
+// Issue #84: the single Reveal/Hide entry point. If CB's .rationale is currently revealed → re-hide it
+// (return false = now hidden); otherwise → reveal it (return revealRationale's boolean = whether a
+// rationale was present to show). The returned value is the NEW shown-state, which the caller uses to
+// flip the label.
+export function toggleRationale(answerContent: HTMLElement): boolean {
+  const r = childByClass(answerContent, 'rationale');
+  if (r && r.hasAttribute(REVEALED_ATTR)) { hideRationale(answerContent); return false; }
+  return revealRationale(answerContent);
+}
+
+// Issue #84: keep the reveal control's label in sync with the toggle state. The strings are OUR OWN
+// static UI text (like SEEN_LABEL), never CB-derived (invariant §3). Updates the standalone .fp-reveal
+// and, when the inline Check has morphed to Explain (post-check), that button too so the two controls
+// never read inconsistently.
+export function setRevealLabel(shadow: ShadowRoot, shown: boolean): void {
+  const reveal = shadow.querySelector('.fp-reveal') as HTMLButtonElement | null;
+  if (reveal) reveal.textContent = shown ? 'Hide explanation' : 'Reveal explanation';
+  const explain = shadow.querySelector('.fp-check.fp-explain') as HTMLButtonElement | null;
+  if (explain) explain.textContent = shown ? 'Hide' : 'Explain';
+}
+
+// Issue #84: re-apply the full post-grade UI to a (possibly just re-mounted) overlay shadow — the
+// single helper onCheck and the re-mount path in showQuestion both call so the verdict survives CB's
+// in-place re-render (which resets shadow.innerHTML on every mountAnswerOverlay). Three steps: stamp
+// the correct choice green, render the verdict text, morph Check → Explain. Pure overlay-shadow work
+// over OUR own data (pick/result/correct-letter) — no CB content, no persistence.
+export function applyVerdict(shadow: ShadowRoot, v: { pick: string; result: ScoreResult; correctLetter: string | null }): void {
+  // Defense-in-depth: only interpolate a known A–D letter into the selector (grid-in answers never
+  // build one), matching onCheck's original guard.
+  if (v.correctLetter && /^[A-D]$/.test(v.correctLetter)) {
+    shadow.querySelector(`.fp-choice[data-letter="${v.correctLetter}"]`)?.setAttribute('data-correct', 'true');
+  }
+  renderVerdict(shadow, { pick: v.pick, result: v.result });
+  morphCheckToExplain(shadow);
+}
+
 // Issue #26: after a real grade attempt, morph the inline Check into "Explain" — a relabel + reroute
 // of the SAME button to the existing reveal path. It un-hides CB's OWN native .rationale (via the
 // onReveal handler / revealRationale); it NEVER generates or summarizes text (invariant #3). Also
