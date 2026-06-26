@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Focused Practice",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Scoring, a mistake journal, weak-area tracking, and a calculator that work on top of the official SAT Question Bank.",
   "browser_specific_settings": {
     "gecko": {
