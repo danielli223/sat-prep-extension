@@ -340,6 +340,38 @@ export function revealRationale(answerContent: HTMLElement): boolean {
   return true;
 }
 
+// Bug 2 (issue #84): the mirror of revealRationale — RE-HIDE CB's OWN native rationale on a second
+// Reveal click. Find the direct-child .rationale; if it's absent or not currently revealed, return
+// false. Otherwise restore display:none, re-mark it HIDDEN_ATTR (so unmountAnswerOverlay's teardown
+// still restores it) and clear REVEALED_ATTR. A PURE visibility flip of CB's OWN node — we never read
+// or copy its text (invariant §3).
+export function hideRationale(answerContent: HTMLElement): boolean {
+  const r = childByClass(answerContent, 'rationale');
+  if (!r || !r.hasAttribute(REVEALED_ATTR)) return false;
+  r.style.display = 'none';
+  r.setAttribute(HIDDEN_ATTR, '');
+  r.removeAttribute(REVEALED_ATTR);
+  return true;
+}
+
+// Bug 2 (issue #84): toggle CB's own rationale between shown and hidden, returning the NEW shown-state
+// so the caller can flip the label. Already revealed ⇒ hide it; otherwise reveal it.
+export function toggleRationale(answerContent: HTMLElement): boolean {
+  const r = childByClass(answerContent, 'rationale');
+  if (r && r.hasAttribute(REVEALED_ATTR)) { hideRationale(answerContent); return false; }
+  return revealRationale(answerContent);
+}
+
+// Bug 2 (issue #84): set the Reveal/Hide control label(s) to OUR OWN static strings (never CB-derived).
+// Updates the standalone .fp-reveal button and, once the inline Check has morphed to Explain, that
+// button too — so both controls read consistently with the rationale's current shown-state.
+export function setRevealLabel(shadow: ShadowRoot, shown: boolean): void {
+  const reveal = shadow.querySelector('.fp-reveal') as HTMLElement | null;
+  if (reveal) reveal.textContent = shown ? 'Hide explanation' : 'Reveal explanation';
+  const explain = shadow.querySelector('.fp-check.fp-explain') as HTMLElement | null;
+  if (explain) explain.textContent = shown ? 'Hide' : 'Explain';
+}
+
 // Issue #26: after a real grade attempt, morph the inline Check into "Explain" — a relabel + reroute
 // of the SAME button to the existing reveal path. It un-hides CB's OWN native .rationale (via the
 // onReveal handler / revealRationale); it NEVER generates or summarizes text (invariant #3). Also
@@ -352,6 +384,22 @@ export function morphCheckToExplain(shadow: ShadowRoot): void {
   check.classList.add('fp-explain');
   const reveal = shadow.querySelector('.fp-reveal') as HTMLButtonElement | null;
   if (reveal) reveal.hidden = true;
+}
+
+// Bug 1 (issue #84): the single post-grade UI re-application helper. onCheck captures the overlay shadow
+// BEFORE awaiting (awaitCorrectAnswer/recordAttempt); CB can re-render/replace .answer-content during
+// those awaits, detaching that shadow. The loop re-resolves (and if needed re-mounts) the LIVE overlay,
+// then calls this to (re-)apply the verdict to it — and a (re-)mount of the same question replays it from
+// the in-session cache. Holds only the student's own pick/result + the A–D correct letter — never CB
+// question text (invariants §2/§3). Order: stamp the correct choice, render the verdict, morph Check→Explain.
+export function applyVerdict(shadow: ShadowRoot, v: { pick: string; result: ScoreResult; correctLetter: string | null }): void {
+  // Defense-in-depth: only interpolate a known A–D letter into the selector (mirrors onCheck's original
+  // guard). graded===false ⇒ correctLetter is null ⇒ nothing is stamped, matching the non-verdict state.
+  if (v.correctLetter && /^[A-D]$/.test(v.correctLetter)) {
+    shadow.querySelector(`.fp-choice[data-letter="${v.correctLetter}"]`)?.setAttribute('data-correct', 'true');
+  }
+  renderVerdict(shadow, { pick: v.pick, result: v.result });
+  morphCheckToExplain(shadow);
 }
 
 // Issue #23: expand (un-collapse) the note once there's a verdict/prompt. The note lives in the EXTRAS
