@@ -618,6 +618,164 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     expect((await getAttempts(db))[0]!.correct).toBe(true);
     expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
   });
+
+  // BUG 1 (issue #84): the Check verdict must appear on the LIVE, on-screen overlay even when CB
+  // RE-RENDERS its answer region during the grade. The live root cause (confirmed against the real
+  // Question Bank, content-free): on the slow path the loop re-toggles CB's reveal to fetch the answer
+  // (awaitCorrectAnswer → ensureAnswerRevealed), and CB's React then RE-RENDERS .answer-content —
+  // replacing the element our overlay host lives in. onCheck captured the overlay shadow BEFORE that
+  // await and renders the verdict into it AFTER, so the verdict lands in a now-DETACHED node and never
+  // shows on screen. observeQuestions dedups on a content signature that excludes the rationale, so the
+  // .answer-content swap does NOT re-emit the question → no showQuestion re-mount re-applies it. Scoring
+  // is unaffected (the attempt records), which is exactly why the issue is "display-only" and the result
+  // still surfaces on a later revisit. The fix must re-target the verdict to the LIVE overlay (re-mounting
+  // our host into the current .answer-content when CB replaced it). Comment-free inline modal: happy-dom
+  // mis-parses HTML comments in the .html fixture, corrupting the direct-children scan the mount relies on.
+  it('shows the Check verdict on the LIVE overlay when CB re-renders .answer-content during the grade (issue #84)', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // Unrevealed modal (slow path): no .rationale yet, reveal box present. A fresh document so no stale
+    // setTimeout from a sibling test can inject early and turn this into the fast path.
+    document.body.innerHTML = `
+      <div role="dialog" class="cb-modal-container">
+        <div class="cb-dialog-container">
+          <div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>
+          <div class="cb-dialog-content">
+            <table class="cb-table"><tbody>
+              <tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>
+              <tr><td>SAT</td><td>Math</td><td>Algebra</td><td>Linear equations</td><td>Hard</td></tr>
+            </tbody></table>
+            <div class="question-content"><div class="question">If 3x + 7 = 22, x = ? [SYNTHETIC]</div></div>
+            <div class="answer-content">
+              <div class="answer-choices"><ul><li>3</li><li>5</li><li>7</li><li>15</li></ul></div>
+              <label class="hide-rationale-checkbox"><input type="checkbox" /> Show correct answer and explanation</label>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    const modalEl = () => [...document.querySelectorAll('.cb-modal-container')].find((el) => /Question ID:/i.test(el.textContent || ''))!;
+    const box = document.querySelector('.hide-rationale-checkbox input') as HTMLInputElement;
+    box.addEventListener('change', () => {
+      if (box.checked) {
+        // CB reveals by RE-RENDERING the whole answer region: it REPLACES .answer-content with a NEW
+        // element (carrying the choices + the now-revealed rationale). Same choices ⇒ observeQuestions'
+        // content signature is unchanged ⇒ NO re-mount fires. Our overlay host goes with the old node.
+        setTimeout(() => {
+          const modal = modalEl();
+          const oldAc = modal.querySelector('.answer-content') as HTMLElement | null;
+          if (oldAc && !modal.querySelector('.rationale')) {
+            const newAc = document.createElement('div');
+            newAc.className = 'answer-content';
+            newAc.innerHTML =
+              '<div class="answer-choices"><ul><li>3</li><li>5</li><li>7</li><li>15</li></ul></div>' +
+              '<label class="hide-rationale-checkbox"><input type="checkbox" checked /> Show correct answer and explanation</label>' +
+              '<div class="rationale"><p>Correct Answer: B</p><div>Subtract 7, divide by 3. [SYNTHETIC]</div></div>';
+            oldAc.replaceWith(newAc);
+          }
+        }, 120);
+      }
+    });
+
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    // Pick B (correct) and Check IMMEDIATELY — the rationale is NOT in the DOM yet, so onCheck takes the
+    // slow path, and CB swaps .answer-content mid-grade.
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    // Scoring is never the bug: the attempt records.
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1), { timeout: 3000 });
+    expect((await getAttempts(db))[0]!.correct).toBe(true);
+
+    // THE LOCK: the verdict must be visible in the overlay that is LIVE in the current modal's
+    // .answer-content — not orphaned in the pre-swap (detached) shadow. Fails on pre-fix code (verdict
+    // rendered into the detached node; the live .answer-content has no host at all).
+    await vi.waitFor(() => {
+      const liveSr = (modalEl().querySelector('.answer-content .fp-answer-host') as HTMLElement | null)?.shadowRoot;
+      expect(liveSr?.querySelector('.fp-verdict')?.textContent).toContain('Correct');
+    }, { timeout: 3000 });
+    const liveSr = (modalEl().querySelector('.answer-content .fp-answer-host') as HTMLElement).shadowRoot!;
+    expect(liveSr.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+    expect(liveSr.querySelector('.fp-check')!.classList.contains('fp-explain')).toBe(true);
+  });
+
+  // BUG 1 (issue #84), durability lock: once graded, the verdict must SURVIVE a genuine overlay re-mount
+  // of the SAME question within the sitting (CB's in-place re-render re-runs showQuestion → mountAnswerOverlay,
+  // which resets shadow.innerHTML and would otherwise wipe the verdict). This forces a real re-mount (settling
+  // the observer debounce so the dedup signature resets) and asserts the post-grade UI is re-applied, not lost.
+  it('keeps the Check verdict after the SAME question\'s overlay genuinely re-mounts (issue #84)', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += mc;                                        // question ab12cd34 (rationale present)
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    await vi.waitFor(() => expect(inOverlay('.fp-verdict')?.textContent).toContain('Correct'));
+
+    // Force a genuine re-mount of the SAME question: remove the modal, let the observer's 150ms debounce
+    // settle on the empty DOM (so lastSig resets to null), then RE-INJECT the same question.
+    document.querySelector('.cb-modal-container')!.remove();
+    await new Promise((r) => setTimeout(r, 220));
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    await vi.waitFor(() => expect(inOverlay('.fp-choice')).not.toBeNull());
+
+    // The verdict + post-grade UI persist across the re-mount (re-applied from the in-session cache).
+    await vi.waitFor(() => expect(inOverlay('.fp-verdict')?.textContent).toContain('Correct'));
+    expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
+    expect(inOverlay('.fp-check')!.classList.contains('fp-explain')).toBe(true);
+  });
+
+  // BUG 2 (issue #84): the Reveal control must TOGGLE. First click un-hides CB's OWN native .rationale
+  // (revealRationale — never copies/feeds CB text to a model, invariant §3); a SECOND click while shown
+  // must RE-HIDE it. On hide, CB's node returns to display:none AND regains data-fp-hidden (so
+  // unmountAnswerOverlay's teardown still restores it), and data-fp-revealed clears. The hide is a pure
+  // visibility flip of CB's own node — its text is never read into our shadow. The label tracks state.
+  it('Reveal TOGGLES: a second click re-hides CB\'s own rationale, restores the hidden marker, flips the label (issue #84)', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML +=
+      '<div role="dialog" class="cb-modal-container"><div class="cb-dialog-container">' +
+      '<div class="cb-dialog-header"><h4>Question ID: ab12cd34</h4></div>' +
+      '<div class="cb-dialog-content">' +
+      '<table class="cb-table"><tbody>' +
+      '<tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>' +
+      '<tr><td>SAT</td><td>Math</td><td>Algebra</td><td>S</td><td>Hard</td></tr></tbody></table>' +
+      '<div class="question-content"><div class="question">If 3x + 7 = 22, x = ? [SYNTHETIC]</div></div>' +
+      '<div class="answer-content"><div class="answer-choices"><ul><li>3</li><li>5</li><li>7</li><li>15</li></ul></div>' +
+      '<div class="rationale"><p>Correct Answer: B</p><div>Subtract 7, divide by 3. [SYNTHETIC]</div></div>' +
+      '</div></div></div></div>';
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    const rationale = document.querySelector('.answer-content .rationale') as HTMLElement;
+    const reveal = () => inOverlay('.fp-reveal') as HTMLElement;
+    expect(rationale.style.display).toBe('none');                  // hidden by the overlay on mount
+    expect(rationale.hasAttribute('data-fp-hidden')).toBe(true);
+    expect(reveal().textContent).toContain('Reveal explanation');
+
+    reveal().click();                                              // FIRST click → shown
+    expect(rationale.style.display).toBe('');
+    expect(rationale.hasAttribute('data-fp-revealed')).toBe(true);
+    expect(rationale.hasAttribute('data-fp-hidden')).toBe(false);
+    expect(reveal().textContent).toContain('Hide explanation');
+
+    reveal().click();                                              // SECOND click → hidden again (the lock)
+    expect(rationale.style.display).toBe('none');
+    expect(rationale.hasAttribute('data-fp-hidden')).toBe(true);   // restore marker back → teardown un-hides it
+    expect(rationale.hasAttribute('data-fp-revealed')).toBe(false);
+    expect(reveal().textContent).toContain('Reveal explanation');
+
+    // CB's explanation text never leaks into our shadow — we only flip CB's own node's visibility.
+    expect(overlay()!.textContent).not.toContain('Subtract 7');
+    expect(overlay()!.textContent).not.toContain('Correct Answer: B');
+  });
 });
 
 // --- Plan 3 additions (badger + stats widget + resume) ---
