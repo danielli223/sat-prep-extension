@@ -39,9 +39,18 @@ Before any live build/run/test, set up isolation:
    CDP_PORT=<port> npm run reload                 # after each rebuild, hot-reload that window
    CDP_PORT=<port> npm run cdp -- "<content-free expr>"   # drive/inspect it
    ```
-   Always launch (not just build), even for a quick check — the whole point of the loop
-   is that the user watches the real window.
-4. **Tell the user which port/window/label is yours** and that it is now open for them
+   Launch it ONCE when you begin dev work so the user has a live window to watch.
+4. **Do NOT re-foreground the user's window during iteration.** On macOS, both
+   `npm run dev:chrome` (launches/activates the app) and `npm run reload` (opens a
+   transient `chrome://extensions` tab) pull the Chrome window to the front and steal
+   focus. So after the one initial launch, **iterate with unit tests** (`npm test` —
+   vitest/happy-dom, no browser) and only `reload`/re-open the visible window **when
+   the user explicitly asks to look at a change**. Never run a reload/relaunch on a
+   timer or after every edit — repeatedly popping the window over everything is exactly
+   the behavior to avoid. A `src/cb/`-shape or scoring fix is proven by a synthetic
+   fixture + unit test; the live window is for human visual sign-off on request, not
+   for automated iteration.
+5. **Tell the user which port/window/label is yours** and that it is now open for them
    to look at, then clean up when done
    (`pkill -f 'remote-debugging-port=<port>'`; `git worktree remove /tmp/sat-<slug>`).
 
