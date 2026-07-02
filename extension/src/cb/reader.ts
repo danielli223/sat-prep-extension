@@ -36,6 +36,15 @@ export interface QuestionView {
 const ID_RE = /Question ID:\s*([0-9a-f]{8})/i;
 const ANS_RE = /Correct Answer:\s*(.+)/i;
 
+// Some grid-in rationales carry NO structured "Correct Answer: N" label — the answer appears only
+// in PROSE ("The correct answer is 97.", live grid-in f88f27e5, 2026-06-30). Fallback anchor:
+// "correct answer is" followed by a grid-in-shaped value (integer / decimal / fraction, optionally
+// negative). The value shape is part of the anchor, so prose that mentions the phrase WITHOUT a
+// grid-in value (e.g. an MC rationale's "the correct answer is choice B") never fires the fallback
+// — the reader stays conservative and reports null rather than guessing (invariant: never a wrong
+// verdict). Bounded to the one value token, so the sentence after it can't bleed into the capture.
+const PROSE_ANS_RE = /correct answer is\s+(-?(?:\d+(?:\.\d+)?|\.\d+)(?:\s*\/\s*\d+)?)/i;
+
 // Returns the element holding the actual question stem. CB nests the stem in .question inside
 // .question-content — but that container ALSO holds CB's own "Math" / "Difficulty: Hard" <h5> chrome,
 // which flattened into the stem as a "MathDifficulty: Hard" leak (live 2026-06-16). Prefer .question;
@@ -342,6 +351,16 @@ export function readQuestion(root: Element): QuestionView | null {
       .sort((a, b) => (a.textContent?.length ?? 0) - (b.textContent?.length ?? 0))[0];
     const m = caEl?.textContent?.match(ANS_RE);
     correctAnswer = m ? m[1]!.trim() : null;
+    // Prose fallback (grid-in only in practice): runs ONLY when the structured label is absent, so
+    // the existing "Correct Answer: X" path always wins. Same smallest-matching-element strategy as
+    // above, so surrounding explanation paragraphs can't shadow the sentence that holds the value.
+    if (correctAnswer === null) {
+      const proseEl = [...rationale.querySelectorAll('*')]
+        .filter((e) => PROSE_ANS_RE.test(e.textContent ?? ''))
+        .sort((a, b) => (a.textContent?.length ?? 0) - (b.textContent?.length ?? 0))[0];
+      const pm = proseEl?.textContent?.match(PROSE_ANS_RE);
+      correctAnswer = pm ? pm[1]!.trim() : null;
+    }
   }
 
   return {
