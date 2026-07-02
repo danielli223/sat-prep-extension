@@ -776,6 +776,71 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     expect(overlay()!.textContent).not.toContain('Subtract 7');
     expect(overlay()!.textContent).not.toContain('Correct Answer: B');
   });
+
+  // Q 3a9d60b2 (grid-in, live 2026-06-30): typing an answer and clicking Check produced NOTHING — no
+  // verdict, no Check→Explain morph, and every further Check was also silent (a total no-op; NOT the
+  // "Couldn't grade" state). Two-part dead end in onCheck:
+  //   (1) the terminal render — `overlayShadow(doc, id) ?? remountOverlay(view)` — resolves null when CB
+  //       has the modal DETACHED at the instant the grade's awaits resume (a mid-grade re-render/portal
+  //       juggle), so the verdict is dropped with no fallback: nothing renders at all;
+  //   (2) the shared `checked` boolean was already consumed, and the re-attached modal re-enters the DOM
+  //       within the observer's 150ms settle with an UNCHANGED content signature, so showQuestion never
+  //       re-arms it → every subsequent Check exits silently at the guard.
+  // The lock: with the SAME overlay back on screen (typed answer intact), a second Check must surface
+  // the graded verdict — re-applied from the in-session cache, NOT a duplicate recordAttempt.
+  it('grid-in Check recovers (verdict renders, no duplicate attempt) after CB detaches the modal mid-grade (Q 3a9d60b2 class)', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // Grid-in modal (no .answer-choices) whose rationale is ALREADY revealed, carrying BOTH answer forms
+    // like the live question ("Correct Answer: 9" label + "The correct answer is 9." prose): the answer
+    // read is synchronous, so the only await Check parks on is recordAttempt. Comment-free fresh DOM
+    // (happy-dom mis-parses fixture HTML comments; fresh so no sibling test's stale nodes interfere).
+    document.body.innerHTML = `
+      <div role="dialog" class="cb-modal-container">
+        <div class="cb-dialog-container">
+          <div class="cb-dialog-header"><h4>Question ID: 3a9d60b2</h4></div>
+          <div class="cb-dialog-content">
+            <table class="cb-table"><tbody>
+              <tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>
+              <tr><td>SAT</td><td>Math</td><td>Algebra</td><td>Linear equations in one variable</td><td>Medium</td></tr>
+            </tbody></table>
+            <div class="question-content"><div class="question">|2x - 4| = 14, what is the positive solution? [SYNTHETIC]</div></div>
+            <div class="answer-content">
+              <div class="rationale"><p>Correct Answer: 9</p><p>The correct answer is 9. Add 4 to both sides. [SYNTHETIC]</p></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    await vi.waitFor(() => expect(inOverlay('.fp-gridin')).not.toBeNull());
+
+    (inOverlay('.fp-gridin') as HTMLInputElement).value = '5';
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    // CB's mid-grade re-render: the modal node leaves the DOM while onCheck awaits recordAttempt, and
+    // returns 80ms later — inside the question observer's 150ms settle, so the content signature never
+    // resets and showQuestion does NOT re-run for the re-attached modal.
+    const modal = document.querySelector('.cb-modal-container') as HTMLElement;
+    modal.remove();
+    await new Promise((r) => setTimeout(r, 80));
+    document.body.appendChild(modal);
+
+    // Scoring is not the bug: the attempt records (silently — the failure is display + retry).
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 400));   // let the observer settle: same signature, no re-mount
+
+    // Precondition (the live symptom): the SAME overlay is back on screen with the typed answer intact.
+    expect((inOverlay('.fp-gridin') as HTMLInputElement).value).toBe('5');
+
+    // THE LOCK: Check again on the visible overlay — the verdict must surface, never a silent no-op.
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(() => expect(inOverlay('.fp-verdict')?.textContent).toContain('Not quite'));
+    expect(inOverlay('.fp-no')).not.toBeNull();
+    // Invariant: at most ONE recorded attempt per question per sitting — recovery re-applies the cached
+    // verdict; it never re-records.
+    expect(await getAttempts(db)).toHaveLength(1);
+  });
 });
 
 // --- Plan 3 additions (badger + stats widget + resume) ---
