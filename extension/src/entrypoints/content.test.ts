@@ -698,7 +698,8 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     }, { timeout: 3000 });
     const liveSr = (modalEl().querySelector('.answer-content .fp-answer-host') as HTMLElement).shadowRoot!;
     expect(liveSr.querySelector('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
-    expect(liveSr.querySelector('.fp-check')!.classList.contains('fp-explain')).toBe(true);
+    // Check stays a Check (no morph to "Explain") — reveal has its own standalone control now.
+    expect(liveSr.querySelector('.fp-check')!.classList.contains('fp-explain')).toBe(false);
   });
 
   // BUG 1 (issue #84), durability lock: once graded, the verdict must SURVIVE a genuine overlay re-mount
@@ -728,7 +729,9 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     // The verdict + post-grade UI persist across the re-mount (re-applied from the in-session cache).
     await vi.waitFor(() => expect(inOverlay('.fp-verdict')?.textContent).toContain('Correct'));
     expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(true);
-    expect(inOverlay('.fp-check')!.classList.contains('fp-explain')).toBe(true);
+    // Re-opening a graded question keeps the verdict AND leaves Check available (no "Explain" morph),
+    // so the student can re-check after they exit and come back.
+    expect(inOverlay('.fp-check')!.classList.contains('fp-explain')).toBe(false);
   });
 
   // BUG 2 (issue #84): the Reveal control must TOGGLE. First click un-hides CB's OWN native .rationale

@@ -400,7 +400,13 @@ export function morphCheckToExplain(shadow: ShadowRoot): void {
 // those awaits, detaching that shadow. The loop re-resolves (and if needed re-mounts) the LIVE overlay,
 // then calls this to (re-)apply the verdict to it — and a (re-)mount of the same question replays it from
 // the in-session cache. Holds only the student's own pick/result + the A–D correct letter — never CB
-// question text (invariants §2/§3). Order: stamp the correct choice, render the verdict, morph Check→Explain.
+// question text (invariants §2/§3). Order: stamp the correct choice, then render the verdict.
+//
+// The Check button is deliberately LEFT in place (it no longer morphs into "Explain"): revealing CB's
+// rationale has its own standalone `.fp-reveal` button, so the morph was a redundant second control that
+// also had the side effect of hiding Check after grading. Users asked for Check to remain available —
+// including after they leave a graded question and re-open it (a re-mount replays this same helper), so
+// keeping Check here fixes that in every path without a per-exit reset.
 export function applyVerdict(shadow: ShadowRoot, v: { pick: string; result: ScoreResult; correctLetter: string | null }): void {
   // Defense-in-depth: only interpolate a known A–D letter into the selector (mirrors onCheck's original
   // guard). graded===false ⇒ correctLetter is null ⇒ nothing is stamped, matching the non-verdict state.
@@ -408,7 +414,6 @@ export function applyVerdict(shadow: ShadowRoot, v: { pick: string; result: Scor
     shadow.querySelector(`.fp-choice[data-letter="${v.correctLetter}"]`)?.setAttribute('data-correct', 'true');
   }
   renderVerdict(shadow, { pick: v.pick, result: v.result });
-  morphCheckToExplain(shadow);
 }
 
 // Issue #23: expand (un-collapse) the note once there's a verdict/prompt. The note lives in the EXTRAS
