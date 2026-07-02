@@ -7,6 +7,51 @@
 > **Not legal advice** lives throughout — the legal claims here are an engineering
 > synthesis.
 
+## Agent dev/test sandbox — MANDATORY, read before running anything live
+
+**When you (an agent) need to build, run, or live-test the extension, you do it in
+your OWN isolated sandbox — NEVER the user's main checkout, dev build, Chrome profile,
+or CDP port.** The `dev:chrome` harness drives a real Chrome-for-Testing via CDP, and
+your automated clicks (`npm run cdp`, opening questions, pressing Check) **write real
+practice attempts into that profile's IndexedDB** — doing this in the user's profile
+corrupts their journal/stats and fights their live window for the port. This is not
+optional.
+
+Before any live build/run/test, set up isolation:
+
+1. **Isolated worktree off the target ref** (so you get a separate `dist/` and a
+   separate `.dev-chrome-profile`, per `docs/running-multiple-dev-builds.md`):
+   ```sh
+   git worktree add /tmp/sat-<slug> origin/main      # or the ref you were asked to test
+   ln -s "$PWD/extension/node_modules" /tmp/sat-<slug>/extension/node_modules   # skip reinstall
+   cd /tmp/sat-<slug>/extension
+   ```
+2. **A free CDP port** (9222 is the user's default — check first, never attach to it):
+   ```sh
+   for p in 9223 9224 9333 9444; do curl -s --max-time 1 localhost:$p/json/version >/dev/null && echo ":$p taken" || { echo ":$p free"; break; }; done
+   ```
+3. **Build labeled, then ALWAYS LAUNCH the dev build so the user can SEE it.** Do not
+   stop at `npm run build` — the user needs a live, visible Chrome window to watch.
+   `npm run dev:chrome` opens (or reuses) that window:
+   ```sh
+   DEV_LABEL="<slug>: <purpose>" npm run build   # build the bundle
+   CDP_PORT=<port> npm run dev:chrome             # LAUNCH — opens a visible Chrome window
+   CDP_PORT=<port> npm run reload                 # after each rebuild, hot-reload that window
+   CDP_PORT=<port> npm run cdp -- "<content-free expr>"   # drive/inspect it
+   ```
+   Always launch (not just build), even for a quick check — the whole point of the loop
+   is that the user watches the real window.
+4. **Tell the user which port/window/label is yours** and that it is now open for them
+   to look at, then clean up when done
+   (`pkill -f 'remote-debugging-port=<port>'`; `git worktree remove /tmp/sat-<slug>`).
+
+Live overlay verification follows the **`/verify-overlay` skill**
+(`.claude/skills/verify-overlay/SKILL.md`): the agent evals only booleans/counts/class
+presence and drives buttons by structure — **never** read CB question/choice/rationale
+text into your context (invariant #3). The human does the visual sign-off.
+
+Full recipe + multi-build details: `docs/running-multiple-dev-builds.md`.
+
 ## What this is
 
 A free browser extension (Manifest V3) that adds a **scored practice loop, mistake
