@@ -312,7 +312,14 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   }
 
   let index = 0;
-  let checked = false;   // per-question guard: at most one attempt recorded per Check session (reset on show)
+  // Per-question grading guard, KEYED BY QUESTION ID: at most one recorded attempt per question per
+  // sitting. A shared boolean here (the old shape) had exactly one re-arm point — showQuestion — so any
+  // navigation that reached a question's Check without a fresh showQuestion (e.g. CB detaching and
+  // re-attaching the modal inside the observer's 150ms settle, where the content signature never
+  // changes) left it stuck consumed and made every Check a silent no-op (Q 3a9d60b2, live 2026-06-30).
+  // An id is added BEFORE onCheck's awaits (so rapid re-clicks can't double-record) and removed again on
+  // every exit that recorded nothing (stale card, ungraded answer), so those states stay re-checkable.
+  const gradedIds = new Set<string>();
 
   // The overlay's event handlers, factored out so BOTH the initial mount and the re-mount (issue #84)
   // rebuild an identical, view-bound set against the CURRENT .answer-content (CB can replace it).
@@ -364,7 +371,8 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   }
 
   function showQuestion(view: QuestionView): void {
-    checked = false;   // new question on screen → re-arm scoring
+    // (No guard re-arm here: gradedIds is keyed by question id, so a fresh question is never blocked by
+    // a previous question's grade, and a re-shown graded question re-applies its cached verdict.)
     // Refresh "Q n of N": the results list may not have been in the DOM at Start (e.g. the student
     // opened a question first), which left N stuck at the fallback 1 ("Q 2 of 1", live 2026-06-16).
     // It is in the DOM behind the modal now. Never let N drop below the current position.
@@ -400,15 +408,26 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   }
 
   async function onCheck(view: QuestionView, pick: string): Promise<void> {
-    if (checked) return;   // ignore repeat Check clicks: makeAttempt mints a fresh id, so re-recording
-                           // would write duplicate attempts and corrupt Plan 3's deriveStats.
+    if (gradedIds.has(view.id)) {
+      // Already graded (or a grade is in flight): never re-record — makeAttempt mints a fresh id, so
+      // re-recording would write duplicate attempts and corrupt Plan 3's deriveStats. But do NOT go
+      // silent: if the verdict render was lost (CB had the modal detached when the grade's awaits
+      // resumed — the Q 3a9d60b2 total no-op), re-apply the cached verdict to the LIVE overlay so a
+      // retry Check surfaces the result instead of doing nothing at all.
+      const cached = verdicts.get(view.id);
+      if (cached) {
+        const live = overlayShadow(doc, view.id) ?? remountOverlay(view);
+        if (live) applyVerdict(live, cached);
+      }
+      return;
+    }
     // Everything we render now lands in the OVERLAY shadow (mounted in CB's .answer-content), not the
     // body host. Re-resolve it each time: CB can swap .answer-content on its in-place Next.
     const overlay = overlayShadow(doc, view.id);
     // Empty answer: there's nothing to grade — prompt the student rather than show the alarming
     // "couldn't grade". Do NOT consume the per-question guard, so they can answer and press Check again.
     if (pick.trim() === '') { if (overlay) renderNeedAnswer(overlay, view.choices.length ? 'mc' : 'grid'); return; }
-    checked = true;
+    gradedIds.add(view.id);   // claim BEFORE the awaits below, so rapid re-clicks can't double-record
     // Read the answer at CHECK TIME from the live DOM (spike) — the QuestionView captured on show
     // predates CB's reveal. Usually it's already present (synchronous fast path); only if it isn't —
     // CB injects the rationale async after reveal and a too-fast Check can beat it — do we poll, so a
@@ -421,6 +440,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // 2026-06-16), so grading the pick would score it against the WRONG question. Refuse rather than emit
     // a bogus verdict; reopening the question re-mounts a fresh, consistent overlay.
     if (answer && (view.choices.length > 0) !== /^[A-D]$/i.test(answer.trim())) {
+      gradedIds.delete(view.id);   // nothing recorded — reopening the question must stay gradeable
       // Issue #84: render into the LIVE overlay — CB may have replaced .answer-content during the await
       // above, detaching the shadow captured at the top.
       const liveForStale = overlayShadow(doc, view.id) ?? overlay;
@@ -462,6 +482,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       skill: view.skill, difficulty: view.difficulty,
     }));
     if (!result.graded) emit({ event: UNSCORED_FALLBACK, props: { session_id: session?.sessionId ?? '', question_id: view.id } });
+    // Nothing was recorded (ungraded answer / answer never readable) → release the guard so the student
+    // can Check again once CB's rationale lands, instead of the "couldn't grade" being a dead end.
+    if (!(result.graded && answer)) gradedIds.delete(view.id);
     // Issue #84: apply the post-grade UI to the LIVE on-screen overlay. CB may have re-rendered/replaced
     // .answer-content during the awaits above, detaching the shadow captured at the top; if our host is
     // gone from the live answer region, re-mount it there first so the verdict isn't orphaned. applyVerdict
