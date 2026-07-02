@@ -29,6 +29,24 @@ describe('readQuestion', () => {
     expect(v.correctAnswer).toBe('5');
   });
 
+  // Live gap (question f88f27e5, 2026-06-30): some grid-in rationales carry NO structured
+  // "Correct Answer: N" label — the answer appears only in PROSE ("The correct answer is N").
+  // The reader must still surface the value or score() reports graded:false and the overlay
+  // shows the indeterminate "couldn't grade" message despite the answer being on screen.
+  it('reads a grid-in correct answer stated in prose ("The correct answer is N")', () => {
+    const v = readQuestion(load('grid-in-prose-answer.html'))!;
+    expect(v.id).toBe('0a1b2c3d');
+    expect(v.choices).toHaveLength(0);
+    expect(v.correctAnswer).toBe('42');
+  });
+
+  it('reads a prose grid-in fraction answer without swallowing the following sentence', () => {
+    document.body.innerHTML =
+      '<div class="cb-dialog-container"><div class="cb-dialog-header"><h4>Question ID: aa22bb33</h4></div>' +
+      '<div class="rationale"><p>The correct answer is 3/7. Dividing both sides gives the ratio. [SYNTHETIC]</p></div></div>';
+    expect(readQuestion(document.querySelector('.cb-dialog-container')!)!.correctAnswer).toBe('3/7');
+  });
+
   it('returns null when there is no Question ID present', () => {
     document.body.innerHTML = '<div class="cb-dialog-container">loading…</div>';
     expect(readQuestion(document.querySelector('.cb-dialog-container')!)).toBeNull();
