@@ -844,6 +844,48 @@ describe('content loop — reveal-gated scoring (spike 2026-06-15)', () => {
     // verdict; it never re-records.
     expect(await getAttempts(db)).toHaveLength(1);
   });
+
+  // Re-check must RE-GRADE the current answer, not silently re-show the first verdict. The guard used to
+  // early-return on every Check after the first — so a student who changed their answer and pressed Check
+  // saw the stale result ("checks only one, then won't check the next"). Fixed: grade + render on every
+  // click, but record the attempt only ONCE per question per sitting.
+  it('re-checks a changed answer (verdict updates), still recording exactly one attempt', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML = `
+      <div role="dialog" class="cb-modal-container">
+        <div class="cb-dialog-container">
+          <div class="cb-dialog-header"><h4>Question ID: 3a9d60b2</h4></div>
+          <div class="cb-dialog-content">
+            <table class="cb-table"><tbody>
+              <tr><th>Assessment</th><th>Section</th><th>Domain</th><th>Skill</th><th>Difficulty</th></tr>
+              <tr><td>SAT</td><td>Math</td><td>Algebra</td><td>Linear equations in one variable</td><td>Medium</td></tr>
+            </tbody></table>
+            <div class="question-content"><div class="question">|2x - 4| = 14, what is the positive solution? [SYNTHETIC]</div></div>
+            <div class="answer-content">
+              <div class="rationale"><p>Correct Answer: 9</p><p>The correct answer is 9. Add 4 to both sides. [SYNTHETIC]</p></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    await vi.waitFor(() => expect(inOverlay('.fp-gridin')).not.toBeNull());
+
+    // First answer is WRONG (correct is 9): verdict "Not quite", one attempt recorded.
+    (inOverlay('.fp-gridin') as HTMLInputElement).value = '5';
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(() => expect(inOverlay('.fp-verdict')?.textContent).toContain('Not quite'));
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+
+    // Change the answer to CORRECT and re-check — the verdict must update to "Correct" (re-graded),
+    // NOT stay "Not quite" (the bug), and it must NOT record a second attempt.
+    (inOverlay('.fp-gridin') as HTMLInputElement).value = '9';
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(() => expect(inOverlay('.fp-verdict')?.textContent).toContain('Correct'));
+    expect(inOverlay('.fp-verdict')?.textContent).not.toContain('Not quite');
+    expect(await getAttempts(db)).toHaveLength(1);   // still exactly one — the first answer counts
+  });
 });
 
 // --- Plan 3 additions (badger + stats widget + resume) ---

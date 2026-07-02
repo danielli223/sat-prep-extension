@@ -408,26 +408,20 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   }
 
   async function onCheck(view: QuestionView, pick: string): Promise<void> {
-    if (gradedIds.has(view.id)) {
-      // Already graded (or a grade is in flight): never re-record — makeAttempt mints a fresh id, so
-      // re-recording would write duplicate attempts and corrupt Plan 3's deriveStats. But do NOT go
-      // silent: if the verdict render was lost (CB had the modal detached when the grade's awaits
-      // resumed — the Q 3a9d60b2 total no-op), re-apply the cached verdict to the LIVE overlay so a
-      // retry Check surfaces the result instead of doing nothing at all.
-      const cached = verdicts.get(view.id);
-      if (cached) {
-        const live = overlayShadow(doc, view.id) ?? remountOverlay(view);
-        if (live) applyVerdict(live, cached);
-      }
-      return;
-    }
-    // Everything we render now lands in the OVERLAY shadow (mounted in CB's .answer-content), not the
-    // body host. Re-resolve it each time: CB can swap .answer-content on its in-place Next.
+    // Everything we render lands in the OVERLAY shadow (mounted in CB's .answer-content), not the body
+    // host. Re-resolve it each time: CB can swap .answer-content on its in-place Next.
     const overlay = overlayShadow(doc, view.id);
     // Empty answer: there's nothing to grade — prompt the student rather than show the alarming
     // "couldn't grade". Do NOT consume the per-question guard, so they can answer and press Check again.
     if (pick.trim() === '') { if (overlay) renderNeedAnswer(overlay, view.choices.length ? 'mc' : 'grid'); return; }
-    gradedIds.add(view.id);   // claim BEFORE the awaits below, so rapid re-clicks can't double-record
+    // Grade + render on EVERY Check so a student who changes their answer and re-checks sees the NEW
+    // result. The old guard early-returned after the first grade and just re-showed the stale cached
+    // verdict — so "Check" only ever worked once (a dead no-op that became visible once Check stopped
+    // morphing into "Explain"). RECORD the attempt only ONCE per question per sitting though: makeAttempt
+    // mints a fresh id, so re-recording corrupts deriveStats. `firstGrade` is claimed BEFORE the awaits
+    // below so rapid double-clicks still record exactly once.
+    const firstGrade = !gradedIds.has(view.id);
+    if (firstGrade) gradedIds.add(view.id);
     // Read the answer at CHECK TIME from the live DOM (spike) — the QuestionView captured on show
     // predates CB's reveal. Usually it's already present (synchronous fast path); only if it isn't —
     // CB injects the rationale async after reveal and a too-fast Check can beat it — do we poll, so a
@@ -440,7 +434,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // 2026-06-16), so grading the pick would score it against the WRONG question. Refuse rather than emit
     // a bogus verdict; reopening the question re-mounts a fresh, consistent overlay.
     if (answer && (view.choices.length > 0) !== /^[A-D]$/i.test(answer.trim())) {
-      gradedIds.delete(view.id);   // nothing recorded — reopening the question must stay gradeable
+      if (firstGrade) gradedIds.delete(view.id);   // nothing recorded — reopening the question must stay gradeable
       // Issue #84: render into the LIVE overlay — CB may have replaced .answer-content during the await
       // above, detaching the shadow captured at the top.
       const liveForStale = overlayShadow(doc, view.id) ?? overlay;
@@ -452,39 +446,43 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // choice green even on a wrong pick. Defense-in-depth A–D guard mirrors onCheck's original stamping.
     const correctLetter = (result.graded && answer && /^[A-D]$/.test(answer.trim().toUpperCase())) ? answer.trim().toUpperCase() : null;
     if (result.graded && answer) {
-      // Issue #84: cache the post-grade UI so a (re-)mount of this SAME question re-applies it (the
-      // verdict otherwise dies with the shadow CB detaches on its re-render). IN-MEMORY ONLY (invariant
-      // §2): the student's own pick/result + the A–D correct-letter, never question text.
+      // Issue #84: cache the LATEST post-grade UI so a (re-)mount of this SAME question re-applies it (the
+      // verdict otherwise dies with the shadow CB detaches on its re-render). Updated on every re-check so
+      // a re-mount replays the student's most recent result. IN-MEMORY ONLY (invariant §2): the student's
+      // own pick/result + the A–D correct-letter, never question text.
       verdicts.set(view.id, { pick, result, correctLetter });
-      await safeWrite(recordAttempt(db, makeAttempt({
-        deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
-        skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
-      })));
-      attempted++; if (result.correct) correct++;   // feed session_ended's accuracy/attempted buckets
-      // Bug fix: refresh the in-session seen map so re-opening this question (CB's in-place Next, or
-      // leaving and coming back) shows the result instead of reverting to "New to you" — the issue #28
-      // snapshot was held stable for the whole sitting. Only the just-answered id is touched.
-      priorSeen[view.id] = result.correct ? 'done' : 'missed';
-      // Reflect the just-recorded result on the underlying results list NOW, so its done/missed chip
-      // updates without a manual page refresh. The list sits behind the modal; watchResultsList only
-      // repaints when the row-ID set changes, not when the student's own data does — so this answer-
-      // driven change has no other repaint path. Safe re-entrancy: readListQuestionIds ignores chip
-      // text, so this chip mutation leaves the ID signature stable and never re-triggers that observer.
-      // Fire-and-forget: the chip lives behind the modal, so a background repaint must never delay the
-      // verdict the student is waiting on, and we already awaited recordAttempt above, so getSeen reads
-      // the just-recorded result.
-      const list = findResultsList(doc);
-      if (list) void refreshBadges(db, list);
+      if (firstGrade) {
+        // Record + tally happen exactly once per question per sitting; later re-checks update the visible
+        // verdict but NOT the recorded attempt (the first answer is the one that counts).
+        await safeWrite(recordAttempt(db, makeAttempt({
+          deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
+          skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
+        })));
+        attempted++; if (result.correct) correct++;   // feed session_ended's accuracy/attempted buckets
+        // Refresh the in-session seen map so re-opening this question (CB's in-place Next, or leaving and
+        // coming back) shows the result instead of reverting to "New to you" (issue #28). Only the
+        // just-answered id is touched.
+        priorSeen[view.id] = result.correct ? 'done' : 'missed';
+        // Reflect the just-recorded result on the underlying results list NOW, so its done/missed chip
+        // updates without a manual page refresh. Fire-and-forget; readListQuestionIds ignores chip text so
+        // this mutation leaves the ID signature stable and never re-triggers watchResultsList.
+        const list = findResultsList(doc);
+        if (list) void refreshBadges(db, list);
+      }
     }
-    emit(buildQuestionAttempted({
-      sessionId: session?.sessionId ?? '', questionId: view.id, choicesLength: view.choices.length,
-      result, revealUsed: revealedIds.has(view.id), section: view.section, domain: view.domain,
-      skill: view.skill, difficulty: view.difficulty,
-    }));
-    if (!result.graded) emit({ event: UNSCORED_FALLBACK, props: { session_id: session?.sessionId ?? '', question_id: view.id } });
+    // Telemetry mirrors the recorded attempt: one questionAttempted per question per sitting (re-checks
+    // update the UI but are not new attempts).
+    if (firstGrade) {
+      emit(buildQuestionAttempted({
+        sessionId: session?.sessionId ?? '', questionId: view.id, choicesLength: view.choices.length,
+        result, revealUsed: revealedIds.has(view.id), section: view.section, domain: view.domain,
+        skill: view.skill, difficulty: view.difficulty,
+      }));
+      if (!result.graded) emit({ event: UNSCORED_FALLBACK, props: { session_id: session?.sessionId ?? '', question_id: view.id } });
+    }
     // Nothing was recorded (ungraded answer / answer never readable) → release the guard so the student
     // can Check again once CB's rationale lands, instead of the "couldn't grade" being a dead end.
-    if (!(result.graded && answer)) gradedIds.delete(view.id);
+    if (firstGrade && !(result.graded && answer)) gradedIds.delete(view.id);
     // Issue #84: apply the post-grade UI to the LIVE on-screen overlay. CB may have re-rendered/replaced
     // .answer-content during the awaits above, detaching the shadow captured at the top; if our host is
     // gone from the live answer region, re-mount it there first so the verdict isn't orphaned. applyVerdict
