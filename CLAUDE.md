@@ -50,8 +50,12 @@ Before any live build/run/test, set up isolation:
    the behavior to avoid. A `src/cb/`-shape or scoring fix is proven by a synthetic
    fixture + unit test; the live window is for human visual sign-off on request, not
    for automated iteration.
-5. **Tell the user which port/window/label is yours** and that it is now open for them
-   to look at, then clean up when done
+5. **Tell the user the exact name the labeled dev build appears as**, so they can find
+   it among several installs. State it verbatim: it loads in `chrome://extensions` (and
+   as the toolbar tooltip) as **`Focused Practice — <DEV_LABEL>`** — e.g. a build with
+   `DEV_LABEL="verdict-fix"` is `Focused Practice — verdict-fix`. Always report that
+   full name plus the CDP port and that the window is now open for them to look at.
+   Then clean up when done
    (`pkill -f 'remote-debugging-port=<port>'`; `git worktree remove /tmp/sat-<slug>`).
 
 Live overlay verification follows the **`/verify-overlay` skill**
