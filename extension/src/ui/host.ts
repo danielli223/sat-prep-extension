@@ -72,6 +72,10 @@ const BASE_CSS = `
 .fp-mistake-meta code{background:#f1f5f9;border-radius:4px;padding:1px 4px;}
 .fp-mistake-note{font-size:12px;color:#92400e;background:#fffbeb;border-radius:6px;padding:6px;margin:0 0 6px;}
 .fp-empty{font-size:12px;color:#9ca3af;}
+.fp-tool-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.fp-tool-count{background:#f1f5f9;border-radius:8px;padding:8px;text-align:center;}
+.fp-tool-n{display:block;font-size:16px;font-weight:800;}
+.fp-tool-l{font-size:9px;text-transform:uppercase;color:#6b7280;}
 `;
 
 // The shadow root holds the card slot for the start panel (OVERWRITTEN on every render). Returns it —

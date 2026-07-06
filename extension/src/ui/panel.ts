@@ -1,6 +1,6 @@
 import { html } from './host';
 import { esc } from './escape';
-import { deriveStats, type Stats } from '../stats';
+import { deriveStats, type Stats, type ToolCounts } from '../stats';
 import type { Mistake } from '../journal';
 import type { Attempt } from '../types';
 
@@ -18,6 +18,11 @@ export interface PanelVM {
   attempts?: Attempt[];
   difficulties?: string[];
   selected?: Set<string>;
+  // Lifetime per-question attempt count (getAttemptCounts) — shown next to each mistake row. Optional
+  // so existing call sites that omit it keep working; missing/zero renders as no badge (never "0×").
+  attemptCounts?: Record<string, number>;
+  // This sitting's tool-usage snapshot (content.ts's shared ToolCounts) — optional for the same reason.
+  toolCounts?: ToolCounts;
 }
 
 function setHtml(el: Element, markup: string): void {
@@ -54,12 +59,28 @@ function difficultyControlHtml(difficulties: string[], selected: Set<string>): s
   return `<div class="fp-diff-filter">${opts}</div>`;
 }
 
-function mistakeHtml(m: Mistake): string {
+function mistakeHtml(m: Mistake, attemptCounts: Record<string, number>): string {
   const note = m.note ? `<p class="fp-mistake-note">${esc(m.note)}</p>` : '';
+  const count = attemptCounts[m.questionId] ?? 0;
+  const countMeta = count > 1 ? ` · attempted ${count}×` : '';
   return `<li class="fp-mistake">
-    <div class="fp-mistake-meta"><code>${esc(m.questionId)}</code> · ${esc(m.skill)} · ${esc(m.difficulty)} · ${day(m.lastSeenAt)}</div>
+    <div class="fp-mistake-meta"><code>${esc(m.questionId)}</code> · ${esc(m.skill)} · ${esc(m.difficulty)} · ${day(m.lastSeenAt)}${countMeta}</div>
     ${note}
   </li>`;
+}
+
+const TOOL_LABEL: Record<keyof ToolCounts, string> = {
+  check: 'Check', reveal: 'Reveal explanation', note: 'Note', desmos: 'Calculator', next: 'Next',
+};
+
+// "This session" tool-usage block (a live snapshot as of whenever the panel is opened — pagehide can't
+// render UI to an unloading page, so this is the practical "end of session" view). Tools never used
+// this sitting still show a 0, since the point is a full breakdown, not just what was touched.
+function toolCountsHtml(counts: ToolCounts): string {
+  const rows = (Object.keys(TOOL_LABEL) as (keyof ToolCounts)[])
+    .map((key) => `<div class="fp-tool-count"><span class="fp-tool-n">${counts[key]}</span><span class="fp-tool-l">${esc(TOOL_LABEL[key])}</span></div>`)
+    .join('');
+  return `<h3>This session</h3><div class="fp-tool-counts">${rows}</div>`;
 }
 
 export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
@@ -67,10 +88,12 @@ export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
   const difficulties = vm.difficulties ?? [];
   const selected = new Set(vm.selected ?? []);
   const attempts = vm.attempts ?? [];
+  const attemptCounts = vm.attemptCounts ?? {};
   const mistakesHtml = mistakes.length
-    ? `<ul class="fp-mistakes">${mistakes.map(mistakeHtml).join('')}</ul>`
+    ? `<ul class="fp-mistakes">${mistakes.map((m) => mistakeHtml(m, attemptCounts)).join('')}</ul>`
     : `<p class="fp-empty">No mistakes logged yet — your missed questions will show up here.</p>`;
   const controlHtml = difficulties.length ? difficultyControlHtml(difficulties, selected) : '';
+  const sessionHtml = vm.toolCounts ? toolCountsHtml(vm.toolCounts) : '';
 
   let panel = host.querySelector('.fp-panel');
   if (!panel) { panel = document.createElement('section'); panel.className = 'fp-panel'; host.appendChild(panel); }
@@ -84,7 +107,8 @@ export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
     <h3>Weak areas (worst first)</h3>
     <div class="fp-weak-areas">${weakAreasInner(stats.perSkill)}</div>
     <h3>Mistakes</h3>
-    ${mistakesHtml}`);
+    ${mistakesHtml}
+    ${sessionHtml}`);
 
   panel.querySelector('.fp-panel-close')?.addEventListener('click', () => panel!.remove());
 

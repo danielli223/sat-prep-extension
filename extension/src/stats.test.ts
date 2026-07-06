@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveStats } from './stats';
+import { deriveStats, deriveAttemptCounts } from './stats';
 import { makeAttempt } from './model';
 
 function att(questionId: string, skill: string, correct: boolean, createdAt: string) {
@@ -31,6 +31,30 @@ describe('deriveStats', () => {
     const a = att('q1', 'X', true, '2026-06-10T00:00:00Z');
     const stats = deriveStats([{ ...a, deleted: true }]);
     expect(stats.total).toBe(0);
+  });
+});
+
+// Lifetime per-question attempt count: one Attempt row per sitting the student did that question in
+// (content.ts's gradedIds guard caps it at one per sitting), so the raw row count IS the lifetime count.
+describe('deriveAttemptCounts', () => {
+  it('counts every non-deleted attempt per question, across sittings', () => {
+    const counts = deriveAttemptCounts([
+      att('q1', 'Inferences', false, '2026-06-10T00:00:00Z'), // sitting 1
+      att('q1', 'Inferences', true,  '2026-06-12T00:00:00Z'), // sitting 2 — same question, new attemptId
+      att('q2', 'Inferences', false, '2026-06-11T00:00:00Z'),
+    ]);
+    expect(counts.q1).toBe(2);
+    expect(counts.q2).toBe(1);
+  });
+
+  it('excludes tombstoned attempts', () => {
+    const a = att('q1', 'X', true, '2026-06-10T00:00:00Z');
+    const counts = deriveAttemptCounts([{ ...a, deleted: true }]);
+    expect(counts.q1).toBeUndefined();
+  });
+
+  it('returns an empty map for no attempts', () => {
+    expect(deriveAttemptCounts([])).toEqual({});
   });
 });
 

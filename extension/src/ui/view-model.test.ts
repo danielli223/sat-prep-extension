@@ -48,6 +48,14 @@ describe('toCardVM', () => {
     expect(toCardVM(mc, 0, 10).priorStatus).toBe('new');
   });
 
+  it('threads the 5th priorAttemptCount arg into the VM (lifetime attempt-count badge)', () => {
+    expect(toCardVM(mc, 0, 10, 'done', 3).priorAttemptCount).toBe(3);
+  });
+
+  it('defaults priorAttemptCount to 0 when the 5th arg is omitted', () => {
+    expect(toCardVM(mc, 0, 10).priorAttemptCount).toBe(0);
+  });
+
   it('threads a choice math AST through (RAM-only, like imgSrc)', () => {
     const math: MathNode = { kind: 'frac', num: { kind: 'text', value: '1' }, den: { kind: 'text', value: 'x' } };
     const withMath: QuestionView = {

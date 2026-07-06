@@ -1,6 +1,6 @@
 import type { IDBPDatabase } from 'idb';
 import { getAttempts, getNotes } from './store';
-import { deriveStats, type SeenMap } from './stats';
+import { deriveStats, deriveAttemptCounts, type SeenMap } from './stats';
 import type { Attempt } from './types';
 
 // Read-views for the journal/badger. NO new store methods, NO new persisted fields:
@@ -20,6 +20,12 @@ export interface Mistake {
 export async function getSeen(db: IDBPDatabase): Promise<SeenMap> {
   const attempts = await getAttempts(db);
   return deriveStats(attempts).seen;
+}
+
+/** Lifetime attempt count per question. Thin wrapper over deriveAttemptCounts. */
+export async function getAttemptCounts(db: IDBPDatabase): Promise<Record<string, number>> {
+  const attempts = await getAttempts(db);
+  return deriveAttemptCounts(attempts);
 }
 
 /** Currently-missed questions (latest attempt wrong), joined with the latest note, newest-missed first. */

@@ -14,6 +14,16 @@ export interface Stats {
   seen: SeenMap;                               // latest result per questionId
 }
 
+// How many times each of the five student-facing tools was used THIS sitting. IN-MEMORY ONLY (mirrors
+// content.ts's existing attempted/correct counters) — never persisted, resets on the next page load.
+// content.ts's runLoop mutates one shared instance by reference; handleMessage/the journal panel just
+// read it, so this type is single-sourced here rather than in content.ts, which panel.ts must not
+// import (content.ts already imports panel.ts — importing back would be circular).
+export interface ToolCounts { check: number; reveal: number; note: number; desmos: number; next: number; }
+export function createToolCounts(): ToolCounts {
+  return { check: 0, reveal: 0, note: 0, desmos: 0, next: 0 };
+}
+
 // Issue #34: an optional difficulty filter. "No selection = all" — undefined opts, an empty Set, or
 // a Set covering every present difficulty all behave identically to the unfiltered call. The filter
 // is applied to the RAW attempts BEFORE the latest-per-question reduction, so a question whose latest
@@ -46,4 +56,17 @@ export function deriveStats(attempts: Attempt[], opts?: StatsOpts): Stats {
     .sort((x, y) => x.accuracy - y.accuracy);
 
   return { total: list.length, correct, accuracy: list.length ? correct / list.length : 0, perSkill, seen };
+}
+
+// Lifetime attempt count per question, straight from the raw rows (never collapsed to "latest"):
+// content.ts's gradedIds guard records at most one Attempt per question per sitting, so each row here
+// is one distinct sitting's first grade of that question — the count IS the lifetime "how many times
+// have I done this question" the student sees on the overlay badge and in the journal panel.
+export function deriveAttemptCounts(attempts: Attempt[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const a of attempts) {
+    if (a.deleted) continue;
+    counts[a.questionId] = (counts[a.questionId] ?? 0) + 1;
+  }
+  return counts;
 }

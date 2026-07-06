@@ -15,6 +15,9 @@ export interface CardVM {
   // Issue #28: the student's prior status for THIS question, derived from their own attempt journal
   // (getSeen). OPTIONAL so VM literals that omit it still typecheck; the overlay defaults it to 'new'.
   priorStatus?: PriorStatus;
+  // Lifetime count of sittings in which the student has done THIS question (getAttemptCounts). 0/undefined
+  // on a first attempt; the overlay only shows a badge once it's > 1, so a first attempt stays uncluttered.
+  priorAttemptCount?: number;
   // Index signature so the leak-guard test can read `vm.stem` as a plain bag and
   // assert it is undefined (RAM-only stem never enters the VM) without an `unknown` cast.
   [key: string]: unknown;
@@ -23,7 +26,7 @@ export interface CardVM {
 
 export function toCardVM(
   view: QuestionView, index0: number, total: number,
-  priorStatus: PriorStatus = 'new',
+  priorStatus: PriorStatus = 'new', priorAttemptCount = 0,
 ): CardVM {
   return {
     id: view.id,
@@ -33,5 +36,6 @@ export function toCardVM(
     answerKnown: view.correctAnswer !== null,
     position: { index: index0 + 1, total },
     priorStatus,
+    priorAttemptCount,
   };
 }

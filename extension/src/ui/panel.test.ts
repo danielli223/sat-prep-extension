@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderPanel, type PanelVM } from './panel';
-import type { Stats } from '../stats';
+import type { Stats, ToolCounts } from '../stats';
 import type { Mistake } from '../journal';
 import type { Attempt } from '../types';
 import { makeAttempt } from '../model';
@@ -89,6 +89,58 @@ describe('renderPanel', () => {
     const bars = [...root.querySelectorAll('.fp-bar-fill')];
     expect(bars[0]!.classList.contains('fp-bar-low')).toBe(true);    // Inferences 25% → low (red)
     expect(bars[1]!.classList.contains('fp-bar-high')).toBe(true);   // Linear equations 100% → high (green)
+  });
+});
+
+// Lifetime per-question attempt count, shown next to each mistake row (attemptCounts is optional so
+// existing call sites that omit it keep rendering with no badge, never a spurious "0×").
+describe('renderPanel — per-question attempt count', () => {
+  it('shows "attempted N×" next to a mistake once the count is > 1', () => {
+    const root = shadow();
+    renderPanel(root, { ...vm, attemptCounts: { ab12cd34: 3 } });
+    expect(root.querySelector('.fp-mistake')!.textContent).toContain('attempted 3×');
+  });
+
+  it('omits the attempt-count badge on a first attempt (count of 1) or when the map is missing', () => {
+    const root = shadow();
+    renderPanel(root, { ...vm, attemptCounts: { ab12cd34: 1 } });
+    expect(root.querySelector('.fp-mistake')!.textContent).not.toContain('attempted');
+
+    const root2 = shadow();
+    renderPanel(root2, vm);   // no attemptCounts at all
+    expect(root2.querySelector('.fp-mistake')!.textContent).not.toContain('attempted');
+  });
+});
+
+// This-session tool-usage summary — a live snapshot of content.ts's shared ToolCounts, shown only
+// when the caller passes it (toolCounts is optional so existing call sites keep working unchanged).
+describe('renderPanel — this-session tool usage', () => {
+  const toolCounts: ToolCounts = { check: 5, reveal: 2, note: 1, desmos: 3, next: 4 };
+
+  it('renders a count for every tool, including ones never used this sitting', () => {
+    const root = shadow();
+    renderPanel(root, { ...vm, toolCounts });
+    const rows = [...root.querySelectorAll('.fp-tool-count')].map((el) => el.textContent);
+    expect(rows.some((t) => t?.includes('5') && t?.includes('Check'))).toBe(true);
+    expect(rows.some((t) => t?.includes('2') && t?.includes('Reveal explanation'))).toBe(true);
+    expect(rows.some((t) => t?.includes('1') && t?.includes('Note'))).toBe(true);
+    expect(rows.some((t) => t?.includes('3') && t?.includes('Calculator'))).toBe(true);
+    expect(rows.some((t) => t?.includes('4') && t?.includes('Next'))).toBe(true);
+  });
+
+  it('shows a 0 for a tool untouched this sitting, not an omitted row', () => {
+    const root = shadow();
+    renderPanel(root, { ...vm, toolCounts: { check: 0, reveal: 0, note: 0, desmos: 0, next: 0 } });
+    const rows = [...root.querySelectorAll('.fp-tool-count')];
+    expect(rows).toHaveLength(5);
+    expect(rows.every((el) => el.textContent?.includes('0'))).toBe(true);
+  });
+
+  it('omits the "This session" section entirely when toolCounts is not passed', () => {
+    const root = shadow();
+    renderPanel(root, vm);
+    expect(root.querySelector('.fp-tool-counts')).toBeNull();
+    expect(root.textContent).not.toContain('This session');
   });
 });
 

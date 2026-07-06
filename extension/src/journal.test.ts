@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { indexedDB } from 'fake-indexeddb';
 import { openStore, recordAttempt, saveNote } from './store';
 import { makeAttempt, makeNote } from './model';
-import { getSeen, getMistakes } from './journal';
+import { getSeen, getMistakes, getAttemptCounts } from './journal';
 import type { Attempt } from './types';
 
 async function freshDb() {
@@ -27,6 +27,17 @@ describe('getSeen', () => {
     await recordAttempt(db, att({ questionId: 'q2', skill: 'Inferences', correct: false, createdAt: '2026-06-11T00:00:00.000Z' }));
     const seen = await getSeen(db);
     expect(seen).toEqual({ q1: 'done', q2: 'missed' });
+  });
+});
+
+describe('getAttemptCounts', () => {
+  it('counts every attempt per question, across sittings (delegates to deriveAttemptCounts)', async () => {
+    const db = await freshDb();
+    await recordAttempt(db, att({ questionId: 'q1', skill: 'Inferences', correct: false, createdAt: '2026-06-10T00:00:00.000Z' }));
+    await recordAttempt(db, att({ questionId: 'q1', skill: 'Inferences', correct: true,  createdAt: '2026-06-12T00:00:00.000Z' }));
+    await recordAttempt(db, att({ questionId: 'q2', skill: 'Inferences', correct: false, createdAt: '2026-06-11T00:00:00.000Z' }));
+    const counts = await getAttemptCounts(db);
+    expect(counts).toEqual({ q1: 2, q2: 1 });
   });
 });
 
