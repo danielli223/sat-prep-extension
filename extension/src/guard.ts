@@ -5,7 +5,7 @@ const ALLOWED_KEYS = new Set<string>([
   // envelope
   'userId', 'deviceId', 'createdAt', 'updatedAt', 'deleted', 'dirty', 'schemaVersion',
   // attempt
-  'attemptId', 'questionId', 'section', 'domain', 'skill', 'difficulty', 'pick', 'correct',
+  'attemptId', 'questionId', 'section', 'domain', 'skill', 'difficulty', 'pick', 'correct', 'timeSpentMs',
   // note
   'noteId', 'text',
   // session

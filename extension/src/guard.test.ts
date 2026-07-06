@@ -10,6 +10,15 @@ describe('assertNoQuestionContent', () => {
     })).not.toThrow();
   });
 
+  it('accepts an attempt record carrying the per-question timeSpentMs', () => {
+    expect(() => assertNoQuestionContent({
+      attemptId: 'a', userId: null, deviceId: 'd', questionId: 'ac472881',
+      section: 'Math', domain: 'Algebra', skill: 'Linear equations', difficulty: 'Hard',
+      pick: 'B', correct: true, createdAt: 't', updatedAt: 't', deleted: false, dirty: true, schemaVersion: 1,
+      timeSpentMs: 45210,
+    })).not.toThrow();
+  });
+
   it('rejects a record carrying question text under a non-allowlisted key', () => {
     expect(() => assertNoQuestionContent({ questionId: 'x', questionText: 'If 3x+7=22...' }))
       .toThrow(QuestionContentError);

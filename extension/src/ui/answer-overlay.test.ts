@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard, maskAnswerContent, mountCurtain, morphCheckToExplain } from './answer-overlay';
+import { mountAnswerOverlay, unmountAnswerOverlay, findAnswerContent, renderVerdict, revealRationale, renderNeedAnswer, renderStaleCard, maskAnswerContent, mountCurtain, morphCheckToExplain, formatElapsedTime, mountQuestionHeaderTimer, unmountQuestionHeaderTimer } from './answer-overlay';
 import { score } from '../scoring';
 import { readQuestion } from '../cb/reader';
 import { toCardVM } from './view-model';
@@ -284,6 +284,152 @@ describe('Reading declutter (issue #23)', () => {
     // DOCUMENT_POSITION_FOLLOWING => actions comes AFTER choices in document order.
     const rel = choices.compareDocumentPosition(actions);
     expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('formatElapsedTime (per-question clock, m:ss)', () => {
+  it('formats zero and sub-minute durations as 0:ss', () => {
+    expect(formatElapsedTime(0)).toBe('0:00');
+    expect(formatElapsedTime(7000)).toBe('0:07');
+    expect(formatElapsedTime(59000)).toBe('0:59');
+  });
+  it('rolls over into minutes at 60s, zero-padding the seconds', () => {
+    expect(formatElapsedTime(60000)).toBe('1:00');
+    expect(formatElapsedTime(65000)).toBe('1:05');
+    expect(formatElapsedTime(599000)).toBe('9:59');
+  });
+  it('floors partial seconds rather than rounding', () => {
+    expect(formatElapsedTime(7999)).toBe('0:07');
+  });
+  it('clamps a negative duration to 0:00 (defensive against clock skew)', () => {
+    expect(formatElapsedTime(-500)).toBe('0:00');
+  });
+});
+
+// The clock lives in CB's OWN header row ("Question ID: ..." strip), not our shadow-DOM card — the
+// user asked for it centered there, matching that row's visual weight. It's light-DOM furniture (no
+// shadow root), the same posture as the existing stats widget, injected via QUESTION_HEADER_SELECTOR
+// (bank-agnostic: educator `.cb-dialog-header` vs student `.question-modal-header`).
+describe('per-question clock lives in CB\'s header row (mountQuestionHeaderTimer)', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-06-15T00:00:00.000Z')); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function educatorModal(): Element {
+    document.body.innerHTML = '<div class="cb-dialog-container"><div class="cb-dialog-header">' +
+      '<h4 class="cb-roboto cb-font-weight-black">Question ID: ab12cd34</h4>' +
+      '<button class="cb-btn cb-btn-square cb-btn-close"><span class="sr-only">Close</span></button>' +
+      '</div></div>';
+    return document.querySelector('.cb-dialog-container')!;
+  }
+
+  function studentModal(): Element {
+    document.body.innerHTML = '<div class="cb-modal-container"><div class="cb-modal-header cb-modal-has-close">' +
+      '<div class="question-modal-header">' +
+      '<h4 class="cb-roboto cb-font-weight-black">Question ID: ab12cd34</h4>' +
+      '<button class="cb-btn cb-btn-square"><span class="sr-only">Copy</span></button>' +
+      '</div></div></div>';
+    return document.querySelector('.cb-modal-container')!;
+  }
+
+  it('mounts a centered badge into the educator .cb-dialog-header, as a sibling of the h4 (never inside it)', () => {
+    const modal = educatorModal();
+    mountQuestionHeaderTimer(modal, Date.now());
+    const header = modal.querySelector('.cb-dialog-header')!;
+    const badge = header.querySelector('.fp-header-timer')!;
+    expect(badge).not.toBeNull();
+    expect(header.querySelector('h4')!.contains(badge)).toBe(false);
+    expect(badge.textContent).toBe('0:00');
+  });
+
+  it('mounts into the student bank\'s nested .question-modal-header', () => {
+    const modal = studentModal();
+    mountQuestionHeaderTimer(modal, Date.now());
+    const header = modal.querySelector('.question-modal-header')!;
+    expect(header.querySelector('.fp-header-timer')).not.toBeNull();
+  });
+
+  it('positions the badge centered (absolute + left:50%) and makes the header a positioning context, without touching the h4/button', () => {
+    const modal = educatorModal();
+    const header = modal.querySelector('.cb-dialog-header') as HTMLElement;
+    const h4Text = header.querySelector('h4')!.textContent;
+    mountQuestionHeaderTimer(modal, Date.now());
+    const badge = header.querySelector('.fp-header-timer') as HTMLElement;
+    expect(badge.style.position).toBe('absolute');
+    expect(badge.style.left).toBe('50%');
+    expect(badge.style.pointerEvents).toBe('none');   // must not intercept clicks meant for CB's close button
+    expect(header.style.position).toBe('relative');
+    expect(header.querySelector('h4')!.textContent).toBe(h4Text);   // CB's own content untouched
+  });
+
+  it('is idempotent — mounting twice does not create a duplicate badge', () => {
+    const modal = educatorModal();
+    mountQuestionHeaderTimer(modal, Date.now());
+    mountQuestionHeaderTimer(modal, Date.now());
+    expect(modal.querySelectorAll('.fp-header-timer')).toHaveLength(1);
+  });
+
+  it('renders 0:00 immediately when mounted with startedAtMs === now', () => {
+    const modal = educatorModal();
+    mountQuestionHeaderTimer(modal, Date.now());
+    expect(modal.querySelector('.fp-header-timer')!.textContent).toBe('0:00');
+  });
+
+  // This project's fake timers only mock 'Date' (vitest.config.ts: fakeTimers.toFake=['Date']) — the
+  // ticking setInterval is REAL, so proving it recomputes from the anchor needs a real ~1s wait.
+  it('ticks up once per second, recomputed from startedAtMs, by mutating the SAME text node (no childList churn)', async () => {
+    const startedAtMs = Date.now();
+    const modal = educatorModal();
+    mountQuestionHeaderTimer(modal, startedAtMs);
+    const badge = modal.querySelector('.fp-header-timer')!;
+    const textNodeBefore = badge.firstChild;
+    vi.setSystemTime(startedAtMs + 3000);
+    await new Promise((r) => setTimeout(r, 1050));   // let the real 1s interval fire once
+    expect(badge.textContent).toBe('0:03');
+    // Same Text node object — a characterData mutation, never a childList replace (would otherwise
+    // re-trigger the body-wide question-detection MutationObserver once a second).
+    expect(badge.firstChild).toBe(textNodeBefore);
+    expect(badge.childNodes).toHaveLength(1);
+  });
+
+  it('a re-mount with an OLDER startedAtMs shows the already-elapsed time immediately (issue #84 remount mid-grade)', () => {
+    const startedAtMs = Date.now();
+    const modal = educatorModal();
+    mountQuestionHeaderTimer(modal, startedAtMs);
+    vi.setSystemTime(new Date(startedAtMs + 5000));
+    mountQuestionHeaderTimer(modal, startedAtMs);   // remount, SAME anchor
+    expect(modal.querySelector('.fp-header-timer')!.textContent).toBe('0:05');
+  });
+
+  it('unmountQuestionHeaderTimer removes the badge, stops ticking, and restores the header\'s position style', async () => {
+    const startedAtMs = Date.now();
+    const modal = educatorModal();
+    const header = modal.querySelector('.cb-dialog-header') as HTMLElement;
+    mountQuestionHeaderTimer(modal, startedAtMs);
+    expect(header.style.position).toBe('relative');
+
+    unmountQuestionHeaderTimer(modal);
+    expect(modal.querySelector('.fp-header-timer')).toBeNull();
+    expect(header.style.position).toBe('');
+
+    vi.setSystemTime(startedAtMs + 10000);
+    await new Promise((r) => setTimeout(r, 1200));   // a leaked interval would throw querying the removed badge
+  });
+
+  it('does not clobber an ALREADY-positioned header, and leaves it alone on unmount (we did not set it)', () => {
+    const modal = educatorModal();
+    const header = modal.querySelector('.cb-dialog-header') as HTMLElement;
+    header.style.position = 'sticky';   // simulate a CB style we didn't cause
+    mountQuestionHeaderTimer(modal, Date.now());
+    expect(header.style.position).toBe('sticky');   // untouched
+    unmountQuestionHeaderTimer(modal);
+    expect(header.style.position).toBe('sticky');   // still untouched — we never set/cleared it
+  });
+
+  it('no-ops when the modal has no recognizable header row', () => {
+    const modal = document.createElement('div');
+    document.body.appendChild(modal);
+    expect(() => mountQuestionHeaderTimer(modal, Date.now())).not.toThrow();
+    expect(modal.querySelector('.fp-header-timer')).toBeNull();
   });
 });
 

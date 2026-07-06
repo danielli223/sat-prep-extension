@@ -3,6 +3,7 @@ import { esc } from './escape';
 import type { PriorStatus } from '../stats';
 import type { CardVM, ChoiceVM } from './view-model';
 import type { MathNode } from '../cb/reader';
+import { QUESTION_HEADER_SELECTOR } from '../cb/observer';
 import type { ScoreResult } from '../scoring';
 
 export interface AnswerHandlers {
@@ -38,6 +39,76 @@ const REVEALED_ATTR = 'data-fp-revealed';
 // One MutationObserver per .answer-content, keyed by the container so re-mount can disconnect the
 // previous one (no stacked observers across CB's in-place re-renders). WeakMap → GC'd with the node.
 const hideObservers = new WeakMap<Element, MutationObserver>();
+
+// The per-question clock's ticking interval. Only ONE overlay is ever live at a time (unlike the
+// hideObservers MutationObserver, an interval keeps firing even if its header is detached — e.g. CB
+// replacing the modal mid-grade, issue #84 — so a WeakMap-per-container would leak a ticking timer per
+// detached container). A single module-level id, cleared at the top of every mount and on unmount, is
+// the correct shape here: whichever overlay is live owns the one active interval.
+let headerTimerIntervalId: ReturnType<typeof setInterval> | undefined;
+
+function stopHeaderTimer(): void {
+  if (headerTimerIntervalId !== undefined) { clearInterval(headerTimerIntervalId); headerTimerIntervalId = undefined; }
+}
+
+const HEADER_TIMER_CLASS = 'fp-header-timer';
+// Marks a header we set `position:relative` on ourselves, so unmount restores it — and never touches a
+// header CB (or a later reload of this code) already positioned some other way.
+const HEADER_POSITIONED_ATTR = 'data-fp-header-positioned';
+
+// Mounts a centered clock badge into CB's OWN question-header row ("Question ID: ..." strip) — light
+// DOM, no shadow root, the same posture as the existing stats widget (simple furniture injected outside
+// our own hosts). QUESTION_HEADER_SELECTOR is bank-agnostic (educator `.cb-dialog-header` vs student
+// `.question-modal-header`). Idempotent: reuses an existing badge + its text node.
+//
+// Anchor is content.ts's per-question questionStartMs (reset when a DIFFERENT question becomes active,
+// or the student exits — see runLoop). Ticks once immediately (so a re-mount mid-onCheck-await shows the
+// correct already-elapsed time, not a "0:00" flash) then every 1s, RECOMPUTING from the anchor each tick
+// rather than accumulating — Chrome throttles background-tab timers, so an accumulator would drift.
+//
+// The tick mutates the Text node's `.data` (a characterData change), NEVER `.textContent =` (which
+// always replaces the node — a childList mutation). This element lives in the page's light DOM inside
+// CB's own header, which sits under the body-wide MutationObservers observeQuestions/
+// observeQuestionPresence install (`{childList:true, subtree:true}`) — a childList mutation once a
+// second would re-trigger observeQuestions' 150ms settle debounce for as long as the clock runs.
+export function mountQuestionHeaderTimer(modal: Element, startedAtMs: number): void {
+  stopHeaderTimer();
+  const header = modal.querySelector(QUESTION_HEADER_SELECTOR) as HTMLElement | null;
+  if (!header) return;
+  if (header.style.position === '') {
+    header.style.position = 'relative';
+    header.setAttribute(HEADER_POSITIONED_ATTR, '');
+  }
+  let el = header.querySelector(`.${HEADER_TIMER_CLASS}`) as HTMLElement | null;
+  if (!el) {
+    el = header.ownerDocument.createElement('span');
+    el.className = HEADER_TIMER_CLASS;
+    el.setAttribute('aria-hidden', 'true');   // decorative — the live clock has no accessible-name role to fill
+    el.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);' +
+      'pointer-events:none;white-space:nowrap;font:800 22px/1 -apple-system,BlinkMacSystemFont,' +
+      '"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#1f2937;font-variant-numeric:tabular-nums;';
+    header.appendChild(el);
+  }
+  const textNode = (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE)
+    ? el.firstChild as Text
+    : el.appendChild(header.ownerDocument.createTextNode(''));
+  const tick = (): void => { textNode.data = formatElapsedTime(Date.now() - startedAtMs); };
+  tick();
+  headerTimerIntervalId = setInterval(tick, 1000);
+}
+
+// Removes the badge, stops the ticking interval, and restores the header's position style — but ONLY if
+// mountQuestionHeaderTimer was the one that set it (HEADER_POSITIONED_ATTR), never a pre-existing CB/
+// other style.
+export function unmountQuestionHeaderTimer(modal: Element): void {
+  stopHeaderTimer();
+  const header = modal.querySelector(QUESTION_HEADER_SELECTOR) as HTMLElement | null;
+  header?.querySelector(`.${HEADER_TIMER_CLASS}`)?.remove();
+  if (header?.hasAttribute(HEADER_POSITIONED_ATTR)) {
+    header.style.position = '';
+    header.removeAttribute(HEADER_POSITIONED_ATTR);
+  }
+}
 
 // Find a DIRECT child of `parent` by class. `:scope >` is unsupported in happy-dom, so we scan
 // `.children` directly — the single home for every our-node / CB-node direct-child lookup here.
@@ -90,6 +161,15 @@ function choiceBody(c: ChoiceVM): string {
   }
   if (c.math) return renderMath(c.math);
   return esc(c.text);
+}
+
+// Per-question clock (m:ss), floored to whole seconds, clamped to non-negative (defensive against
+// clock skew — Date.now() is not guaranteed monotonic).
+export function formatElapsedTime(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function renderBody(vm: CardVM): string {
@@ -318,6 +398,9 @@ export function mountAnswerOverlay(answerContent: HTMLElement, vm: CardVM, h: An
 // Teardown: restore CB's native content and remove our overlay. Used by onClose / last-question Next.
 // Without this, removing only our host leaves CB's masked nodes stuck at display:none (a blank CB
 // question). Disconnects the observer, un-hides exactly the nodes WE marked, and removes the host.
+// (The header clock is a SEPARATE lifecycle — mountQuestionHeaderTimer/unmountQuestionHeaderTimer,
+// driven by content.ts alongside this function, since its target is the modal's header, not
+// .answer-content.)
 export function unmountAnswerOverlay(answerContent: HTMLElement): void {
   hideObservers.get(answerContent)?.disconnect();
   hideObservers.delete(answerContent);

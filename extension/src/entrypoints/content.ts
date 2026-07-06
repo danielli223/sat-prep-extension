@@ -9,6 +9,7 @@ import { toCardVM } from '../ui/view-model';
 import {
   findAnswerContent, mountAnswerOverlay, unmountAnswerOverlay, mountCurtain,
   renderNeedAnswer, renderStaleCard, applyVerdict, toggleRationale, setRevealLabel, type AnswerHandlers,
+  mountQuestionHeaderTimer, unmountQuestionHeaderTimer,
 } from '../ui/answer-overlay';
 import { renderStartPanel } from '../ui/start-panel';
 import { renderPanel } from '../ui/panel';
@@ -327,10 +328,17 @@ export async function runLoop(
   // every exit that recorded nothing (stale card, ungraded answer), so those states stay re-checkable.
   const gradedIds = new Set<string>();
   // The question currently on screen, so showQuestion can tell "CB re-rendered the SAME question"
-  // (issue #84 — keep the cached verdict) apart from "the student left and came back to a DIFFERENT
-  // question" (clear it — a returning student gets a fresh, re-checkable card, not their old pick
-  // frozen on screen forever). Null until the first question shows.
+  // (issue #84 — keep the cached verdict, keep the clock running) apart from "a genuinely different
+  // question is now active" (clear the old id's guard/verdict, reset the clock) — including a return to
+  // the SAME question after an explicit exit (teardownOverlay nulls this first, below), so closing and
+  // reopening one question also gets a fresh, re-checkable card and a fresh clock. Null until the first
+  // question shows.
   let currentViewId: string | null = null;
+
+  // The per-question clock: how long the student has been on the CURRENT question. Reset alongside
+  // currentViewId above, on that exact same transition — NOT a per-id map, so a later revisit of an
+  // earlier question starts fresh rather than replaying time spent elsewhere in between.
+  let questionStartMs = 0;
 
   // The overlay's event handlers, factored out so BOTH the initial mount and the re-mount (issue #84)
   // rebuild an identical, view-bound set against the CURRENT .answer-content (CB can replace it).
@@ -362,20 +370,21 @@ export async function runLoop(
       onOpenDesmos: () => { toolCounts.desmos++; openDesmos(); emit(buildCalculatorOpened({ sessionId: session?.sessionId ?? '', calculatorType: 'desmos' })); },
       // ✕ tears down our overlay AND restores CB's masked native nodes, so closing never leaves CB's
       // own question blanked at display:none.
-      onClose: () => { unmountAnswerOverlay(answerContent); },
+      onClose: () => { teardownOverlay(view, answerContent); },
     };
   }
 
   // Mount the overlay into the given .answer-content and, if this question was already graded this
   // sitting, re-apply its cached verdict (issue #84) — shared by the initial mount and the re-mount.
   function mountOverlay(view: QuestionView, answerContent: HTMLElement): ShadowRoot {
-    const sh = mountAnswerOverlay(
-      answerContent,
-      toCardVM(view, index, total, priorSeen[view.id] ?? 'new', priorAttemptCounts[view.id] ?? 0),
-      buildHandlers(view, answerContent),
-    );
+    const vm = toCardVM(view, index, total, priorSeen[view.id] ?? 'new', priorAttemptCounts[view.id] ?? 0);
+    const sh = mountAnswerOverlay(answerContent, vm, buildHandlers(view, answerContent));
     const cached = verdicts.get(view.id);
     if (cached) applyVerdict(sh, cached);   // issue #84: re-apply the verdict on every (re-)mount
+    // The clock badge lives in CB's own header (a different element than .answer-content), so it's
+    // mounted separately here — on every (re-)mount, same as the overlay itself.
+    const modal = currentModal(doc, view.id);
+    if (modal) mountQuestionHeaderTimer(modal, questionStartMs);
     return sh;
   }
 
@@ -387,18 +396,35 @@ export async function runLoop(
     return ac ? mountOverlay(view, ac) : null;
   }
 
+  // Tear our overlay down, reset the per-question clock, and clear THIS question's own grading
+  // guard/verdict directly. Used at every exit point (close, Next's no-target fallbacks, the
+  // DOM-contract degrade path) so a student who leaves a question and later reopens it — even the SAME
+  // question — gets a fresh, re-checkable card and a fresh clock, rather than resuming the old verdict/
+  // elapsed time. (Cleared here directly, not left to showQuestion's transition check below, because by
+  // the time the SAME question reopens, currentViewId has already been nulled — losing which id to
+  // clear. A CB in-place re-render of the SAME open question never calls this — see showQuestion below —
+  // so the cached verdict and the clock both survive that quirk undisturbed.)
+  function teardownOverlay(view: QuestionView, answerContent: HTMLElement): void {
+    unmountAnswerOverlay(answerContent);
+    const modal = currentModal(doc, view.id);
+    if (modal) unmountQuestionHeaderTimer(modal);
+    gradedIds.delete(view.id);
+    verdicts.delete(view.id);
+    currentViewId = null;
+  }
+
   function showQuestion(view: QuestionView): void {
-    // Only a genuine move to a DIFFERENT question clears the guard/verdict — CB re-rendering the SAME
-    // question in place (currentViewId unchanged) leaves them alone, so issue #84's fix (re-apply the
-    // cached verdict across CB's own DOM churn) still holds. A real transition means the student is
-    // done with the question they're leaving, so its guard/verdict are cleared: coming back to it later
-    // (Next, or re-opening it from the results list) mounts a fresh, re-checkable card instead of
-    // replaying the old pick, and the next Check counts as a genuine new attempt.
-    if (currentViewId !== null && currentViewId !== view.id) {
-      gradedIds.delete(currentViewId);
-      verdicts.delete(currentViewId);
+    // Only a genuine move to a DIFFERENT question clears the PREVIOUS question's guard/verdict and
+    // resets the clock — CB re-rendering the SAME question in place (currentViewId unchanged) leaves
+    // both alone, so issue #84's fix (re-apply the cached verdict across CB's own DOM churn) still holds
+    // and the clock keeps running. A real transition means the student is done with the question they're
+    // leaving: its guard/verdict are cleared (coming back to it later mounts a fresh, re-checkable card,
+    // and the next Check counts as a genuine new attempt) and the clock restarts for the new question.
+    if (currentViewId !== view.id) {
+      if (currentViewId !== null) { gradedIds.delete(currentViewId); verdicts.delete(currentViewId); }
+      currentViewId = view.id;
+      questionStartMs = Date.now();
     }
-    currentViewId = view.id;
     // Refresh "Q n of N": the results list may not have been in the DOM at Start (e.g. the student
     // opened a question first), which left N stuck at the fallback 1 ("Q 2 of 1", live 2026-06-16).
     // It is in the DOM behind the modal now. Never let N drop below the current position.
@@ -430,7 +456,7 @@ export async function runLoop(
     // rather than leaving them stuck blank at display:none — unmount un-hides exactly our marked nodes and
     // disconnects the early-mask observer (no host was mounted, so there's nothing else to remove). Doing
     // this synchronously (not in a trailing .then) keeps the per-question path free of an extra microtask.
-    if (!mounted) unmountAnswerOverlay(answerContent);
+    if (!mounted) teardownOverlay(view, answerContent);
   }
 
   async function onCheck(view: QuestionView, pick: string): Promise<void> {
@@ -448,6 +474,10 @@ export async function runLoop(
     // below so rapid double-clicks still record exactly once.
     const firstGrade = !gradedIds.has(view.id);
     if (firstGrade) gradedIds.add(view.id);
+    // Snapshot the elapsed time HERE, before the awaits below — a different question's showQuestion can
+    // fire during those awaits (CB re-rendering) and reset questionStartMs out from under a later read.
+    // Clamp to non-negative: Date.now() is not guaranteed monotonic.
+    const timeSpentMs = Math.max(0, Date.now() - questionStartMs);
     // Read the answer at CHECK TIME from the live DOM (spike) — the QuestionView captured on show
     // predates CB's reveal. Usually it's already present (synchronous fast path); only if it isn't —
     // CB injects the rationale async after reveal and a too-fast Check can beat it — do we poll, so a
@@ -477,7 +507,7 @@ export async function runLoop(
         // verdict but NOT the recorded attempt (the first answer is the one that counts).
         await safeWrite(recordAttempt(db, makeAttempt({
           deviceId: dev, questionId: view.id, section: view.section, domain: view.domain,
-          skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct,
+          skill: view.skill, difficulty: view.difficulty, pick, correct: result.correct, timeSpentMs,
         })));
         attempted++; if (result.correct) correct++;   // feed session_ended's accuracy/attempted buckets
         // Refresh the in-session seen map so re-opening this question (CB's in-place Next, or leaving and
@@ -540,7 +570,7 @@ export async function runLoop(
     if (session && session.orderMode === 'random') {
       const modal = currentModal(doc, view.id);
       const ac = modal ? findAnswerContent(modal) : null;
-      if (ac) unmountAnswerOverlay(ac);
+      if (ac) teardownOverlay(view, ac);
       const list = findResultsList(doc);
       const ids = list ? readListQuestionIds(list).map((r) => r.id) : [];
       const nextId = nextRandomId(session.shuffleSeed, ids, index);
@@ -555,7 +585,7 @@ export async function runLoop(
     if (!clickCbNext(doc)) {
       const modal = currentModal(doc, view.id);
       const ac = modal ? findAnswerContent(modal) : null;
-      if (ac) unmountAnswerOverlay(ac);
+      if (ac) teardownOverlay(view, ac);
     }
   }
 

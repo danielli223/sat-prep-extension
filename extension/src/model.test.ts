@@ -22,6 +22,21 @@ describe('record factories', () => {
     expect(a.updatedAt).toBe('2026-06-15T00:00:00.000Z');
   });
 
+  it('makeAttempt threads timeSpentMs through when provided, and omits it when not', () => {
+    const withTime = makeAttempt({
+      deviceId: 'dev-1', questionId: 'ac472881', section: 'Math', domain: 'Algebra',
+      skill: 'Linear equations in one variable', difficulty: 'Hard', pick: 'B', correct: true,
+      timeSpentMs: 34210,
+    });
+    expect(withTime.timeSpentMs).toBe(34210);
+
+    const withoutTime = makeAttempt({
+      deviceId: 'dev-1', questionId: 'ac472881', section: 'Math', domain: 'Algebra',
+      skill: 'Linear equations in one variable', difficulty: 'Hard', pick: 'B', correct: true,
+    });
+    expect(withoutTime.timeSpentMs).toBeUndefined();
+  });
+
   it('makeNote and makeSession share the envelope shape', () => {
     const n = makeNote({ deviceId: 'd', questionId: 'q1', text: 'missed the trap' });
     expect(n.noteId).toMatch(/[0-9a-f-]{36}/);

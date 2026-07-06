@@ -20,6 +20,7 @@ export interface Attempt extends Envelope {
   difficulty: string;
   pick: string;        // "A".."D" for MC, or the grid-in value
   correct: boolean;
+  timeSpentMs?: number;   // elapsed ms from the question first showing to the FIRST Check (undefined for old records)
 }
 
 export interface Note extends Envelope {

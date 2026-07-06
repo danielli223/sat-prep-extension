@@ -13,6 +13,12 @@ const activeStops = new WeakMap<Document, () => void>();
 // student bank's sibling inactivity-timer popup (also a `.cb-modal`, no id) is excluded.
 export const QUESTION_MODAL_SELECTOR = '.cb-dialog-container, .cb-modal-container';
 
+// The header ROW holding "Question ID: ..." + CB's own copy/close button — differs by bank the same
+// way the modal wrapper does: the EDUCATOR bank has it directly as `.cb-dialog-header`; the STUDENT
+// bank nests it one level deeper (`.cb-modal-header > .question-modal-header`), but that inner row has
+// the identical two-child shape (h4 + button) in both banks, so one selector covers both.
+export const QUESTION_HEADER_SELECTOR = '.cb-dialog-header, .question-modal-header';
+
 // Watches the results page for CB's question modal and emits each distinct question once.
 // CB renders the question inside the QUESTION_MODAL_SELECTOR wrapper — NOT inside the bare
 // [role="dialog"] node where that differs from it (that node is the modal chrome, and a cookie-consent

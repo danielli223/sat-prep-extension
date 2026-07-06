@@ -493,6 +493,89 @@ describe('handleMessage — ToolCounts passthrough to the journal panel', () => 
   });
 });
 
+// The per-question clock: content.ts tracks how long the student has been on the CURRENT question and
+// stamps that onto the attempt at the first Check. It resets whenever a DIFFERENT question becomes
+// active (not per-id-forever) — time spent on a question you've since left must not leak into the next
+// one's recorded timeSpentMs.
+describe('per-question clock (timeSpentMs)', () => {
+  it('records timeSpentMs reflecting real elapsed time from the question showing to the first Check', async () => {
+    const db = await freshDb();
+    document.body.innerHTML += '<table class="results-list"><tbody><tr><td>row</td></tr></tbody></table>';
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    await new Promise((r) => setTimeout(r, 120));   // real time spent reading/answering the question
+
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    const attempts = await getAttempts(db);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]!.timeSpentMs).toBeGreaterThanOrEqual(100);
+    expect(attempts[0]!.timeSpentMs).toBeLessThan(3000);
+  });
+
+  it('resets the clock when a DIFFERENT question becomes active (time on the previous question does not leak in)', async () => {
+    const db = await freshDb();
+    document.body.innerHTML += '<table class="results-list"><tbody><tr><td>row</td></tr></tbody></table>';
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += mc;   // question ab12cd34 shown
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    await new Promise((r) => setTimeout(r, 250));   // real time spent on ab12cd34 WITHOUT checking it
+
+    // CB replaces the modal in place with a DIFFERENT question (ef56ab78) — the clock must reset here.
+    document.querySelector('.cb-modal-container')!.remove();
+    document.body.innerHTML += gridIn;
+    await vi.waitFor(() => expect(inOverlay('.fp-gridin')).not.toBeNull());
+
+    (inOverlay('.fp-gridin') as HTMLInputElement).value = '5';
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    const attempts = await getAttempts(db);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]!.questionId).toBe('ef56ab78');
+    // Well under the 250ms spent on the PREVIOUS question — proves the clock reset on the id change
+    // rather than accumulating from ab12cd34's original show time.
+    expect(attempts[0]!.timeSpentMs).toBeLessThan(200);
+  });
+
+  it('resets the clock when the student exits (closes) the question, even reopening the SAME question later', async () => {
+    const db = await freshDb();
+    document.body.innerHTML += '<table class="results-list"><tbody><tr><td>row</td></tr></tbody></table>';
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += mc;   // ab12cd34 shown
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    await new Promise((r) => setTimeout(r, 250));   // real time spent on it WITHOUT checking
+
+    (inOverlay('.fp-overlay-close') as HTMLElement).click();   // student exits the question
+    expect(document.querySelector('.answer-content .fp-answer-host')).toBeNull();
+    document.querySelector('.cb-modal-container')!.remove();
+    // Let the observer's debounced read see "no modal" (resets its own content-signature dedup) before
+    // the SAME question reappears — otherwise an identical re-render is a no-op dedup, never re-shown.
+    await new Promise((r) => setTimeout(r, 200));
+
+    document.body.innerHTML += mc;   // reopens the SAME question (ab12cd34) later
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+
+    const attempts = await getAttempts(db);
+    expect(attempts).toHaveLength(1);
+    // Well under the 250ms spent before closing — proves the clock reset on exit rather than resuming.
+    expect(attempts[0]!.timeSpentMs).toBeLessThan(150);
+  });
+});
+
 // Spike addendum (2026-06-15): CB injects the correct answer into the DOM ONLY once its
 // "Show correct answer and explanation" control is checked. The QuestionView captured when the modal
 // first appeared predates that reveal (correctAnswer === null), so the loop MUST (a) trigger the

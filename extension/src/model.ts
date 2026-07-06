@@ -11,12 +11,13 @@ function envelope(deviceId: UUID, at: ISO): Envelope {
 
 export interface NewAttempt {
   deviceId: UUID; questionId: string; section: string; domain: string;
-  skill: string; difficulty: string; pick: string; correct: boolean;
+  skill: string; difficulty: string; pick: string; correct: boolean; timeSpentMs?: number;
 }
 export function makeAttempt(i: NewAttempt): Attempt {
   const at = nowIso();
   return { attemptId: newId(), questionId: i.questionId, section: i.section, domain: i.domain,
-    skill: i.skill, difficulty: i.difficulty, pick: i.pick, correct: i.correct, ...envelope(i.deviceId, at) };
+    skill: i.skill, difficulty: i.difficulty, pick: i.pick, correct: i.correct, timeSpentMs: i.timeSpentMs,
+    ...envelope(i.deviceId, at) };
 }
 
 export function makeNote(i: { deviceId: UUID; questionId: string; text: string }): Note {
