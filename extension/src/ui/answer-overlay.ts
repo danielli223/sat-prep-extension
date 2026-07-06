@@ -108,11 +108,18 @@ function renderBody(vm: CardVM): string {
          <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>
        <button class="fp-check">Check</button>`;
   const status: PriorStatus = vm.priorStatus ?? 'new';
+  // Only shown once the student has done this question before (count > 1) — a first attempt stays
+  // uncluttered, matching how the 'new' seen-status renders no extra chrome either.
+  const attemptCount = vm.priorAttemptCount ?? 0;
+  const attemptBadge = attemptCount > 1
+    ? `<div class="fp-attempt-count">Attempt #${attemptCount}</div>`
+    : '';
   return `<div class="fp-answer">
     <div class="fp-answer-head">
       <button class="fp-overlay-close" aria-label="Close">✕</button>
     </div>
     <div class="fp-seen" data-prior="${esc(status)}">${esc(SEEN_LABEL[status])}</div>
+    ${attemptBadge}
     ${answerBody}
     <div class="fp-actions">
       <button class="fp-reveal">Reveal explanation</button>
@@ -407,13 +414,35 @@ export function morphCheckToExplain(shadow: ShadowRoot): void {
 // also had the side effect of hiding Check after grading. Users asked for Check to remain available —
 // including after they leave a graded question and re-open it (a re-mount replays this same helper), so
 // keeping Check here fixes that in every path without a per-exit reset.
-export function applyVerdict(shadow: ShadowRoot, v: { pick: string; result: ScoreResult; correctLetter: string | null }): void {
+export function applyVerdict(
+  shadow: ShadowRoot,
+  v: { pick: string; result: ScoreResult; correctLetter: string | null; attemptCount?: number },
+): void {
   // Defense-in-depth: only interpolate a known A–D letter into the selector (mirrors onCheck's original
   // guard). graded===false ⇒ correctLetter is null ⇒ nothing is stamped, matching the non-verdict state.
   if (v.correctLetter && /^[A-D]$/.test(v.correctLetter)) {
     shadow.querySelector(`.fp-choice[data-letter="${v.correctLetter}"]`)?.setAttribute('data-correct', 'true');
   }
   renderVerdict(shadow, { pick: v.pick, result: v.result });
+  if (v.attemptCount !== undefined) updateAttemptBadge(shadow, v.attemptCount);
+}
+
+// Mirrors the .fp-seen live-update below: the Attempt badge was rendered once at mount from that
+// viewing's starting count, so a retry that completes THIS viewing (leave and come back, then re-check)
+// would otherwise show the pre-retry number until the next mount. Update it in place instead — same
+// "no reload needed" bar as the seen-before badge.
+function updateAttemptBadge(shadow: ShadowRoot, attemptCount: number): void {
+  let badge = shadow.querySelector('.fp-attempt-count') as HTMLElement | null;
+  if (attemptCount > 1) {
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'fp-attempt-count';
+      shadow.querySelector('.fp-seen')?.insertAdjacentElement('afterend', badge);
+    }
+    badge.textContent = `Attempt #${attemptCount}`;
+  } else {
+    badge?.remove();
+  }
 }
 
 // Issue #23: expand (un-collapse) the note once there's a verdict/prompt. The note lives in the EXTRAS
@@ -473,6 +502,7 @@ const ANSWER_CSS = `
 .fp-seen[data-prior="done"]{background:#dcfce7;color:#16a34a;}
 .fp-seen[data-prior="missed"]{background:#fee2e2;color:#dc2626;}
 .fp-seen[data-prior="new"]{background:#f1f5f9;color:#6b7280;}
+.fp-attempt-count{display:inline-block;margin:0 0 10px 6px;padding:2px 9px;border-radius:9px;white-space:nowrap;font-weight:700;font-size:11px;background:#f1f5f9;color:#6b7280;}
 .fp-choices{list-style:none;margin:0 0 12px;padding:0;}
 .fp-choice{display:flex;align-items:center;border:1px solid #e5e7eb;border-radius:9px;margin-bottom:7px;}
 .fp-choice .fp-eliminate{border:none;background:transparent;color:#9ca3af;cursor:pointer;font-size:14px;padding:8px 4px 8px 10px;}
@@ -531,7 +561,7 @@ const ANSWER_CSS = `
 .fp-disclaimer{margin-top:12px;padding-top:8px;border-top:1px solid #eee;font-size:10px;color:#9ca3af;text-align:center;}
 /* Keep the chrome — controls, inputs, status + meta labels — in the system UI font so ONLY the answer
    choices adopt CB's serif. Listed last so it wins over the per-control \`font:inherit\` shorthands above. */
-.fp-overlay-close,.fp-seen,.fp-gridin-label,.fp-gridin,.fp-check,.fp-reveal,.fp-next,.fp-note-label,
+.fp-overlay-close,.fp-seen,.fp-attempt-count,.fp-gridin-label,.fp-gridin,.fp-check,.fp-reveal,.fp-next,.fp-note-label,
 .fp-note,.fp-calc-open,.fp-verdict,.fp-indeterminate,.fp-need-answer,.fp-stale,.fp-disclaimer,
 .fp-choice .fp-pick::after{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
 `;

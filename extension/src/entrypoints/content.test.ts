@@ -6,6 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runLoop } from './content';
 import { openStore, getAttempts, getNotes, getSession } from '../store';
+import { createToolCounts } from '../stats';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mc = readFileSync(join(here, '..', 'cb', '__fixtures__', 'multiple-choice.html'), 'utf8');
@@ -363,6 +364,132 @@ describe('content loop wiring', () => {
     // THE BUG: without refreshing priorSeen, the re-mounted Q1 badge reverts to "New to you".
     expect(inOverlay('.fp-seen')!.getAttribute('data-prior')).toBe('done');
     expect(inOverlay('.fp-seen')!.textContent).toContain('got it right');
+  });
+
+  it('leaving a graded question and coming back gives a fresh, re-checkable card — not the old verdict — and the retry counts as a new attempt with a live-updating Attempt badge', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    // Q1 (ab12cd34) — answer it WRONG (choice C; correct is B) so the verdict is unambiguous.
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    (inOverlay('.fp-choice[data-letter="C"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(1));
+    await vi.waitFor(() => expect(inOverlay('.fp-verdict')?.textContent).toContain('Not quite'));
+    // No badge yet — a first attempt stays uncluttered.
+    expect(inOverlay('.fp-attempt-count')).toBeNull();
+
+    // Go FORWARD to a different question (Q2, grid-in)…
+    document.querySelector('.cb-modal-container')!.remove();
+    document.body.innerHTML += gridIn;
+    await vi.waitFor(() => expect(inOverlay('.fp-gridin')).not.toBeNull());
+
+    // …then COME BACK to Q1. This must be a FRESH card: no verdict, no correct/incorrect coloring, no
+    // stale pick — ready for a genuine new attempt, not a replay of the old one.
+    document.querySelector('.cb-modal-container')!.remove();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(inOverlay('.fp-choice')).not.toBeNull());
+    expect(inOverlay('.fp-verdict')?.textContent ?? '').toBe('');
+    expect(inOverlay('.fp-choice[data-letter="B"]')!.classList.contains('fp-correct')).toBe(false);
+    expect(inOverlay('.fp-choice[data-letter="C"]')!.classList.contains('fp-wrong')).toBe(false);
+
+    // Re-answer it (correct this time) — this must record a SECOND attempt, not a silent no-op.
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+    await vi.waitFor(async () => expect(await getAttempts(db)).toHaveLength(2));
+    await vi.waitFor(() => expect(inOverlay('.fp-verdict')?.textContent).toContain('Correct'));
+
+    // The Attempt badge advances LIVE, within this same sitting — no reload/new session required.
+    await vi.waitFor(() => expect(inOverlay('.fp-attempt-count')?.textContent).toContain('Attempt #2'));
+  });
+});
+
+// This sitting's tool-usage counts (Check/Reveal/Note/Desmos/Next), threaded by reference into
+// runLoop so buildHandlers' wrappers increment the SAME instance the journal panel later reads via
+// handleMessage. In-memory only — no store, no guard.ts change.
+describe('content loop — ToolCounts (usage summary)', () => {
+  it('increments check/reveal/note/desmos/next exactly once per click, on the shared instance', async () => {
+    const db = await freshDb();
+    const toolCounts = createToolCounts();
+    const shadow = await runLoop(document, db, 'dev-1', toolCounts);
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+
+    document.body.innerHTML += mc;   // Math question → the Desmos calculator button is present
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect(toolCounts).toEqual({ check: 0, reveal: 0, note: 0, desmos: 0, next: 0 });
+
+    (inOverlay('.fp-choice[data-letter="B"] .fp-pick') as HTMLElement).click();
+    (inOverlay('.fp-check') as HTMLElement).click();
+    expect(toolCounts.check).toBe(1);
+
+    (inOverlay('.fp-reveal') as HTMLElement).click();
+    expect(toolCounts.reveal).toBe(1);
+
+    const note = inExtras('.fp-note') as HTMLTextAreaElement;
+    note.value = 'missed the trap'; note.dispatchEvent(new Event('change'));
+    await vi.waitFor(async () => expect((await getNotes(db)).length).toBe(1));
+    expect(toolCounts.note).toBe(1);
+
+    (inExtras('.fp-calc-open') as HTMLElement).click();
+    expect(toolCounts.desmos).toBe(1);
+
+    (inOverlay('.fp-next') as HTMLElement).click();
+    expect(toolCounts.next).toBe(1);
+  });
+
+  it('does not count a Note click that leaves the note empty (mirrors the existing saveNote guard)', async () => {
+    const db = await freshDb();
+    const toolCounts = createToolCounts();
+    const shadow = await runLoop(document, db, 'dev-1', toolCounts);
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    const note = inExtras('.fp-note') as HTMLTextAreaElement;
+    note.value = ''; note.dispatchEvent(new Event('change'));
+    expect(toolCounts.note).toBe(0);
+  });
+
+  it('resets to zero on a fresh Start (new sitting), mirroring the attempted/correct counters', async () => {
+    const db = await freshDb();
+    const toolCounts = createToolCounts();
+    toolCounts.check = 7; toolCounts.next = 3;   // simulate counts left over from a prior sitting
+    const shadow = await runLoop(document, db, 'dev-1', toolCounts);
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect(toolCounts).toEqual({ check: 0, reveal: 0, note: 0, desmos: 0, next: 0 });
+  });
+
+  it('defaults to a fresh ToolCounts when runLoop is called without the 4th arg (existing call sites unaffected)', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');   // no toolCounts — must not throw
+    expect(shadow.querySelector('.fp-start')).not.toBeNull();
+  });
+});
+
+describe('handleMessage — ToolCounts passthrough to the journal panel', () => {
+  it('mounts the panel with the given ToolCounts snapshot', async () => {
+    const db = await freshDb();
+    const toolCounts = createToolCounts();
+    toolCounts.check = 4; toolCounts.desmos = 2;
+    await handleMessage(db, { type: 'open-journal' }, toolCounts);
+
+    // The panel mounts into a shared shadow host; this test file's overlay/extras helpers target the
+    // question overlay, not the panel, so find the panel's shadow root directly.
+    const panelHost = [...document.querySelectorAll('*')].map((el) => el.shadowRoot).find((sr) => sr?.querySelector('.fp-tool-counts'));
+    expect(panelHost).toBeDefined();
+    expect(panelHost!.querySelector('.fp-tool-counts')!.textContent).toContain('4');
+    expect(panelHost!.querySelector('.fp-tool-counts')!.textContent).toContain('2');
+  });
+
+  it('defaults to a fresh (all-zero) ToolCounts when the 3rd arg is omitted (existing call sites unaffected)', async () => {
+    const db = await freshDb();
+    await handleMessage(db, { type: 'open-journal' });   // no toolCounts — must not throw
+    const panelHost = [...document.querySelectorAll('*')].map((el) => el.shadowRoot).find((sr) => sr?.querySelector('.fp-panel'));
+    expect(panelHost).toBeDefined();
   });
 });
 

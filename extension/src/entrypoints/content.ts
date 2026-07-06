@@ -17,8 +17,8 @@ import { newSeed } from '../order';
 import type { Session, Attempt } from '../types';
 import { badge } from '../ui/badger';
 import { buildNavCells, renderNavGrid } from '../ui/nav-grid';
-import { getSeen, getMistakes } from '../journal';
-import { deriveStats } from '../stats';
+import { getSeen, getMistakes, getAttemptCounts } from '../journal';
+import { deriveStats, deriveAttemptCounts, createToolCounts, type ToolCounts } from '../stats';
 import { resumeSession, scrollToResume, openListQuestion, nextRandomId, type ResumeResult } from '../ui/resume';
 import { OPEN_JOURNAL } from '../messages';
 import { emit } from '../telemetry/emit';
@@ -196,7 +196,9 @@ export async function guardedStart(doc: Document, runner: () => Promise<void>): 
   await runner();
 }
 
-export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Promise<ShadowRoot> {
+export async function runLoop(
+  doc: Document, db: IDBPDatabase, dev: string, toolCounts: ToolCounts = createToolCounts(),
+): Promise<ShadowRoot> {
   // The BODY host (single shadow root) still owns the start panel and the floating calculator. The
   // QUESTION overlay mounts inside CB's live .answer-content (not this host) — onClose removes the
   // overlay host from .answer-content directly, leaving CB's own question intact.
@@ -207,6 +209,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   // flicker across CB's in-place re-renders; a question answered THIS session reads its pre-session
   // status until the next sitting.
   const priorSeen = await getSeen(db);
+  // Lifetime per-question attempt count, snapshotted the same way as priorSeen — the overlay badge
+  // shows how many times the student has done THIS question across all sittings, not just this one.
+  const priorAttemptCounts = await getAttemptCounts(db);
 
   // Probe an already-present question so the start panel can offer Resume when a session exists.
   let probedFilter: string | null = null;
@@ -242,7 +247,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   // graded THIS sitting, keyed by question id, so a (re-)mount of the SAME question re-applies it instead
   // of losing it to CB's re-render. IN-MEMORY ONLY — never persisted to IndexedDB/the store (invariant
   // §2); holds only the student's own pick/result + the A–D correct-letter, no question text.
-  const verdicts = new Map<string, { pick: string; result: ScoreResult; correctLetter: string | null }>();
+  const verdicts = new Map<string, { pick: string; result: ScoreResult; correctLetter: string | null; attemptCount: number }>();
 
   // Per-session stats for session_ended (emitted once on pagehide if a session is active). Reset when a
   // new session is created. Counts attempts that recorded (graded) and how many were correct.
@@ -289,6 +294,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
           shuffleSeed: seed,
         });
         sessionStartMs = Date.now(); attempted = 0; correct = 0;   // start the session_ended stat window
+        toolCounts.check = 0; toolCounts.reveal = 0; toolCounts.note = 0; toolCounts.desmos = 0; toolCounts.next = 0;
         // Fire-and-forget from inside the MutationObserver callback. The observer outlives a single
         // runLoop, so a stale write can land after the page (or, in tests, the DB connection) is torn
         // down — that loses to the teardown and is a harmless no-op, never an unhandled rejection.
@@ -320,6 +326,11 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   // An id is added BEFORE onCheck's awaits (so rapid re-clicks can't double-record) and removed again on
   // every exit that recorded nothing (stale card, ungraded answer), so those states stay re-checkable.
   const gradedIds = new Set<string>();
+  // The question currently on screen, so showQuestion can tell "CB re-rendered the SAME question"
+  // (issue #84 — keep the cached verdict) apart from "the student left and came back to a DIFFERENT
+  // question" (clear it — a returning student gets a fresh, re-checkable card, not their old pick
+  // frozen on screen forever). Null until the first question shows.
+  let currentViewId: string | null = null;
 
   // The overlay's event handlers, factored out so BOTH the initial mount and the re-mount (issue #84)
   // rebuild an identical, view-bound set against the CURRENT .answer-content (CB can replace it).
@@ -327,11 +338,12 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     return {
       onSelect: () => {},
       onEliminate: () => {},
-      onCheck: (pick) => onCheck(view, pick),
+      onCheck: (pick) => { toolCounts.check++; onCheck(view, pick); },
       // Reveal TOGGLES (Bug 2, issue #84): un-hide CB's OWN native rationale, or RE-HIDE it on a second
       // click — CB renders the explanation natively, so there's nothing for us to render. toggleRationale
       // returns the new shown-state; we flip our own static label to match (never CB-derived text).
       onReveal: () => {
+        toolCounts.reveal++;
         const shown = toggleRationale(answerContent);
         if (shown) revealedIds.add(view.id);
         const sh = overlayShadow(doc, view.id);
@@ -339,14 +351,15 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       },
       onNote: (text) => {
         if (text) {
+          toolCounts.note++;
           void safeWrite(saveNote(db, makeNote({ deviceId: dev, questionId: view.id, text })));
           emit(buildNoteAdded({ sessionId: session?.sessionId ?? '', questionId: view.id, noteLength: text.length }));
         }
       },
-      onNext: () => onNext(view),
+      onNext: () => { toolCounts.next++; onNext(view); },
       // The one calculator IS the real Desmos (issue #17): open it externally — never an in-page
       // embed. A new window each click; nothing persists in our shadow.
-      onOpenDesmos: () => { openDesmos(); emit(buildCalculatorOpened({ sessionId: session?.sessionId ?? '', calculatorType: 'desmos' })); },
+      onOpenDesmos: () => { toolCounts.desmos++; openDesmos(); emit(buildCalculatorOpened({ sessionId: session?.sessionId ?? '', calculatorType: 'desmos' })); },
       // ✕ tears down our overlay AND restores CB's masked native nodes, so closing never leaves CB's
       // own question blanked at display:none.
       onClose: () => { unmountAnswerOverlay(answerContent); },
@@ -356,7 +369,11 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   // Mount the overlay into the given .answer-content and, if this question was already graded this
   // sitting, re-apply its cached verdict (issue #84) — shared by the initial mount and the re-mount.
   function mountOverlay(view: QuestionView, answerContent: HTMLElement): ShadowRoot {
-    const sh = mountAnswerOverlay(answerContent, toCardVM(view, index, total, priorSeen[view.id] ?? 'new'), buildHandlers(view, answerContent));
+    const sh = mountAnswerOverlay(
+      answerContent,
+      toCardVM(view, index, total, priorSeen[view.id] ?? 'new', priorAttemptCounts[view.id] ?? 0),
+      buildHandlers(view, answerContent),
+    );
     const cached = verdicts.get(view.id);
     if (cached) applyVerdict(sh, cached);   // issue #84: re-apply the verdict on every (re-)mount
     return sh;
@@ -371,8 +388,17 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   }
 
   function showQuestion(view: QuestionView): void {
-    // (No guard re-arm here: gradedIds is keyed by question id, so a fresh question is never blocked by
-    // a previous question's grade, and a re-shown graded question re-applies its cached verdict.)
+    // Only a genuine move to a DIFFERENT question clears the guard/verdict — CB re-rendering the SAME
+    // question in place (currentViewId unchanged) leaves them alone, so issue #84's fix (re-apply the
+    // cached verdict across CB's own DOM churn) still holds. A real transition means the student is
+    // done with the question they're leaving, so its guard/verdict are cleared: coming back to it later
+    // (Next, or re-opening it from the results list) mounts a fresh, re-checkable card instead of
+    // replaying the old pick, and the next Check counts as a genuine new attempt.
+    if (currentViewId !== null && currentViewId !== view.id) {
+      gradedIds.delete(currentViewId);
+      verdicts.delete(currentViewId);
+    }
+    currentViewId = view.id;
     // Refresh "Q n of N": the results list may not have been in the DOM at Start (e.g. the student
     // opened a question first), which left N stuck at the fallback 1 ("Q 2 of 1", live 2026-06-16).
     // It is in the DOM behind the modal now. Never let N drop below the current position.
@@ -446,11 +472,6 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // choice green even on a wrong pick. Defense-in-depth A–D guard mirrors onCheck's original stamping.
     const correctLetter = (result.graded && answer && /^[A-D]$/.test(answer.trim().toUpperCase())) ? answer.trim().toUpperCase() : null;
     if (result.graded && answer) {
-      // Issue #84: cache the LATEST post-grade UI so a (re-)mount of this SAME question re-applies it (the
-      // verdict otherwise dies with the shadow CB detaches on its re-render). Updated on every re-check so
-      // a re-mount replays the student's most recent result. IN-MEMORY ONLY (invariant §2): the student's
-      // own pick/result + the A–D correct-letter, never question text.
-      verdicts.set(view.id, { pick, result, correctLetter });
       if (firstGrade) {
         // Record + tally happen exactly once per question per sitting; later re-checks update the visible
         // verdict but NOT the recorded attempt (the first answer is the one that counts).
@@ -463,12 +484,22 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
         // coming back) shows the result instead of reverting to "New to you" (issue #28). Only the
         // just-answered id is touched.
         priorSeen[view.id] = result.correct ? 'done' : 'missed';
+        // Live-bump the in-session attempt count (same pattern as priorSeen above) so the "Attempt #N"
+        // badge advances on every genuinely new attempt THIS sitting — leaving the question and coming
+        // back to redo it — instead of only updating on the next sitting's snapshot.
+        priorAttemptCounts[view.id] = (priorAttemptCounts[view.id] ?? 0) + 1;
         // Reflect the just-recorded result on the underlying results list NOW, so its done/missed chip
         // updates without a manual page refresh. Fire-and-forget; readListQuestionIds ignores chip text so
         // this mutation leaves the ID signature stable and never re-triggers watchResultsList.
         const list = findResultsList(doc);
         if (list) void refreshBadges(db, list);
       }
+      // Issue #84: cache the LATEST post-grade UI so a (re-)mount of this SAME question re-applies it (the
+      // verdict otherwise dies with the shadow CB detaches on its re-render). Updated on every re-check so
+      // a re-mount replays the student's most recent result. attemptCount is read AFTER the bump above, so
+      // a first-grade check caches the just-incremented number. IN-MEMORY ONLY (invariant §2): the
+      // student's own pick/result + the A–D correct-letter + attempt count, never question text.
+      verdicts.set(view.id, { pick, result, correctLetter, attemptCount: priorAttemptCounts[view.id] ?? 0 });
     }
     // Telemetry mirrors the recorded attempt: one questionAttempted per question per sitting (re-checks
     // update the UI but are not new attempts).
@@ -489,7 +520,7 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
     // stamps the correct choice, renders the verdict (graded===false → non-verdict state, contract §2.4),
     // and morphs the inline Check into "Explain" (issue #26: relabel + reroute to reveal CB's own rationale).
     const live = overlayShadow(doc, view.id) ?? remountOverlay(view);
-    if (live) applyVerdict(live, { pick, result, correctLetter });
+    if (live) applyVerdict(live, { pick, result, correctLetter, attemptCount: priorAttemptCounts[view.id] ?? 0 });
   }
 
   async function onNext(view: QuestionView): Promise<void> {
@@ -645,7 +676,9 @@ export function watchResultsList(doc: Document, db: IDBPDatabase): () => void {
 }
 
 /** Single panel-mount path: the toggle button and the popup's open-journal message both call this. */
-export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): Promise<void> {
+export async function handleMessage(
+  db: IDBPDatabase, msg: { type?: string }, toolCounts: ToolCounts = createToolCounts(),
+): Promise<void> {
   if (msg?.type !== OPEN_JOURNAL) return;
   const host = mountHost(document);
   const attempts = await getAttempts(db);
@@ -659,6 +692,11 @@ export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): P
     attempts,
     difficulties,
     selected: new Set<string>(),
+    attemptCounts: deriveAttemptCounts(attempts),
+    // A live snapshot of this sitting's tool usage as of right now — not a one-time "session ended"
+    // event (pagehide can't render UI to an unloading page), so this is the practical "end of session"
+    // view: however many times each tool has been used up to the moment the student checks their progress.
+    toolCounts,
   });
   void emit({ event: JOURNAL_OPENED, props: {} });
 }
@@ -761,20 +799,23 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
       void guardedStart(document, async () => {
         try {
           const db = await openStore();
-          await runLoop(document, db, deviceId());                  // Plan 2 scored loop (unchanged)
+          // One instance for this sitting, shared by reference: runLoop's handlers increment it, and
+          // every handleMessage call (toggle button + popup message) reads the same live counts.
+          const toolCounts = createToolCounts();
+          await runLoop(document, db, deviceId(), toolCounts);       // Plan 2 scored loop (unchanged)
 
           // Issue #16: the at-a-glance stats widget replaces the "📓 Journal" pill. Mount it, seed it with
           // the current numbers (no empty flash), then drive its visibility off CB's modal-presence signal:
           // hide while a question is open, refresh + re-show on the results list.
           const attempts0 = await getAttempts(db);
-          mountStatsWidget(document, () => void handleMessage(db, { type: OPEN_JOURNAL }));
+          mountStatsWidget(document, () => void handleMessage(db, { type: OPEN_JOURNAL }, toolCounts));
           updateStatsWidget(document, deriveStats(attempts0));   // initial numbers, no empty flash
           observeQuestionPresence(document, (open) => {
             if (open) { setStatsWidgetVisible(document, false); return; }
             void getAttempts(db).then((a) => { updateStatsWidget(document, deriveStats(a)); setStatsWidgetVisible(document, true); });
           });
           watchResultsList(document, db);   // badge on list render + whenever CB re-renders it
-          chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m); });
+          chrome.runtime.onMessage.addListener((m: { type?: string }) => { void handleMessage(db, m, toolCounts); });
         } catch { emit({ event: JS_ERROR, props: { component: 'boot', error_code: 'BOOT_FAILURE' } }); }
       });
     },

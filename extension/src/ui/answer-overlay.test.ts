@@ -477,6 +477,27 @@ describe('seen-before badge (.fp-seen) — issue #28', () => {
   });
 });
 
+describe('lifetime attempt-count badge (.fp-attempt-count)', () => {
+  it('shows no badge on a first attempt (count 0, 1, or undefined)', () => {
+    const shadow0 = mountAnswerOverlay(cbAnswerContent(), { ...vm, priorAttemptCount: 0 }, noop());
+    expect(shadow0.querySelector('.fp-attempt-count')).toBeNull();
+
+    const shadow1 = mountAnswerOverlay(cbAnswerContent(), { ...vm, priorAttemptCount: 1 }, noop());
+    expect(shadow1.querySelector('.fp-attempt-count')).toBeNull();
+
+    const shadow2 = mountAnswerOverlay(cbAnswerContent(), vm, noop());   // priorAttemptCount omitted
+    expect(shadow2.querySelector('.fp-attempt-count')).toBeNull();
+  });
+
+  it('shows "Attempt #N" once the lifetime count is > 1', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, { ...vm, priorAttemptCount: 3 }, noop());
+    const badge = shadow.querySelector('.fp-attempt-count');
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toContain('Attempt #3');
+  });
+});
+
 // Issue #38: the FOUC fix masks CB's `.answer-content` children EARLY — the moment the modal is observed,
 // BEFORE (and decoupled from) the 150ms-debounced overlay mount — so CB's raw choices never flash. That
 // early mask is a standalone primitive (maskAnswerContent) that hides exactly the same way the mount does
