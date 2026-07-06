@@ -3,7 +3,7 @@
 export const ONBOARDING_KEY = 'onboarding.seen';
 export const TRUST_LINE =
   "These are College Board's own questions, served live from collegeboard.org. " +
-  'We never rewrite them, never run them through AI, and never store them — only your answers and progress.';
+  'We never rewrite them, never run them through AI, and never store them, only your answers and progress.';
 
 export async function firstRunOnboarding(): Promise<string | null> {
   try {

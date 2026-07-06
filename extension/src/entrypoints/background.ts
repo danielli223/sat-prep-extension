@@ -31,11 +31,18 @@ export function installTelemetryListeners(api: typeof chrome): void {
   api.alarms.onAlarm.addListener((a: chrome.alarms.Alarm) => { if (a.name === FLUSH_ALARM) void flush(); });
 }
 
-// Minimal service worker. On install, surface the one-time trust line (spec §7).
+// On install, open the one-time trust/consent onboarding tab (spec §7). Injected `api` so it's testable.
+export function handleInstalled(api: typeof chrome): void {
+  void firstRunOnboarding().then((shown) => {
+    if (shown) api.tabs.create({ url: api.runtime.getURL('onboarding.html') });
+  });
+}
+
+// Minimal service worker.
 if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
   chrome.runtime.onInstalled.addListener(() => {
     console.log('[focused-practice] installed');
-    void firstRunOnboarding().then((line) => { if (line) console.log('[focused-practice]', line); });
+    handleInstalled(chrome);
   });
 }
 

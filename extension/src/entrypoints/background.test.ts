@@ -5,12 +5,14 @@ vi.mock('../telemetry/ingest', () => ({ ingestTelemetryEvent: vi.fn().mockResolv
 vi.mock('../telemetry/delete', () => ({ deleteMyData: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../telemetry/lifecycle', () => ({ optOut: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../telemetry/queue', () => ({ flush: vi.fn().mockResolvedValue(undefined), enqueue: vi.fn() }));
+vi.mock('./onboarding', () => ({ firstRunOnboarding: vi.fn() }));
 
-import { installTelemetryListeners } from './background';
+import { installTelemetryListeners, handleInstalled } from './background';
 import { ingestTelemetryEvent } from '../telemetry/ingest';
 import { deleteMyData } from '../telemetry/delete';
 import { optOut } from '../telemetry/lifecycle';
 import { flush } from '../telemetry/queue';
+import { firstRunOnboarding } from './onboarding';
 import { TELEMETRY_EVENT, TELEMETRY_DELETE, TELEMETRY_OPTOUT } from '../messages';
 
 describe('installTelemetryListeners', () => {
@@ -108,5 +110,31 @@ describe('installTelemetryListeners', () => {
     msgListener({ type: TELEMETRY_EVENT }); // no .event
     await Promise.resolve();
     expect(ingestTelemetryEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleInstalled', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('opens the onboarding tab on a genuine first run', async () => {
+    vi.mocked(firstRunOnboarding).mockResolvedValue('the trust line');
+    const create = vi.fn();
+    const api = { tabs: { create }, runtime: { getURL: (p: string) => `chrome-extension://ext-id/${p}` } };
+
+    handleInstalled(api as any);
+    await Promise.resolve();
+
+    expect(create).toHaveBeenCalledWith({ url: 'chrome-extension://ext-id/onboarding.html' });
+  });
+
+  it('does not open a tab on a repeat install (already-seen onboarding)', async () => {
+    vi.mocked(firstRunOnboarding).mockResolvedValue(null);
+    const create = vi.fn();
+    const api = { tabs: { create }, runtime: { getURL: (p: string) => `chrome-extension://ext-id/${p}` } };
+
+    handleInstalled(api as any);
+    await Promise.resolve();
+
+    expect(create).not.toHaveBeenCalled();
   });
 });

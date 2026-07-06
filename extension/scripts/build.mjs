@@ -26,6 +26,7 @@ await build({
     background: 'src/entrypoints/background.ts',
     content: 'src/entrypoints/content.ts',
     popup: 'src/entrypoints/popup.ts',
+    onboarding: 'src/entrypoints/onboarding-page.ts',
   },
   outdir: cfg.out,
   bundle: true,
@@ -48,6 +49,7 @@ if (devLabel) {
   await copyFile(cfg.manifest, `${cfg.out}/manifest.json`);
 }
 await copyFile('popup.html', `${cfg.out}/popup.html`);
+await copyFile('onboarding.html', `${cfg.out}/onboarding.html`);
 await mkdir(`${cfg.out}/icons`, { recursive: true });
 for (const file of await readdir('icons')) {
   if (file.endsWith('.png')) await copyFile(`icons/${file}`, `${cfg.out}/icons/${file}`);

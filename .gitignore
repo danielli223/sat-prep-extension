@@ -23,3 +23,7 @@ deletion-worker/.wrangler/
 !/.claude/skills/
 !/.claude/settings.json
 deploy-todo.md
+
+# Personal Claude Code session history imported from another working
+# directory (~/cmux) — not project documentation, not for the shared repo.
+/cmux-session-history/
