@@ -85,7 +85,7 @@ export function renderBlockNotice(
   el.setAttribute('role', 'status');
   el.innerHTML = html(`
     <div class="fp-banner">
-      <span class="fp-banner-text">Focused Practice is paused on this page. Use the question bank directly on CB:</span>
+      <span class="fp-banner-text">Scorely is paused on this page. Use the question bank directly on CB:</span>
       <a class="fp-banner-link" href="${bankUrl}" target="_blank" rel="noopener noreferrer">Open the College Board question bank</a>
     </div>`) as string;
   root.appendChild(el);

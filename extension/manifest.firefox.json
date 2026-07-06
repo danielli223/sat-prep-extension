@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Focused Practice",
-  "version": "0.0.3",
-  "description": "Scoring, a mistake journal, weak-area tracking, and a calculator that work on top of the official SAT Question Bank.",
+  "name": "Scorely",
+  "version": "0.0.4",
+  "description": "Free, local-first SAT practice & prep: score the Question Bank, journal mistakes, track weak areas, flag questions, calculator.",
   "browser_specific_settings": {
     "gecko": {
       "id": "focused-practice@focusedpractice.app",
@@ -38,7 +38,7 @@
     }
   ],
   "action": {
-    "default_title": "Focused Practice",
+    "default_title": "Scorely",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
