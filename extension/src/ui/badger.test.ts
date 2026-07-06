@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { badge, BADGE_CLASS } from './badger';
+import { badge, BADGE_CLASS, FLAG_BADGE_CLASS } from './badger';
 
 const here = dirname(fileURLToPath(import.meta.url));
 function loadList(): Element {
@@ -66,5 +66,42 @@ describe('badge', () => {
     badge(root, { ab12cd34: 'missed' });
     const chip = root.querySelector(`.${BADGE_CLASS}`) as HTMLElement;
     expect(chip.style.whiteSpace).toBe('nowrap');
+  });
+});
+
+describe('badge — flagged chip (independent of the seen-status chip)', () => {
+  it('adds a flagged chip alongside the status chip for a flagged row', () => {
+    const root = loadList();
+    badge(root, { ab12cd34: 'missed' }, { ab12cd34: true });
+    const row = root.querySelector('.id-column')!;
+    expect(row.querySelectorAll(`.${BADGE_CLASS}`)).toHaveLength(1);       // status chip still exactly one
+    const flagChip = row.querySelector(`.${FLAG_BADGE_CLASS}`) as HTMLElement;
+    expect(flagChip).not.toBeNull();
+    expect(flagChip.textContent).toContain('flagged');
+    // Both chips coexist — a question can be "missed" AND "flagged" at once.
+    expect(row.querySelector(`.${BADGE_CLASS}`)!.getAttribute('data-state')).toBe('missed');
+  });
+
+  it('omits the flagged chip when the flagged map is absent or the row is not flagged', () => {
+    const root = loadList();
+    badge(root, { ab12cd34: 'missed' });   // no 3rd arg at all
+    expect(root.querySelector(`.${FLAG_BADGE_CLASS}`)).toBeNull();
+    badge(root, { ab12cd34: 'missed' }, { ab12cd34: false, ef56ab78: true });
+    expect(root.querySelector(`[data-state="missed"]`)!.parentElement!.querySelector(`.${FLAG_BADGE_CLASS}`)).toBeNull();
+  });
+
+  it('is idempotent: unflagging on a later call removes the chip rather than leaving a stale one', () => {
+    const root = loadList();
+    badge(root, { ab12cd34: 'missed' }, { ab12cd34: true });
+    expect(root.querySelectorAll(`.${FLAG_BADGE_CLASS}`)).toHaveLength(1);
+    badge(root, { ab12cd34: 'missed' }, { ab12cd34: false });
+    expect(root.querySelectorAll(`.${FLAG_BADGE_CLASS}`)).toHaveLength(0);
+  });
+
+  it('carries only the fixed flagged label — no CB text echoed', () => {
+    const root = loadList();
+    badge(root, { ab12cd34: 'missed' }, { ab12cd34: true });
+    const flagChip = root.querySelector(`.${FLAG_BADGE_CLASS}`)!;
+    expect(flagChip.textContent).toBe('🚩 flagged');
   });
 });

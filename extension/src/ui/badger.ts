@@ -20,7 +20,13 @@ const STYLE: Record<PriorStatus, string> = {
   new: PILL + 'background:#f1f5f9;color:#6b7280;',
 };
 
-export function badge(listRoot: Element, seen: SeenMap): void {
+// A second, independent chip for the student's own flag state — a question can be BOTH e.g. "missed"
+// and "flagged" at once, so this is additive to the seen-status chip above, not a replacement of it.
+export const FLAG_BADGE_CLASS = 'fp-flag-badge';
+const FLAG_LABEL = '🚩 flagged';
+const FLAG_STYLE = PILL + 'background:#fef3c7;color:#b45309;';
+
+export function badge(listRoot: Element, seen: SeenMap, flagged?: Record<string, boolean>): void {
   for (const { id, node } of readListQuestionIds(listRoot)) {
     // Anchor the chip INSIDE the row's id cell (the (c) requirement). A <span> appended directly to a
     // <tr> is invalid table markup — real browsers hoist stray inline content out of the row, so the
@@ -35,5 +41,14 @@ export function badge(listRoot: Element, seen: SeenMap): void {
     chip.style.cssText = STYLE[state];   // inline pill styling (light DOM; shadow CSS can't reach here)
     chip.textContent = LABEL[state];   // textContent, never innerHTML — no CB text can leak in
     anchor.appendChild(chip);
+
+    anchor.querySelector(`.${FLAG_BADGE_CLASS}`)?.remove();   // idempotent, same as the status chip above
+    if (flagged?.[id]) {
+      const flagChip = anchor.ownerDocument.createElement('span');
+      flagChip.className = FLAG_BADGE_CLASS;
+      flagChip.style.cssText = FLAG_STYLE;
+      flagChip.textContent = FLAG_LABEL;
+      anchor.appendChild(flagChip);
+    }
   }
 }

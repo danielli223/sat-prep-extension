@@ -348,8 +348,15 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
       },
       onFlag: (flagged) => {
         flaggedMap[view.id] = flagged;
-        void safeWrite(saveFlag(db, makeFlag({ deviceId: dev, questionId: view.id, flagged })));
         emit(buildQuestionFlagged({ sessionId: session?.sessionId ?? '', questionId: view.id, flagged }));
+        // AWAIT the write (unlike onNote, which never feeds the list) before repainting the results-list
+        // chip, mirroring onCheck's pattern — refreshBadges re-reads getFlaggedMap from the store, so a
+        // fire-and-forget write here would race the read and could paint the PRE-toggle state.
+        void (async () => {
+          await safeWrite(saveFlag(db, makeFlag({ deviceId: dev, questionId: view.id, flagged })));
+          const list = findResultsList(doc);
+          if (list) void refreshBadges(db, list);
+        })();
       },
       onNext: () => onNext(view),
       // The one calculator IS the real Desmos (issue #17): open it externally — never an in-page
@@ -562,14 +569,16 @@ export function findResultsList(doc: Document): Element | null {
   return doc.querySelector('table.cb-table-react');
 }
 
-/** Read the store and (re)badge the on-screen results list with done/missed/new chips, then repaint
- *  the question-grid navigator (Issue #25) from the SAME read — one getSeen, no new network. Both the
- *  badger and the nav-grid key off the student's own seen map; the grid mounts in the overlay host's
- *  shadow root so its styling is scoped and it survives across questions. Clicking a cell delegates to
- *  openListQuestion (click the already-rendered CB row button to open it) — never a fetch/prefetch/advance. */
+/** Read the store and (re)badge the on-screen results list with done/missed/new chips plus an
+ *  independent flagged chip, then repaint the question-grid navigator (Issue #25) from the SAME seen
+ *  read — one getSeen + one getFlaggedMap, no new network. Both the badger and the nav-grid key off
+ *  the student's own seen map; the grid mounts in the overlay host's shadow root so its styling is
+ *  scoped and it survives across questions. Clicking a cell delegates to openListQuestion (click the
+ *  already-rendered CB row button to open it) — never a fetch/prefetch/advance. */
 export async function refreshBadges(db: IDBPDatabase, listRoot: Element): Promise<void> {
   const seen = await getSeen(db);
-  badge(listRoot, seen);
+  const flagged = await getFlaggedMap(db);
+  badge(listRoot, seen, flagged);
   const doc = listRoot.ownerDocument ?? document;
   renderNavGrid(
     mountHost(doc),

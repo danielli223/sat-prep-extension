@@ -97,6 +97,34 @@ describe('content loop wiring', () => {
     expect(ef?.getAttribute('data-state')).toBe('new');
   });
 
+  it('flagging a question repaints the underlying results-list row with a flagged chip live (no reload)', async () => {
+    const db = await freshDb();
+    document.body.innerHTML += `<table class="cb-table-react"><tbody>
+      <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ab12cd34</button></td></tr>
+      <tr class="result-row"><td class="checked-column"></td><td class="id-column"><button class="cb-btn">ef56ab78</button></td></tr>
+    </tbody></table>`;
+
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;                                        // CB renders question ab12cd34
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    (inOverlay('.fp-flag') as HTMLElement).click();
+
+    await vi.waitFor(() => {
+      const chip = document.querySelector('table.cb-table-react tbody tr:nth-child(1) .id-column .fp-flag-badge');
+      expect(chip).not.toBeNull();
+    });
+    // The still-unflagged ef56ab78 row gets no flagged chip.
+    expect(document.querySelector('table.cb-table-react tbody tr:nth-child(2) .id-column .fp-flag-badge')).toBeNull();
+
+    // Un-flagging removes the chip live too.
+    (inOverlay('.fp-flag') as HTMLElement).click();
+    await vi.waitFor(() => {
+      expect(document.querySelector('table.cb-table-react tbody tr:nth-child(1) .id-column .fp-flag-badge')).toBeNull();
+    });
+  });
+
   it('NEVER-GUESS: when the answer is unreadable, no attempt is recorded and no verdict shows', async () => {
     const db = await freshDb();
     const shadow = await runLoop(document, db, 'dev-1');
