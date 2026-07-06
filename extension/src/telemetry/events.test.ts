@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  QUESTION_ATTEMPTED, PRACTICE_RESUMED, CALCULATOR_OPENED,
+  QUESTION_ATTEMPTED, PRACTICE_RESUMED, CALCULATOR_OPENED, QUESTION_FLAGGED,
   buildQuestionAttempted, buildNoteAdded, buildPracticeStarted, buildSessionEnded,
-  buildPracticeResumed, buildCalculatorOpened,
+  buildPracticeResumed, buildCalculatorOpened, buildQuestionFlagged,
 } from './events';
 import { assertTelemetrySafe } from './scrubber';
 
@@ -61,5 +61,16 @@ describe('event builders', () => {
     expect(e.event).toBe(CALCULATOR_OPENED);
     expect(e.props.calculator_type).toBe('desmos');
     expect(() => assertTelemetrySafe({ event: e.event, ...e.props })).not.toThrow();
+  });
+
+  it('question_flagged carries the boolean flagged state (scrubber-safe), for both flag and unflag', () => {
+    const on = buildQuestionFlagged({ sessionId: 's', questionId: 'ac472881', flagged: true });
+    expect(on.event).toBe(QUESTION_FLAGGED);
+    expect(on.props.flagged).toBe(true);
+    expect(() => assertTelemetrySafe({ event: on.event, ...on.props })).not.toThrow();
+
+    const off = buildQuestionFlagged({ sessionId: 's', questionId: 'ac472881', flagged: false });
+    expect(off.props.flagged).toBe(false);
+    expect(() => assertTelemetrySafe({ event: off.event, ...off.props })).not.toThrow();
   });
 });

@@ -1,6 +1,6 @@
 import type { IDBPDatabase } from 'idb';
-import { openStore, recordAttempt, saveNote, saveSession, getSession, getAttempts } from '../store';
-import { makeAttempt, makeNote, makeSession, nowIso, newId } from '../model';
+import { openStore, recordAttempt, saveNote, saveFlag, saveSession, getSession, getAttempts } from '../store';
+import { makeAttempt, makeNote, makeFlag, makeSession, nowIso, newId } from '../model';
 import { observeQuestions, observeQuestionPresence, QUESTION_MODAL_SELECTOR } from '../cb/observer';
 import { readQuestion, type QuestionView } from '../cb/reader';
 import { score, type ScoreResult } from '../scoring';
@@ -17,14 +17,14 @@ import { newSeed } from '../order';
 import type { Session, Attempt } from '../types';
 import { badge } from '../ui/badger';
 import { buildNavCells, renderNavGrid } from '../ui/nav-grid';
-import { getSeen, getMistakes } from '../journal';
+import { getSeen, getMistakes, getFlaggedMap, getFlaggedQuestions } from '../journal';
 import { deriveStats } from '../stats';
 import { resumeSession, scrollToResume, openListQuestion, nextRandomId, type ResumeResult } from '../ui/resume';
 import { OPEN_JOURNAL } from '../messages';
 import { emit } from '../telemetry/emit';
 import {
   buildPracticeStarted, buildQuestionAttempted, buildNoteAdded, buildCalculatorOpened,
-  buildPracticeResumed, buildSessionEnded, JOURNAL_OPENED,
+  buildPracticeResumed, buildSessionEnded, buildQuestionFlagged, JOURNAL_OPENED,
   DOM_CONTRACT_FAILED, BLOCK_DETECTED, KILLSWITCH_ACTIVATED, UNSCORED_FALLBACK, JS_ERROR,
 } from '../telemetry/events';
 import { readListQuestionIds } from '../cb/list-reader';
@@ -207,6 +207,9 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   // flicker across CB's in-place re-renders; a question answered THIS session reads its pre-session
   // status until the next sitting.
   const priorSeen = await getSeen(db);
+  // Same posture as priorSeen: one snapshot read at sitting-start, kept in this closure and updated
+  // in place on toggle so every (re-)mount reads it without a fresh IndexedDB round trip.
+  const flaggedMap = await getFlaggedMap(db);
 
   // Probe an already-present question so the start panel can offer Resume when a session exists.
   let probedFilter: string | null = null;
@@ -343,6 +346,11 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
           emit(buildNoteAdded({ sessionId: session?.sessionId ?? '', questionId: view.id, noteLength: text.length }));
         }
       },
+      onFlag: (flagged) => {
+        flaggedMap[view.id] = flagged;
+        void safeWrite(saveFlag(db, makeFlag({ deviceId: dev, questionId: view.id, flagged })));
+        emit(buildQuestionFlagged({ sessionId: session?.sessionId ?? '', questionId: view.id, flagged }));
+      },
       onNext: () => onNext(view),
       // The one calculator IS the real Desmos (issue #17): open it externally — never an in-page
       // embed. A new window each click; nothing persists in our shadow.
@@ -356,7 +364,11 @@ export async function runLoop(doc: Document, db: IDBPDatabase, dev: string): Pro
   // Mount the overlay into the given .answer-content and, if this question was already graded this
   // sitting, re-apply its cached verdict (issue #84) — shared by the initial mount and the re-mount.
   function mountOverlay(view: QuestionView, answerContent: HTMLElement): ShadowRoot {
-    const sh = mountAnswerOverlay(answerContent, toCardVM(view, index, total, priorSeen[view.id] ?? 'new'), buildHandlers(view, answerContent));
+    const sh = mountAnswerOverlay(
+      answerContent,
+      toCardVM(view, index, total, priorSeen[view.id] ?? 'new', flaggedMap[view.id] ?? false),
+      buildHandlers(view, answerContent),
+    );
     const cached = verdicts.get(view.id);
     if (cached) applyVerdict(sh, cached);   // issue #84: re-apply the verdict on every (re-)mount
     return sh;
@@ -656,6 +668,7 @@ export async function handleMessage(db: IDBPDatabase, msg: { type?: string }): P
   renderPanel(host, {
     stats: deriveStats(attempts),
     mistakes: await getMistakes(db),
+    flagged: await getFlaggedQuestions(db),
     attempts,
     difficulties,
     selected: new Set<string>(),

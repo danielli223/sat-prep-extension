@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runLoop } from './content';
-import { openStore, getAttempts, getNotes, getSession } from '../store';
+import { openStore, getAttempts, getNotes, getFlags, getSession } from '../store';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mc = readFileSync(join(here, '..', 'cb', '__fixtures__', 'multiple-choice.html'), 'utf8');
@@ -162,6 +162,32 @@ describe('content loop wiring', () => {
     await vi.waitFor(async () => expect((await getNotes(db)).length).toBe(1));
     expect((await getNotes(db))[0]!.text).toBe('missed the trap');
     expect((await getSession(db, 'SAT|Math|Algebra|Hard'))!.lastQuestionId).toBe('ab12cd34');
+  });
+
+  it('clicking the flag button persists a flag; a re-mount of the same question shows it flagged', async () => {
+    const db = await freshDb();
+    const shadow = await runLoop(document, db, 'dev-1');
+    (shadow.querySelector('.fp-start-list') as HTMLElement).click();
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+
+    const flagBtn = inOverlay('.fp-flag') as HTMLButtonElement;
+    expect(flagBtn.getAttribute('aria-pressed')).toBe('false');   // unflagged on first mount
+    flagBtn.click();
+
+    await vi.waitFor(async () => expect((await getFlags(db)).length).toBe(1));
+    expect((await getFlags(db))[0]!.questionId).toBe('ab12cd34');
+    expect((await getFlags(db))[0]!.flagged).toBe(true);
+
+    // Force a genuine re-mount of the SAME question (same recipe as the issue #84 verdict-durability
+    // test above): remove the modal, let the observer's 150ms debounce settle on the empty DOM, then
+    // RE-INJECT the same question. The re-mount must read the just-set flaggedMap snapshot in-memory,
+    // not a stale IndexedDB round trip or a reverted "unflagged" default.
+    document.querySelector('.cb-modal-container')!.remove();
+    await new Promise((r) => setTimeout(r, 220));
+    document.body.innerHTML += mc;
+    await vi.waitFor(() => expect(document.querySelector('.answer-content .fp-answer-host')).not.toBeNull());
+    expect((inOverlay('.fp-flag') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('Start dismisses the start panel so the student can open a CB question', async () => {

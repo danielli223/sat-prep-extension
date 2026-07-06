@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderPanel, type PanelVM } from './panel';
 import type { Stats } from '../stats';
-import type { Mistake } from '../journal';
+import type { Mistake, FlaggedQuestion } from '../journal';
 import type { Attempt } from '../types';
 import { makeAttempt } from '../model';
 
@@ -73,6 +73,28 @@ describe('renderPanel', () => {
     const root = shadow();
     renderPanel(root, { stats: { ...stats, perSkill: [] }, mistakes: [] });
     expect(root.textContent).toContain('No mistakes logged yet');
+  });
+
+  it('shows an empty state when there are no flagged questions yet', () => {
+    const root = shadow();
+    renderPanel(root, vm);
+    expect(root.textContent).toContain('No flagged questions yet');
+  });
+
+  it('renders the flagged-for-review list with id/skill/difficulty/date, falling back to — for a never-attempted question', () => {
+    const root = shadow();
+    const flagged: FlaggedQuestion[] = [
+      { questionId: 'ab12cd34', skill: 'Inferences', difficulty: 'Hard', flaggedAt: '2026-06-14T00:00:00.000Z' },
+      { questionId: 'ef56ab78', skill: null, difficulty: null, flaggedAt: '2026-06-13T00:00:00.000Z' },
+    ];
+    renderPanel(root, { ...vm, flagged });
+    const items = [...root.querySelectorAll('.fp-flagged-item')];
+    expect(items).toHaveLength(2);
+    expect(items[0]!.textContent).toContain('ab12cd34');
+    expect(items[0]!.textContent).toContain('Inferences');
+    expect(items[0]!.textContent).toContain('2026-06-14');
+    expect(items[1]!.textContent).toContain('ef56ab78');
+    expect(items[1]!.textContent).toContain('—');   // no attempt joined → em-dash fallback
   });
 
   it('has a close button that removes the panel', () => {

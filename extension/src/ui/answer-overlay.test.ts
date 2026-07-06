@@ -20,7 +20,7 @@ const readingVm: CardVM = { ...vm, section: 'Reading and Writing', domain: 'Info
 // in-page toggle) is gone from AnswerHandlers — issue #17 collapses the two controls into one.
 const noop = () => ({
   onSelect(){}, onEliminate(){}, onCheck(){}, onReveal(){}, onNext(){},
-  onOpenDesmos(){}, onClose(){}, onNote(){},
+  onOpenDesmos(){}, onClose(){}, onNote(){}, onFlag(){},
 });
 
 beforeEach(() => { document.body.innerHTML = ''; });
@@ -284,6 +284,43 @@ describe('Reading declutter (issue #23)', () => {
     // DOCUMENT_POSITION_FOLLOWING => actions comes AFTER choices in document order.
     const rel = choices.compareDocumentPosition(actions);
     expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('flag-for-review toggle (.fp-flag)', () => {
+  it('renders unflagged by default, next to the close button', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, vm, noop());
+    const flag = shadow.querySelector('.fp-flag') as HTMLButtonElement;
+    expect(flag).not.toBeNull();
+    expect(flag.getAttribute('aria-pressed')).toBe('false');
+    expect(flag.textContent).toContain('Flag for review');
+    expect(shadow.querySelector('.fp-answer-head')!.contains(flag)).toBe(true);
+  });
+
+  it('renders flagged when vm.isFlagged is true', () => {
+    const ac = cbAnswerContent();
+    const shadow = mountAnswerOverlay(ac, { ...vm, isFlagged: true }, noop());
+    const flag = shadow.querySelector('.fp-flag') as HTMLButtonElement;
+    expect(flag.getAttribute('aria-pressed')).toBe('true');
+    expect(flag.textContent).toContain('Flagged');
+  });
+
+  it('clicking toggles its own state and fires onFlag with the NEW value each time', () => {
+    const ac = cbAnswerContent();
+    const calls: boolean[] = [];
+    const shadow = mountAnswerOverlay(ac, vm, { ...noop(), onFlag: (f) => calls.push(f) });
+    const flag = shadow.querySelector('.fp-flag') as HTMLButtonElement;
+
+    flag.click();
+    expect(calls).toEqual([true]);
+    expect(flag.getAttribute('aria-pressed')).toBe('true');
+    expect(flag.textContent).toContain('Flagged');
+
+    flag.click();
+    expect(calls).toEqual([true, false]);
+    expect(flag.getAttribute('aria-pressed')).toBe('false');
+    expect(flag.textContent).toContain('Flag for review');
   });
 });
 

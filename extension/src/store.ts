@@ -1,9 +1,9 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import { assertNoQuestionContent } from './guard';
-import type { Attempt, Note, Session } from './types';
+import type { Attempt, Note, Session, Flag } from './types';
 
 const DB_NAME = 'sat-overlay';
-const DB_VERSION = 1;
+const DB_VERSION = 2;   // v2 adds the `flags` store — upgrade() below runs it for existing v1 databases too
 
 export async function openStore(): Promise<IDBPDatabase> {
   return openDB(DB_NAME, DB_VERSION, {
@@ -14,6 +14,9 @@ export async function openStore(): Promise<IDBPDatabase> {
       }
       if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'noteId' });
       if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'filterContext' });
+      // v2: one row per question (upserted on toggle), keyed by questionId itself — current state, not
+      // an event log, so there's no notes-style "latest of many rows" reduction needed to derive it.
+      if (!db.objectStoreNames.contains('flags')) db.createObjectStore('flags', { keyPath: 'questionId' });
     },
     // Yield this connection when another connection requests a version change or deletion,
     // so an upgrade/delete is never permanently blocked by a stale open handle.
@@ -45,4 +48,12 @@ export async function saveSession(db: IDBPDatabase, s: Session): Promise<void> {
 }
 export async function getSession(db: IDBPDatabase, filterContext: string): Promise<Session | undefined> {
   return db.get('sessions', filterContext) as Promise<Session | undefined>;
+}
+
+export async function saveFlag(db: IDBPDatabase, f: Flag): Promise<void> {
+  assertNoQuestionContent(f as unknown as Record<string, unknown>);
+  await db.put('flags', f);
+}
+export async function getFlags(db: IDBPDatabase): Promise<Flag[]> {
+  return db.getAll('flags') as Promise<Flag[]>;
 }

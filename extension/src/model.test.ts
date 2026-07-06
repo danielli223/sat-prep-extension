@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { makeAttempt, makeNote, makeSession, SCHEMA_VERSION } from './model';
+import { makeAttempt, makeNote, makeFlag, makeSession, SCHEMA_VERSION } from './model';
 
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-06-15T00:00:00.000Z')); });
 afterEach(() => { vi.useRealTimers(); });
@@ -30,5 +30,18 @@ describe('record factories', () => {
     expect(s.filterContext).toBe('SAT|Math|Algebra|Hard');
     expect(s.orderMode).toBe('random');
     expect(s.lastQuestionId).toBeNull();
+  });
+
+  it('makeFlag carries questionId + flagged, no separate id field, and the shared envelope shape', () => {
+    const f = makeFlag({ deviceId: 'd', questionId: 'q1', flagged: true });
+    expect(f.questionId).toBe('q1');
+    expect(f.flagged).toBe(true);
+    expect(f.deviceId).toBe('d');
+    expect(f.userId).toBeNull();
+    expect(f.deleted).toBe(false);
+    expect(f.dirty).toBe(true);
+    expect(f.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(f.createdAt).toBe('2026-06-15T00:00:00.000Z');
+    expect('flagId' in f).toBe(false);
   });
 });

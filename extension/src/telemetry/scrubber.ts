@@ -16,7 +16,7 @@ const ALLOWED: Record<string, number> = {
   // health
   failure_reason: 32, block_reason: 32, error_code: 32, component: 32,
 };
-const BOOL_KEYS = new Set(['reveal_used']);
+const BOOL_KEYS = new Set(['reveal_used', 'flagged']);
 
 // Numeric bounds (spec Appendix A). Out-of-range counts/indexes are rejected — a smuggled value can't
 // ride in as a number, and a corrupt index can't reach PostHog.

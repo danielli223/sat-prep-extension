@@ -28,6 +28,13 @@ export interface Note extends Envelope {
   text: string;
 }
 
+// Keyed by questionId (one row per question, upserted) — unlike Attempt/Note this is current STATE,
+// not an event log, so there is no "latest of many rows" reduction needed to derive it.
+export interface Flag extends Envelope {
+  questionId: string;
+  flagged: boolean;
+}
+
 export interface Session extends Envelope {
   sessionId: UUID;
   filterContext: string;            // e.g. "SAT|Math|Algebra|Hard"

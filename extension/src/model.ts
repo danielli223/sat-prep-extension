@@ -1,4 +1,4 @@
-import type { Attempt, Note, Session, Envelope, UUID, ISO } from './types';
+import type { Attempt, Note, Session, Flag, Envelope, UUID, ISO } from './types';
 
 export const SCHEMA_VERSION = 1;
 
@@ -22,6 +22,11 @@ export function makeAttempt(i: NewAttempt): Attempt {
 export function makeNote(i: { deviceId: UUID; questionId: string; text: string }): Note {
   const at = nowIso();
   return { noteId: newId(), questionId: i.questionId, text: i.text, ...envelope(i.deviceId, at) };
+}
+
+export function makeFlag(i: { deviceId: UUID; questionId: string; flagged: boolean }): Flag {
+  const at = nowIso();
+  return { questionId: i.questionId, flagged: i.flagged, ...envelope(i.deviceId, at) };
 }
 
 export function makeSession(i: { deviceId: UUID; filterContext: string; orderMode: 'list' | 'random'; shuffleSeed: number }): Session {

@@ -10,6 +10,7 @@ export interface AnswerHandlers {
   onCheck(pick: string): void; onReveal(): void; onNext(): void;
   onOpenDesmos(): void; onClose(): void;
   onNote(text: string): void;
+  onFlag(flagged: boolean): void;
 }
 
 const HOST_CLASS = 'fp-answer-host';
@@ -27,6 +28,8 @@ const SEEN_LABEL: Record<PriorStatus, string> = {
   done: 'Seen before — got it right',
   missed: 'Seen before — missed it',
 };
+// A fixed 2-value label pair for the flag toggle — never a CB-derived string (invariant §3).
+const FLAG_LABEL = { on: '🚩 Flagged', off: '🚩 Flag for review' };
 // Marker on the CB-native nodes WE hid, so teardown restores exactly those (and never un-hides a node
 // CB itself had hidden). Also lets the MutationObserver and revealRationale find our own work.
 const HIDDEN_ATTR = 'data-fp-hidden';
@@ -108,8 +111,10 @@ function renderBody(vm: CardVM): string {
          <input class="fp-gridin" type="text" inputmode="text" autocomplete="off" /></label>
        <button class="fp-check">Check</button>`;
   const status: PriorStatus = vm.priorStatus ?? 'new';
+  const flagged = vm.isFlagged ?? false;
   return `<div class="fp-answer">
     <div class="fp-answer-head">
+      <button class="fp-flag" type="button" aria-pressed="${flagged ? 'true' : 'false'}">${flagged ? FLAG_LABEL.on : FLAG_LABEL.off}</button>
       <button class="fp-overlay-close" aria-label="Close">✕</button>
     </div>
     <div class="fp-seen" data-prior="${esc(status)}">${esc(SEEN_LABEL[status])}</div>
@@ -146,6 +151,15 @@ function wire(shadow: ShadowRoot, vm: CardVM, h: AnswerHandlers): void {
     });
   });
   shadow.querySelector('.fp-overlay-close')!.addEventListener('click', () => h.onClose());
+  // Read/write the toggle's OWN aria-pressed attribute rather than tracking a separate closure
+  // variable, so a rapid double-click can't race two stale reads of the same "current" boolean.
+  const flagBtn = shadow.querySelector('.fp-flag') as HTMLButtonElement;
+  flagBtn.addEventListener('click', () => {
+    const next = flagBtn.getAttribute('aria-pressed') !== 'true';
+    flagBtn.setAttribute('aria-pressed', String(next));
+    flagBtn.textContent = next ? FLAG_LABEL.on : FLAG_LABEL.off;
+    h.onFlag(next);
+  });
   // Single state-aware listener: default state grades the pick; once morphed to "Explain"
   // (fp-explain present) it un-hides CB's own rationale via the existing onReveal path. No second
   // listener — the branch is on the button's own class (invariant #3: reveal never feeds a model).
@@ -466,8 +480,10 @@ const ANSWER_CSS = `
    labels are pinned back to the system UI font at the end of this sheet, so buttons stay crisp sans like
    CB's own Roboto chrome. */
 .fp-answer{font-size:14px;line-height:1.5;font-family:inherit;color:#1f2937;}
-.fp-answer-head{display:flex;justify-content:flex-end;align-items:center;}
+.fp-answer-head{display:flex;justify-content:space-between;align-items:center;gap:8px;}
 .fp-overlay-close{flex:none;border:none;background:#f1f5f9;color:#475569;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1;}
+.fp-flag{flex:none;border:none;background:#f1f5f9;color:#6b7280;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:700;}
+.fp-flag[aria-pressed="true"]{background:#fef3c7;color:#b45309;}
 /* issue #28: seen-before pill — colored per prior status to match the badger palette */
 .fp-seen{display:inline-block;margin-bottom:10px;padding:2px 9px;border-radius:9px;white-space:nowrap;font-weight:700;font-size:11px;}
 .fp-seen[data-prior="done"]{background:#dcfce7;color:#16a34a;}
@@ -531,7 +547,7 @@ const ANSWER_CSS = `
 .fp-disclaimer{margin-top:12px;padding-top:8px;border-top:1px solid #eee;font-size:10px;color:#9ca3af;text-align:center;}
 /* Keep the chrome — controls, inputs, status + meta labels — in the system UI font so ONLY the answer
    choices adopt CB's serif. Listed last so it wins over the per-control \`font:inherit\` shorthands above. */
-.fp-overlay-close,.fp-seen,.fp-gridin-label,.fp-gridin,.fp-check,.fp-reveal,.fp-next,.fp-note-label,
+.fp-overlay-close,.fp-flag,.fp-seen,.fp-gridin-label,.fp-gridin,.fp-check,.fp-reveal,.fp-next,.fp-note-label,
 .fp-note,.fp-calc-open,.fp-verdict,.fp-indeterminate,.fp-need-answer,.fp-stale,.fp-disclaimer,
 .fp-choice .fp-pick::after{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
 `;

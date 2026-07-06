@@ -29,4 +29,11 @@ describe('assertNoQuestionContent', () => {
   it('rejects an over-long pick', () => {
     expect(() => assertNoQuestionContent({ questionId: 'q', pick: 'a'.repeat(201) })).toThrow(QuestionContentError);
   });
+
+  it('accepts an allowlisted flag record (questionId + flagged, no separate id field)', () => {
+    expect(() => assertNoQuestionContent({
+      userId: null, deviceId: 'd', questionId: 'ac472881', flagged: true,
+      createdAt: 't', updatedAt: 't', deleted: false, dirty: true, schemaVersion: 1,
+    })).not.toThrow();
+  });
 });

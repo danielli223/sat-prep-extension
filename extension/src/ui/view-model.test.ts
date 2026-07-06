@@ -48,6 +48,12 @@ describe('toCardVM', () => {
     expect(toCardVM(mc, 0, 10).priorStatus).toBe('new');
   });
 
+  it('threads the 5th isFlagged arg into the VM, defaulting to false when omitted', () => {
+    expect(toCardVM(mc, 0, 10).isFlagged).toBe(false);
+    expect(toCardVM(mc, 0, 10, 'new', true).isFlagged).toBe(true);
+    expect(toCardVM(mc, 0, 10, 'missed', false).isFlagged).toBe(false);
+  });
+
   it('threads a choice math AST through (RAM-only, like imgSrc)', () => {
     const math: MathNode = { kind: 'frac', num: { kind: 'text', value: '1' }, den: { kind: 'text', value: 'x' } };
     const withMath: QuestionView = {

@@ -1,7 +1,7 @@
 import { html } from './host';
 import { esc } from './escape';
 import { deriveStats, type Stats } from '../stats';
-import type { Mistake } from '../journal';
+import type { Mistake, FlaggedQuestion } from '../journal';
 import type { Attempt } from '../types';
 
 // Journal/progress panel (spec §7). Renders into the shared Shadow-DOM host. EVERY innerHTML write
@@ -15,6 +15,7 @@ import type { Attempt } from '../types';
 // are optional so existing call sites that pass only { stats, mistakes } keep working.
 export interface PanelVM {
   stats: Stats; mistakes: Mistake[];
+  flagged?: FlaggedQuestion[];
   attempts?: Attempt[];
   difficulties?: string[];
   selected?: Set<string>;
@@ -62,14 +63,26 @@ function mistakeHtml(m: Mistake): string {
   </li>`;
 }
 
+// A flagged question may never have been attempted (flagging is available before Check), so skill/
+// difficulty fall back to an em dash rather than assuming an attempt joined cleanly (unlike mistakeHtml).
+function flaggedHtml(f: FlaggedQuestion): string {
+  return `<li class="fp-flagged-item">
+    <div class="fp-mistake-meta"><code>${esc(f.questionId)}</code> · ${esc(f.skill ?? '—')} · ${esc(f.difficulty ?? '—')} · ${day(f.flaggedAt)}</div>
+  </li>`;
+}
+
 export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
   const { stats, mistakes } = vm;
+  const flagged = vm.flagged ?? [];
   const difficulties = vm.difficulties ?? [];
   const selected = new Set(vm.selected ?? []);
   const attempts = vm.attempts ?? [];
   const mistakesHtml = mistakes.length
     ? `<ul class="fp-mistakes">${mistakes.map(mistakeHtml).join('')}</ul>`
     : `<p class="fp-empty">No mistakes logged yet — your missed questions will show up here.</p>`;
+  const flaggedHtmlBlock = flagged.length
+    ? `<ul class="fp-flagged">${flagged.map(flaggedHtml).join('')}</ul>`
+    : `<p class="fp-empty">No flagged questions yet — flag a question from its answer screen to revisit it here.</p>`;
   const controlHtml = difficulties.length ? difficultyControlHtml(difficulties, selected) : '';
 
   let panel = host.querySelector('.fp-panel');
@@ -84,7 +97,9 @@ export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
     <h3>Weak areas (worst first)</h3>
     <div class="fp-weak-areas">${weakAreasInner(stats.perSkill)}</div>
     <h3>Mistakes</h3>
-    ${mistakesHtml}`);
+    ${mistakesHtml}
+    <h3>Flagged for review</h3>
+    ${flaggedHtmlBlock}`);
 
   panel.querySelector('.fp-panel-close')?.addEventListener('click', () => panel!.remove());
 

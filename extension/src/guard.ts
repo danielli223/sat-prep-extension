@@ -10,6 +10,8 @@ const ALLOWED_KEYS = new Set<string>([
   'noteId', 'text',
   // session
   'sessionId', 'filterContext', 'orderMode', 'shuffleSeed', 'lastQuestionId',
+  // flag (keyed by questionId itself — no separate id field)
+  'flagged',
 ]);
 
 const MAX_LEN: Record<string, number> = {

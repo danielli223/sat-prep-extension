@@ -6,6 +6,7 @@ export const QUESTION_ATTEMPTED = 'question_attempted';
 export const PRACTICE_STARTED = 'practice_started';
 export const PRACTICE_RESUMED = 'practice_resumed';
 export const NOTE_ADDED = 'note_added';
+export const QUESTION_FLAGGED = 'question_flagged';
 export const CALCULATOR_OPENED = 'calculator_opened';
 export const JOURNAL_OPENED = 'journal_opened';
 export const SESSION_ENDED = 'session_ended';
@@ -47,6 +48,10 @@ export function buildPracticeStarted(i: {
 export function buildNoteAdded(i: { sessionId: string; questionId: string; noteLength: number }): TelemetryEvent | null {
   if (i.noteLength <= 0) return null;
   return make(NOTE_ADDED, { session_id: i.sessionId, question_id: i.questionId, note_length: i.noteLength });
+}
+
+export function buildQuestionFlagged(i: { sessionId: string; questionId: string; flagged: boolean }): TelemetryEvent {
+  return make(QUESTION_FLAGGED, { session_id: i.sessionId, question_id: i.questionId, flagged: i.flagged });
 }
 
 export function buildSessionEnded(i: {

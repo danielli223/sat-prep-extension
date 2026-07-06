@@ -31,6 +31,12 @@ describe('assertTelemetrySafe (telemetry legal boundary)', () => {
     expect(() => assertTelemetrySafe({ event: 'x', $process_person_profile: false })).toThrow(TelemetryGuardError);
   });
 
+  it('accepts a boolean `flagged` prop and rejects a non-boolean value on it (question_flagged)', () => {
+    expect(() => assertTelemetrySafe({ event: 'question_flagged', flagged: true })).not.toThrow();
+    expect(() => assertTelemetrySafe({ event: 'question_flagged', flagged: false })).not.toThrow();
+    expect(() => assertTelemetrySafe({ event: 'question_flagged', flagged: 'yes' })).toThrow(TelemetryGuardError);
+  });
+
   it('rejects IP-shaped string values on any allowlisted key (defense-in-depth, spec Resilience)', () => {
     expect(() => assertTelemetrySafe({ event: 'x', skill: '1.2.3.4' })).toThrow(TelemetryGuardError);
   });

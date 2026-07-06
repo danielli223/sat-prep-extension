@@ -15,6 +15,9 @@ export interface CardVM {
   // Issue #28: the student's prior status for THIS question, derived from their own attempt journal
   // (getSeen). OPTIONAL so VM literals that omit it still typecheck; the overlay defaults it to 'new'.
   priorStatus?: PriorStatus;
+  // Whether the student has flagged this question for later review (from getFlaggedMap). OPTIONAL so
+  // VM literals that omit it still typecheck; the overlay defaults it to false.
+  isFlagged?: boolean;
   // Index signature so the leak-guard test can read `vm.stem` as a plain bag and
   // assert it is undefined (RAM-only stem never enters the VM) without an `unknown` cast.
   [key: string]: unknown;
@@ -24,6 +27,7 @@ export interface CardVM {
 export function toCardVM(
   view: QuestionView, index0: number, total: number,
   priorStatus: PriorStatus = 'new',
+  isFlagged = false,
 ): CardVM {
   return {
     id: view.id,
@@ -33,5 +37,6 @@ export function toCardVM(
     answerKnown: view.correctAnswer !== null,
     position: { index: index0 + 1, total },
     priorStatus,
+    isFlagged,
   };
 }
