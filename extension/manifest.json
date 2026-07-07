@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Scorely",
+  "name": "Scorely — Digital SAT Practice, Instant Scoring & Mistake Journal",
   "version": "0.0.4",
   "description": "Free, local-first SAT practice & prep: score the Question Bank, journal mistakes, track weak areas, flag questions, calculator.",
   "permissions": [
