@@ -1,5 +1,6 @@
 import { html } from './host';
 import { esc } from './escape';
+import { promoHtml, type Promo } from './promo';
 import { deriveStats, type Stats, type ToolCounts } from '../stats';
 import type { Mistake } from '../journal';
 import type { Attempt } from '../types';
@@ -23,6 +24,9 @@ export interface PanelVM {
   attemptCounts?: Record<string, number>;
   // This sitting's tool-usage snapshot (content.ts's shared ToolCounts) — optional for the same reason.
   toolCounts?: ToolCounts;
+  // First-party promo slot at the top of the journal. Omitted → the module default (promo.ts's
+  // PROMO placeholder); pass null to hide the slot for this render.
+  promo?: Promo | null;
 }
 
 function setHtml(el: Element, markup: string): void {
@@ -94,11 +98,15 @@ export function renderPanel(host: ShadowRoot, vm: PanelVM): void {
     : `<p class="fp-empty">No mistakes logged yet — your missed questions will show up here.</p>`;
   const controlHtml = difficulties.length ? difficultyControlHtml(difficulties, selected) : '';
   const sessionHtml = vm.toolCounts ? toolCountsHtml(vm.toolCounts) : '';
+  // `'promo' in vm` (not ??) so an explicit `promo: null` hides the slot instead of falling back
+  // to the module default.
+  const promo = 'promo' in vm ? promoHtml(vm.promo ?? null) : promoHtml();
 
   let panel = host.querySelector('.fp-panel');
   if (!panel) { panel = document.createElement('section'); panel.className = 'fp-panel'; host.appendChild(panel); }
   setHtml(panel, `
     <header class="fp-panel-head"><h2>Your progress</h2><button class="fp-panel-close" aria-label="Close">✕</button></header>
+    ${promo}
     <div class="fp-stats">
       <div class="fp-stat"><span class="fp-stat-n">${stats.total}</span><span class="fp-stat-l">done</span></div>
       <div class="fp-stat"><span class="fp-stat-n">${pct(stats.accuracy)}</span><span class="fp-stat-l">accuracy</span></div>

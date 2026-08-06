@@ -214,4 +214,26 @@ describe('renderPanel — difficulty filter control (issue #34)', () => {
     const weak = root.querySelector('.fp-weak-areas')!;
     expect(weak.textContent).toContain('Answer a few questions to see your weak areas.');
   });
+
+  it('renders the promo slot at the top, between the header and the stats', () => {
+    const root = shadow();
+    renderPanel(root, { ...vm, promo: { title: 'Widget', body: 'b', cta: 'Go', url: 'https://example.com/' } });
+    const promo = root.querySelector('.fp-promo')!;
+    expect(promo).toBeTruthy();
+    expect(promo.textContent).toContain('Widget');
+    expect(promo.previousElementSibling!.classList.contains('fp-panel-head')).toBe(true);
+    expect(promo.nextElementSibling!.classList.contains('fp-stats')).toBe(true);
+  });
+
+  it('hides the promo slot when the VM passes promo: null', () => {
+    const root = shadow();
+    renderPanel(root, { ...vm, promo: null });
+    expect(root.querySelector('.fp-promo')).toBeNull();
+  });
+
+  it('falls back to the default promo when the VM omits the field', () => {
+    const root = shadow();
+    renderPanel(root, vm);
+    expect(root.querySelector('.fp-promo')).toBeTruthy();
+  });
 });
