@@ -22,16 +22,19 @@ describe('renderPopup', () => {
     expect(document.body.textContent).toContain('Not affiliated');
   });
 
-  it('omits the telemetry consent section by default (TELEMETRY_UI_ENABLED is false until launch)', () => {
-    // The consent UI stays dark until PRIVACY.md + the CWS disclosure ship (plan Rollout step 6).
-    // renderPopup must render NO telemetry surface — the live opt-in toggle is not user-reachable.
+  it('renders the telemetry consent section (TELEMETRY_UI_ENABLED is live)', () => {
+    // Rollout step 6: the opt-in ask is user-reachable. It must render OFF and gated behind the 13+
+    // attestation — visible ask, no data flow until the student affirmatively turns it on.
     const root = document.createElement('div');
     renderPopup(root);
-    expect(root.querySelector('.fp-telemetry')).toBeNull();
-    expect(root.querySelector('.fp-telemetry-toggle')).toBeNull();
-    expect(root.querySelector('.fp-telemetry-age')).toBeNull();
-    expect(root.querySelector('.fp-telemetry-delete')).toBeNull();
-    expect(root.textContent).not.toMatch(/PostHog/);
+    expect(root.querySelector('.fp-telemetry')).toBeTruthy();
+    const toggle = root.querySelector<HTMLInputElement>('.fp-telemetry-toggle');
+    expect(toggle).toBeTruthy();
+    expect(toggle!.checked).toBe(false);   // OFF by default
+    expect(toggle!.disabled).toBe(true);   // and unreachable until 13+ is attested
+    expect(root.querySelector('.fp-telemetry-age')).toBeTruthy();
+    expect(root.querySelector('.fp-telemetry-delete')).toBeTruthy();
+    expect(root.textContent).toMatch(/PostHog/);   // the processor is named AT the point of consent
     // The non-telemetry surface still renders.
     expect(root.querySelector('a.fp-open-qb')).toBeTruthy();
     expect(root.querySelector('button.fp-open-journal')).toBeTruthy();

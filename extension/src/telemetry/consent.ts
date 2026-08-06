@@ -4,12 +4,20 @@ import { getLocal } from '../storage';
 export const INSTALL_ID_KEY = 'telemetry.installId';
 export const INSTALLED_AT_KEY = 'telemetry.installedAt';
 export const CONSENT_KEY = 'telemetry.consent';
+// Set once, forever, after the anonymous decline counter has been reported. Its ONLY job is to stop
+// that counter firing more than once per install — it is deliberately not an identifier, is never
+// sent anywhere, and is cleared by nothing (re-declining must not re-count).
+export const DECLINE_REPORTED_KEY = 'telemetry.declineReported';
 export const CONSENT_VERSION = '1';
 const TIMEOUT_MS = 4000;
 
 export async function getInstallId(): Promise<string | null> { return (await getLocal<string>(INSTALL_ID_KEY)) ?? null; }
 export async function getInstalledAt(): Promise<string | null> { return (await getLocal<string>(INSTALLED_AT_KEY)) ?? null; }
 export async function isOptedIn(): Promise<boolean> { return (await getLocal<boolean>(CONSENT_KEY)) === true; }
+export async function hasReportedDecline(): Promise<boolean> { return (await getLocal<boolean>(DECLINE_REPORTED_KEY)) === true; }
+export async function markDeclineReported(): Promise<void> {
+  try { await chrome.storage.local.set({ [DECLINE_REPORTED_KEY]: true }); } catch { /* best-effort */ }
+}
 
 export async function optIn(): Promise<string> {
   const id = crypto.randomUUID();

@@ -11,3 +11,7 @@ export const OPEN_JOURNAL = 'open-journal';
 export const TELEMETRY_EVENT = 'telemetry-event';
 export const TELEMETRY_DELETE = 'telemetry-delete';
 export const TELEMETRY_OPTOUT = 'telemetry-optout';
+// TELEMETRY_DECLINED reports that someone dismissed the first-run ask WITHOUT opting in. It is the
+// only signal that comes from a non-consenting user, so it is anonymous by construction — no
+// install id, no person profile, at most once per install. See lifecycle.reportDecline.
+export const TELEMETRY_DECLINED = 'telemetry-declined';

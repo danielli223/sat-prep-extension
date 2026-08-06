@@ -32,16 +32,18 @@ describe('manifest CSP', () => {
 });
 
 for (const file of ['manifest.json', 'manifest.firefox.json', 'manifest.edge.json']) {
-  // v0.0.1 ships with telemetry gated OFF (TELEMETRY_UI_ENABLED=false). The analytics plumbing
-  // is unreachable, so its permissions must NOT be declared yet: a Chrome Web Store reviewer
-  // rejects host permissions / APIs the shipped code never exercises. The alarms permission and
-  // the PostHog/delete hosts get RE-ADDED in the same release that flips telemetry live
-  // (Rollout step 6), alongside the published privacy policy + data disclosure.
-  it(`${file} does NOT declare unused telemetry egress/alarms until telemetry ships`, () => {
+  // Telemetry is LIVE (TELEMETRY_UI_ENABLED=true, Rollout step 6), so the permissions the analytics
+  // path actually exercises must be declared — otherwise chrome.alarms is undefined and
+  // background.ts never installs the telemetry listener at all (the egress silently no-ops).
+  // These three go together: flip the config flag and these permissions in the SAME release as the
+  // published privacy policy + Chrome Web Store data disclosure. Each needs a dashboard
+  // justification: alarms = the 1-minute batch flush; PostHog = product-improvement analytics;
+  // api.focusedpractice.app = the user-initiated "delete my analytics data" endpoint.
+  it(`${file} declares the telemetry egress hosts + alarms now that telemetry ships`, () => {
     const m = loadManifest(file);
-    expect(m.permissions).not.toContain('alarms');
-    expect(m.host_permissions).not.toContain('https://us.i.posthog.com/*');
-    expect(m.host_permissions).not.toContain('https://api.focusedpractice.app/*');
+    expect(m.permissions).toContain('alarms');
+    expect(m.host_permissions).toContain('https://us.i.posthog.com/*');
+    expect(m.host_permissions).toContain('https://api.focusedpractice.app/*');
   });
 
   // The kill-switch config host is a resilience invariant (#6) and IS exercised on every load,

@@ -21,8 +21,49 @@ describe('telemetry consent UI (renderTelemetryConsent)', () => {
     expect(toggle).toBeTruthy();
     expect(toggle!.disabled).toBe(true); // disabled until 13+ is checked
     expect(root.querySelector('.fp-telemetry-delete')).toBeTruthy();
-    expect(root.textContent).toMatch(/share your usage data/i);
-    expect(root.textContent).toMatch(/never the questions|nothing that identifies you/i);
+    expect(root.textContent).toMatch(/help us make focused practice better/i);
+  });
+
+  // The consent copy is the disclosure the student actually reads when deciding, so it must match
+  // runtime behavior and carry the processor + purpose + retention. Regression guard: an old version
+  // claimed scores never leave the device, which question_attempted.result contradicts.
+  it('discloses the processor, purpose, and retention, and does NOT claim scores stay on-device', () => {
+    const root = document.createElement('div');
+    renderTelemetryConsent(root);
+    const copy = root.textContent ?? '';
+    expect(copy).toMatch(/PostHog/);                       // the third-party processor is named
+    expect(copy).toMatch(/12 months/i);                    // retention stated before opt-in
+    expect(copy).toMatch(/right or wrong/i);               // per-question correctness IS disclosed
+    expect(copy).toMatch(/never send the question text/i); // and what is NOT sent
+    expect(copy).not.toMatch(/or scores/i);                // the falsified claim must not return
+  });
+
+  // The Limited Use commitments must be their OWN emphasised element, not buried mid-paragraph:
+  // this is the reassurance students act on, and the no-sale/no-ads posture is what keeps the
+  // product clear of the principal CCPA-under-16 and state minor triggers.
+  it('gives the no-sale / no-ads / no-profiling promise its own emphasised element', () => {
+    const root = document.createElement('div');
+    renderTelemetryConsent(root);
+    const promise = root.querySelector('.fp-telemetry-promise');
+    expect(promise, 'the Limited Use promise needs its own styled element').toBeTruthy();
+    const text = promise!.textContent ?? '';
+    expect(text).toMatch(/only to improve the extension/i);
+    expect(text).toMatch(/never sold/i);
+    expect(text).toMatch(/never used for advertising/i);
+    expect(text).toMatch(/never used to profile or contact you/i);
+  });
+
+  // The full disclosure must stay visible at the decision point — never collapsed behind a
+  // "learn more", never truncated. Guard that all three copy blocks actually render.
+  it('renders lead, promise, and the full disclosure detail as separate visible blocks', () => {
+    const root = document.createElement('div');
+    renderTelemetryConsent(root);
+    expect(root.querySelector('.fp-telemetry-lead')).toBeTruthy();
+    expect(root.querySelector('.fp-telemetry-promise')).toBeTruthy();
+    const detail = root.querySelector('.fp-telemetry-detail');
+    expect(detail).toBeTruthy();
+    expect(detail!.textContent).toMatch(/PostHog/);
+    expect(detail!.textContent).toMatch(/12 months/i);
   });
 
   it('checking the age checkbox enables the analytics toggle', () => {

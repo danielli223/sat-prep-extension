@@ -18,7 +18,8 @@ export const TELEMETRY_DELETE_URL = 'https://api.focusedpractice.app/v1/delete';
 // Remote telemetry kill flag rides on the existing flags.json (CONFIG_FLAG_URL); cache key:
 export const TELEMETRY_FLAG_CACHE_KEY = 'telemetry.remoteAllowed';
 
-// Consent-UI launch gate. Stays FALSE until PRIVACY.md + the Chrome Web Store data-disclosure ship
-// (plan Rollout step 6). The popup renders NO telemetry consent surface while this is false, so the
-// live opt-in toggle can never become user-reachable ahead of the legal/disclosure deliverables.
-export const TELEMETRY_UI_ENABLED = false;
+// Consent-UI launch gate (plan Rollout step 6). TRUE: the popup + first-run onboarding render the
+// opt-in consent surface, so the toggle is user-reachable. Analytics still send NOTHING until the
+// student affirmatively opts in AND the remote telemetryAllowed flag permits it — this flag only
+// controls whether the ASK is visible, never whether data flows.
+export const TELEMETRY_UI_ENABLED = true;

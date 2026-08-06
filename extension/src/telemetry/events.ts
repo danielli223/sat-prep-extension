@@ -15,6 +15,10 @@ export const BLOCK_DETECTED = 'block_detected';
 export const KILLSWITCH_ACTIVATED = 'killswitch_activated';
 export const JS_ERROR = 'js_error';
 export const TELEMETRY_DISABLED = 'telemetry_disabled';
+// Aggregate-only decline counter. Carries NO identifier, so it can never be attributed to, or
+// deleted for, an individual — there is nothing to delete. Counted with a total-count trend, never
+// unique users. See lifecycle.reportDecline for why it is built outside injectSuperProps.
+export const TELEMETRY_DECLINED_EVENT = 'telemetry_declined';
 
 export interface TelemetryEvent { event: string; props: Record<string, unknown>; }
 

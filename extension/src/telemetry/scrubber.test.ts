@@ -28,7 +28,21 @@ describe('assertTelemetrySafe (telemetry legal boundary)', () => {
 
   it('enforces the PostHog hygiene flags exactly', () => {
     expect(() => assertTelemetrySafe({ event: 'x', $ip: '1.2.3.4' })).toThrow(TelemetryGuardError);
-    expect(() => assertTelemetrySafe({ event: 'x', $process_person_profile: false })).toThrow(TelemetryGuardError);
+    // $ip is null-or-nothing: no IP may EVER leave the device, on any event.
+    expect(() => assertTelemetrySafe({ event: 'x', $ip: null })).not.toThrow();
+  });
+
+  // $process_person_profile is boolean-only, and each value has one caller:
+  //   true  — every identified event, so a person exists for "delete my data" to erase.
+  //   false — ONLY the anonymous decline counter, which has no identifier and must not create one.
+  // Anything non-boolean is a bug and must be rejected before it reaches PostHog.
+  it('allows $process_person_profile true or false, and rejects any non-boolean', () => {
+    expect(() => assertTelemetrySafe({ event: 'x', $process_person_profile: true })).not.toThrow();
+    expect(() => assertTelemetrySafe({ event: 'x', $process_person_profile: false })).not.toThrow();
+    for (const bad of ['true', 1, 0, null, undefined, {}]) {
+      expect(() => assertTelemetrySafe({ event: 'x', $process_person_profile: bad }))
+        .toThrow(TelemetryGuardError);
+    }
   });
 
   it('rejects IP-shaped string values on any allowlisted key (defense-in-depth, spec Resilience)', () => {

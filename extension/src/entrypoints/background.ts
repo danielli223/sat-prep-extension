@@ -1,8 +1,8 @@
 import { firstRunOnboarding } from './onboarding';
-import { TELEMETRY_EVENT, TELEMETRY_DELETE, TELEMETRY_OPTOUT } from '../messages';
+import { TELEMETRY_EVENT, TELEMETRY_DELETE, TELEMETRY_OPTOUT, TELEMETRY_DECLINED } from '../messages';
 import { ingestTelemetryEvent } from '../telemetry/ingest';
 import { deleteMyData } from '../telemetry/delete';
-import { optOut } from '../telemetry/lifecycle';
+import { optOut, reportDecline } from '../telemetry/lifecycle';
 import { flush } from '../telemetry/queue';
 import type { TelemetryEvent } from '../telemetry/events';
 
@@ -25,6 +25,10 @@ export function installTelemetryListeners(api: typeof chrome): void {
       void optOut(ctx);
     } else if (msg?.type === TELEMETRY_DELETE) {
       void deleteMyData();
+    } else if (msg?.type === TELEMETRY_DECLINED) {
+      // Anonymous, at-most-once decline counter. Runs here like every other egress path so the
+      // single-network-exit property holds even for the one event a non-consenting user produces.
+      void reportDecline(ctx);
     }
   });
   api.alarms.create(FLUSH_ALARM, { periodInMinutes: 1 });

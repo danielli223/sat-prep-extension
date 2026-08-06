@@ -7,12 +7,38 @@ import { optIn, isOptedIn } from '../telemetry/consent';
 export function renderTelemetryConsent(root: HTMLElement): void {
   const tele = document.createElement('section');
   tele.className = 'fp-telemetry';
-  const blurb = document.createElement('p');
-  blurb.textContent =
-    'Want to share your usage data? It really helps us make this extension better, showing us which ' +
-    'features people use most. Nothing that identifies you ever leaves your device, not the questions ' +
-    'themselves, your notes, or scores. You can turn this off or delete your data anytime. We appreciate ' +
-    'it if you turn this on!';
+  // Disclosure copy is a COMPLIANCE surface, not marketing. Split into three parts so the ask reads
+  // fast without dropping anything legally load-bearing:
+  //   lead    — the friendly ask and why we want it.
+  //   promise — the Limited Use commitments, visually emphasised. Chrome Web Store's Limited Use
+  //             policy expects these; no-sale/no-ads is also what keeps us clear of the principal
+  //             CCPA-under-16 and state minor triggers (telemetry spec, "State laws").
+  //   detail  — the actual disclosure. Must match what events.ts really sends, and must name the
+  //             processor, the purpose, and the retention period BEFORE opt-in: the COPPA
+  //             internal-operations posture in the telemetry spec depends on disclosing both.
+  // Do NOT trim `detail` for brevity — every clause in it is carrying legal weight. An earlier
+  // version claimed scores never leave the device, which question_attempted.result contradicts.
+  const lead = document.createElement('p');
+  lead.className = 'fp-telemetry-lead';
+  lead.textContent =
+    'Help us make Focused Practice better. Anonymous usage data shows us which features students ' +
+    'actually use — and tells us when the extension breaks.';
+
+  const promise = document.createElement('p');
+  promise.className = 'fp-telemetry-promise';
+  promise.textContent =
+    'Used only to improve the extension. Never sold, never used for advertising, and never used to ' +
+    'profile or contact you.';
+
+  const detail = document.createElement('p');
+  detail.className = 'fp-telemetry-detail';
+  detail.textContent =
+    'If you turn this on, we send: question IDs, their topic and difficulty, whether you got each one ' +
+    'right or wrong, and which features you used — tied to a random ID, never your name or IP address. ' +
+    'We never send the question text or what your notes say. It is processed by PostHog, deleted after ' +
+    '12 months, and you can switch it off or erase it here at any time. ' +
+    'If you say no, we add 1 to a plain counter of how many people said no — with nothing attached to ' +
+    'it, not even a random ID, so it can never be traced back to you.';
 
   const ageLabel = document.createElement('label');
   const age = document.createElement('input');
@@ -52,6 +78,6 @@ export function renderTelemetryConsent(root: HTMLElement): void {
   // Reflect current state when the surface opens.
   void isOptedIn().then((on) => { if (on) { age.checked = true; toggle.disabled = false; toggle.checked = true; } });
 
-  tele.append(blurb, ageLabel, toggleLabel, del);
+  tele.append(lead, promise, detail, ageLabel, toggleLabel, del);
   root.append(tele);
 }

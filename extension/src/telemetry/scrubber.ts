@@ -39,8 +39,12 @@ export class TelemetryGuardError extends Error {
 export function assertTelemetrySafe(payload: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(payload)) {
     // PostHog hygiene flags: fixed values, nothing else.
+    // TRUE on every identified event — a person must exist for "delete my data" to have something to
+    // erase by install_id. FALSE only on the anonymous decline counter, which carries no identifier
+    // at all: creating a person there would manufacture the very profile that event must not have.
+    // Anything other than a boolean is a bug and must never reach PostHog.
     if (key === '$process_person_profile') {
-      if (value !== true) throw new TelemetryGuardError('$process_person_profile must be true');
+      if (typeof value !== 'boolean') throw new TelemetryGuardError('$process_person_profile must be a boolean');
       continue;
     }
     if (key === '$ip') {
