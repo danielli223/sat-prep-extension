@@ -55,12 +55,17 @@ const BASE_CSS = `
 /* First-party promo slot at the top of the journal panel (ui/promo.ts). Visually distinct from the
    stats/journal blocks — tinted card, thumbnail square, CTA button — so it never reads as the
    student's own data. */
-.fp-promo{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:12px;
+.fp-promo{margin-top:12px;padding:12px;
   border:1px solid #dbeafe;border-radius:10px;background:linear-gradient(180deg,#f8fbff,#eff6ff);}
+.fp-promo-main{display:flex;gap:10px;align-items:flex-start;}
 .fp-promo-badge{flex:none;width:38px;height:38px;border-radius:9px;background:#3b82f6;color:#fff;
   display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;}
+.fp-promo-badge-oasis{background:#0E6E6B;}
 .fp-promo-text{min-width:0;}
-.fp-promo-eyebrow{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;margin-bottom:2px;}
+/* Loud, rule-underlined heading: at 9px grey this read as decoration, and the slot has to announce
+   itself as our other product before the student reads the pitch. */
+.fp-promo-eyebrow{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;
+  color:#0f172a;padding-bottom:9px;border-bottom:2px solid #3b82f6;margin-bottom:11px;}
 .fp-promo-title{font-size:14px;font-weight:700;color:#0f172a;}
 .fp-promo-body{font-size:12px;color:#475569;margin:3px 0 8px;}
 .fp-promo-cta{display:inline-block;background:#3b82f6;color:#fff;text-decoration:none;font-size:12px;

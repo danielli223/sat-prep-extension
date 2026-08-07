@@ -46,11 +46,35 @@ describe('promoHtml', () => {
     expect(out).toContain('&amp;b=2');
   });
 
+  it('renders a built-in mark as an svg and tags the badge so it can be recoloured', () => {
+    const out = promoHtml({ ...base, mark: 'oasis' });
+    expect(out).toContain('<svg viewBox="0 0 1024 1024"');
+    expect(out).toContain('fp-promo-badge fp-promo-badge-oasis');
+    expect(out).toContain('aria-hidden="true"');
+  });
+
+  it('prefers the mark over a text badge', () => {
+    const out = promoHtml({ ...base, mark: 'oasis', badge: '★' });
+    expect(out).toContain('<svg');
+    expect(out).not.toContain('★');
+  });
+
+  it('puts the eyebrow heading above the badge row, not beside the title', () => {
+    const out = promoHtml({ ...base, eyebrow: 'More from this developer', mark: 'oasis' });
+    expect(out.indexOf('fp-promo-eyebrow')).toBeLessThan(out.indexOf('fp-promo-main'));
+    expect(out.indexOf('fp-promo-main')).toBeLessThan(out.indexOf('fp-promo-title'));
+  });
+
   it('defaults to the module PROMO constant', () => {
     expect(promoHtml()).toBe(promoHtml(PROMO));
   });
 
-  it('placeholder creative avoids College Board / SAT branding (invariant #5)', () => {
+  it('current creative points at our own product over https', () => {
+    expect(PROMO?.title).toBe('Oasis Focus');
+    expect(promoHtml()).toContain('href="https://oasisfocus.com/"');
+  });
+
+  it('creative avoids College Board / SAT branding (invariant #5)', () => {
     const text = JSON.stringify(PROMO ?? {});
     expect(/college board/i.test(text)).toBe(false);
     expect(/\bSAT\b/.test(text)).toBe(false);
