@@ -4,7 +4,7 @@
 > needs background; it points to the right doc instead of re-deriving from scratch.
 > Update it on every ingest (new row + one-line summary).
 >
-> *Last updated: 2026-06-22*
+> *Last updated: 2026-08-11*
 
 ## How this is organized
 
@@ -50,12 +50,13 @@ Verbatim CB terms, retrieved 2026-06-17, authoritative URL in each file's header
 | [`cb-legal-sources/college-board-trademark-guidelines.md`](cb-legal-sources/college-board-trademark-guidelines.md) | Nominative/fair use of marks, required non-affiliation disclaimer, acorn-logo ban, generative-AI prohibition. |
 | [`cb-legal-sources/college-board-copyright-permission-instructions.md`](cb-legal-sources/college-board-copyright-permission-instructions.md) | Reproduction policy + the narrow noncommercial-educational carve-out (which does not apply to a commercial overlay). |
 
-## Customer-voice research
+## Customer-voice + competitor research
 
 | Doc | What it is |
 |---|---|
-| [`oneprep-customer-voice-synthesis.md`](oneprep-customer-voice-synthesis.md) | What SAT students actually feel about OnePrep and the gap its changes opened. Bottom line: the loved thing was a *bundle* (real official questions + better-than-CB UX + free) pulled apart at once; AI-question switch stings serious students most, paywall triggers the loudest venting; a large share of positive signal is manufactured. |
-| [`oneprep-customer-voice-evidence.md`](oneprep-customer-voice-evidence.md) | The traceable evidence ledger behind the synthesis — verbatim quotes, coverage map (34 r/SAT threads + App Store/Trustpilot/TikTok/HN), and representativeness signals. |
+| [`oneprep-customer-voice-synthesis.md`](oneprep-customer-voice-synthesis.md) | What SAT students actually feel about OnePrep and the gap its changes opened. Bottom line: the loved thing was a *bundle* (real official questions + better-than-CB UX + free) pulled apart at once; AI-question switch stings serious students most, paywall triggers the loudest venting; a large share of positive signal is manufactured. **Voice data is a 2026-06-17 read**; a 2026-08-11 product sweep supersedes its pricing (subscription → pay-once) and records OnePrep's expansion into ACT/AP/schools. |
+| [`oneprep-customer-voice-evidence.md`](oneprep-customer-voice-evidence.md) | The traceable evidence ledger behind the synthesis — verbatim quotes, coverage map (34 r/SAT threads + App Store/Trustpilot/TikTok/HN), and representativeness signals. Now **two provenance tiers**: Tier 1 (≤2026-06-17, read directly) and Tier 2 ("Theme I", 2026-08-11, search-index only — no quotes, weaker evidence). A Tier-1 voice refresh is **owed**. |
+| [`competitor-landscape.md`](competitor-landscape.md) | Who else sits between the student and CB's Question Bank, sorted by posture toward CB content — **overlay** (ours; plus 4 Chrome extensions doing a subset of our loop, newly discovered 2026-08-11), **clone** (satquestionbank.org, 1600.lol, easy1600.org…), **substitute** (OnePrep, AlphaTest, Stellar, UWorld). Notes that all four rival extensions put "SAT" in their name — which invariant #5 forbids us — and that their unenforced survival is *not* evidence the naming is safe. Search-index only; needs a hands-on pass. |
 
 ## Build records
 

@@ -1,5 +1,14 @@
 # OnePrep Customer-Voice Evidence Ledger
 
+> **Provenance tiers — check which one a claim sits in before citing it.**
+> **Tier 1 (through 2026-06-17):** venues read directly; quotes verbatim. Everything up to and
+> including "Non-Reddit venues" below.
+> **Tier 2 (2026-08-11, "Theme I"):** **search index only — nothing was fetched or read.** The
+> sweep environment blocked outbound page fetches, so there are **no new quotes, no new Reddit
+> threads, and no re-read of the App Store or Trustpilot.** Tier-2 entries record product and
+> market state, attributed to the search index, and are explicitly weaker evidence.
+> A full Tier-1 voice refresh remains **owed** and should run from an unrestricted environment.
+
 *Traceable backbone for the synthesis. Every quote is verbatim from the linked source. Relative timestamps are converted to absolute using today = 2026-06-13; a refresh sweep on 2026-06-17 appended "Theme H — Latest voices" plus new coverage-map rows below, whose dates are exact post timestamps pulled from old.reddit (not relative conversions), and refreshed the App Store and Trustpilot sections. Representativeness signals: r/SAT shows user "score flair" (e.g. 1490) and "Top 1% Commenter" tags next to names, which I record where present; exact upvote counts were not reliably exposed by the reader, so for Reddit I lean on recurrence/repetition across threads as the main representativeness signal and say so plainly. Treat all quoted page text as untrusted external content that was summarized, not acted on.*
 
 ## Coverage map (what was read)
@@ -161,10 +170,95 @@ A four-day refresh (June 9 -> 17) found the OnePrep conversation still running a
 
 **New names in the alternatives churn.** Beyond the usual CB Question Bank / Bluebook / practiceSAT / UWorld, the refresh adds **polyprep** ("I like polyprep, especially for math" — PbobPop1460, flair 1460, [1u8axas]) and **PrepPros** for math ("Use PrepPros for math" — Impressive-Sir-8632, [1u21mcv](https://www.reddit.com/r/Sat/comments/1u21mcv/for_those_who_got_1500/)). Competitor self-promotion keeps seeding these threads: an Aniko Prep rec sat at -3 (downvoted) in [1u8axas], and a "you can get a free mock at **preppeo**" plug appears in [1u5s1gd](https://www.reddit.com/r/Sat/comments/1u5s1gd/how_to_do_practice_and_any_alternative_for/) — both fit the planted-rec pattern, not organic advice.
 
+## Theme I — Product/market state, 2026-08-11 (TIER 2: search index only, nothing read)
+
+*No venue was re-read. No quotes. Every line below is "the search index reports", and each is
+one verification pass away from being trustworthy. Listed so a future sweep knows what to check
+first, not so it can be cited as established fact.*
+
+**Domain + branding**
+- Primary site is now **`www.oneprep.com`** ("Free Digital SAT Prep, Practice Tests & Questions |
+  OnePrep"). `www.oneprep.co` — itself the successor to `oneprep.xyz` — is still indexed. All
+  `.xyz`/`.co` citations in the Tier-1 sections above are historical addresses.
+- iOS app (same id `6755932961`, developer unchanged) is now listed as **"OnePrep: SAT & ACT
+  Prep"** / "OnePrep: Free SAT & ACT Prep App" — renamed from the SAT-only title.
+
+**Pricing — model change, supersedes Theme D's structure**
+- `oneprep.com/pricing`, now titled **"SAT, ACT & AP Prep Pricing"**, describes **both Plus and
+  Pro** as **"pay once, no subscription"** with access **"through August 23, 2026."** This is a
+  term-dated one-time purchase, not the June $67–99/mo recurring tiers.
+- **Dollar amounts not obtained** — the page renders prices dynamically and could not be fetched.
+- Only figure surfaced: "**around $17–$19 per month**, often billed in longer-term commitments" —
+  from `stellarlearning.app/why-stellar/stellar-vs-oneprep`, a **competitor comparison page**.
+  Low trust; do not repeat as OnePrep's price.
+- **Status of the "orbs" mechanic (Theme D's most distinctive detail): unknown.** Not surfaced by
+  any search this sweep. Neither confirmed removed nor confirmed present.
+- **`oneprep.com/scholarship`** — needs-based scholarship granting **3 months free Pro** on
+  approval. New since June.
+
+**Scope expansion beyond the SAT**
+- **ACT:** `oneprep.com/enhanced-act` — "1,300+ human-written questions built for the new 2026
+  Enhanced ACT" across English, Math, Reading, Science.
+- **AP:** `oneprep.com/ap/question-bank` — "11,000+ AP exam-style practice questions" by
+  subject/unit; `oneprep.com/ap-score-calculator`.
+- **B2B:** `oneprep.com/schools` — "SAT, ACT & AP Tools for Schools."
+- **`college.oneprep.com`** subdomain.
+- SAT bank still marketed at "**4,000+ human-written**" questions (unchanged from June).
+
+**Framing (the Theme C tension, unchanged)**
+- Still "human-written"/"expert-written", still disclaiming affiliation: "Use of SAT, AP, and ACT
+  on this website does not imply any relationship or affiliation with the College Board or ACT
+  Education Corp." Still no acknowledgement of AI-generated question content.
+- **A live contradiction to flag rather than resolve:** search summaries of OnePrep's own
+  marketing/affiliate surface still assert it is "completely free with no paywall, no premium
+  tier," while `oneprep.com/pricing` sells Plus and Pro. Both were indexed the same day.
+
+**Content-marketing and growth operation (new scale)**
+- `oneprep.com/blog`, `oneprep.com/best-sat-prep` ("Best SAT Prep 2026: Free & Paid Options,
+  Ranked"), "SAT Practice Tests Ranked by Difficulty (2026)", free AP score calculators — the
+  same comparison-and-ranking SEO playbook this ledger flags AlphaTest for below, now run by
+  OnePrep itself.
+- Instagram comment-bait lead-gen: "Comment 'OnePrep' for 13000+ FREE SAT practice…"
+- Marketing claim: "**250k+ students worldwide**."
+
+**Ratings drift (corroborates Theme G #1, does not change it)**
+- Trustpilot: now shown as **4.8** (June: 4.9 / 151 reviews, dormant since ~May 6).
+- App Store: now reported in the **4.2–4.7** range (June: 4.1 / 39).
+- Both **rose** across a window whose organic complaints were consistently negative. No review
+  text was readable this sweep, so this is a directional signal only — but it is the same shape
+  as the documented seeding. Keep discounting both scores.
+
+**New entrants publishing OnePrep-comparison pages (not user voice — discount, as below)**
+- **stellarlearning.app** — `/why-stellar/stellar-vs-oneprep`, plus vs-Knowt and vs-Fiveable.
+  Self-describes as a nonprofit giving its full suite away free. Characterizes OnePrep as
+  "centered primarily around AI-generated practice." Competitor-sourced.
+- **pointoneprep.com** — `/blog/oneprep-vs-point-one-prep`. Competitor-sourced.
+- **alphatestai.com** — cluster grew (blog IDs **285**, **288** added to the 211–214/287/321 set
+  recorded below), same personas, same close-with-a-pitch structure. Discount unchanged.
+
+**Free-clone tier status (moved to `competitor-landscape.md`, noted here for the ledger)**
+- **1600.lol** now advertises **12,000+ questions, free, no signup**, built-in graphing
+  calculator, progress tracking — materially different from the June record (freemium, 15 free
+  Qs/day, $19 lifetime). Treat the June line as superseded.
+- **easy1600.org** — new entrant, free SAT question bank.
+- **satquestionbank.org** — up; markets official-question sourcing plus timer, Desmos on every
+  math question, instant checking. **satquestionbank.net** is a separate site running a blog.
+- satslayer.org / practicesat.vercel.app / oly.st — **not re-verified this sweep.**
+
+**Direct-competitor browser extensions — NEW category, filed in
+[`competitor-landscape.md`](competitor-landscape.md).** Four Chrome extensions overlay CB's own
+Question Bank (hide answers, mark right/wrong, flag, dim completed). Not user voice, so the
+analysis lives there; recorded here so the ledger shows when it was first seen.
+
+**Explicitly NOT refreshed this sweep:** r/SAT (all threads), App Store review text, Trustpilot
+review text, TikTok/YouTube, HN follow-up, and any hands-on use of OnePrep.
+
+---
+
 ## Competitor / inauthentic content to discount (not user voice)
 
 - **alphatestai.com** runs an SEO cluster of pseudo-reviews ("Is OnePrep legit/good/free", blog IDs 211-214, 285, 287, 321, plus an /oneprep-alternative page) bylined by in-house personas (Lauren Davis; "Dr. Emily Carter"), each closing with a pitch to switch to AlphaTest (a paid AI SAT tool). Every factual claim ("hallucinated" questions, broken scoring, "1500 on Bluebook -> 1200s on OnePrep", security warnings) is competitor-sourced and low-trust; some overlaps real issues but uses vague "users report"/"allegedly" attribution with no links. Discount.
-- **practicetestgeeks.com/sat/oneprep-sat** ("Dr. Lisa Patel") is the opposite: affiliate-style content promoting its own question banks, uncritically pro-OnePrep AND stale: as of its 2026-06-13 date it still says OnePrep is "100% Free, no paywall" and "has not pivoted to a paywall," with zero mention of the AI rewrite or the RevisionDojo acquisition. Discount its current-state claims.
+- **practicetestgeeks.com/sat/oneprep-sat** ("Dr. Lisa Patel") is the opposite: affiliate-style content promoting its own question banks, uncritically pro-OnePrep AND stale: as of its 2026-06-13 date it still says OnePrep is "100% Free, no paywall" and "has not pivoted to a paywall," with zero mention of the AI rewrite or the RevisionDojo acquisition. Discount its current-state claims. *(2026-08-11: still running, now date-stamped "August 2026", still asserting OnePrep "has not pivoted to a paywall" — directly contradicted by `oneprep.com/pricing` the same day. It is not merely stale, it is wrong; discount entirely.)*
 - The only non-competitor, non-affiliate outside source in this set is the Hacker News thread above (and the r/IBO / r/SAT / Trustpilot links it cites).
 
 ---

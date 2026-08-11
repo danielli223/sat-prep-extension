@@ -4,6 +4,15 @@
 
 *Method in one line: 34 r/SAT threads read directly (Oct 2025 to Jun 17 2026, the venue where this conversation actually concentrates; 21 in the original coverage map plus 13 added by the Jun 17 refresh sweep), plus a parallel sweep of the Apple App Store, Trustpilot, TikTok, the live OnePrep site, company records, and a 454-point Hacker News thread, with deliberate hunting for dissent and for planted content.*
 
+> **Currency note (2026-08-11).** The customer-voice body of this doc is a **2026-06-17 read and
+> has not been refreshed since** — no venue was re-read on 2026-08-11 (see the sweep section
+> below for why). A product-and-market sweep on 2026-08-11 *did* run, and it **supersedes the
+> pricing structure** described further down: the monthly-subscription model ($67–99/mo, "orbs")
+> that the June sections analyze has been replaced by a pay-once model, and OnePrep has expanded
+> past the SAT entirely. Read "Refresh sweep, 2026-08-11" before quoting any pricing or product
+> fact from the older sections. Competitor mapping now lives in
+> [`competitor-landscape.md`](competitor-landscape.md).*
+
 ---
 
 ## Bottom line
@@ -17,6 +26,78 @@ The demand OnePrep tapped is real and the frustration is real, but the story is 
 3. **A significant share of the *positive* signal is manufactured.** OnePrep's owner (RevisionDojo / MyDojo Inc., a YC startup) has well-documented astroturfing tied to it: a Trustpilot 4.9 built from a same-day burst of one-line 5-star reviews, incentivized positive TikToks, and a 2,000-upvote r/SAT post removed by moderators for manipulation. This means the organic, detailed complaints are the more trustworthy signal, and glowing one-liners deserve discounting.
 
 Net: this is not a loud handful. It is a broad, recurring, and recent pattern of disappointment among a community that genuinely loved the product, tempered by a quieter "it's still usable for casual practice" minority and muddied by manufactured praise. The unmet need (real official questions in a good free study UX) is now actively unserved, and students are scattering to a long list of partial substitutes without a clear winner.
+
+---
+
+## Refresh sweep, 2026-08-11 — product and market, not voice
+
+**What this sweep was, and what it was not.** Eight weeks after the June 17 read, this pass ran
+in an environment that **blocks outbound page fetches**. Only the web *search index* was
+reachable — r/SAT, the App Store, Trustpilot, TikTok, and OnePrep's own pages could **not be
+read**. So this section adds **no new customer voice at all**, and every fact below carries the
+provenance "search index says", not "read and verified". Nothing in the sentiment analysis above
+has been re-tested; treat it as a June reading with an August product overlay. **A proper voice
+refresh is still owed** and should be run from an environment with normal egress.
+
+With that caveat, the product changed enough that several June conclusions are now stale.
+
+**1. The pricing model flipped from subscription to pay-once — the "orbs"/monthly analysis below
+is superseded.** OnePrep's pricing page (now titled "SAT, ACT & AP Prep Pricing") describes both
+Plus and Pro as **"pay once, no subscription,"** granting access **through August 23, 2026** — a
+term-dated one-time purchase, not the $67–99/mo recurring structure verified in June. Exact
+dollar figures could not be obtained (the page renders them dynamically and could not be
+fetched); a competitor comparison page claims "around $17–$19 per month… billed in longer-term
+commitments," which is competitor-sourced and low-trust. **Whether the "orbs" metering still
+exists is unknown.** Practical effect: the loudest June grievance ("$30/mo I can't afford,"
+"greed is a sin") was aimed at a model that appears to no longer exist in that form. Any strategy
+that leans on "they charge a monthly subscription" needs re-verification first.
+
+**2. OnePrep is no longer an SAT product.** It now spans **ACT** ("1,300+ human-written questions
+built for the new 2026 Enhanced ACT"), **AP** (an "11,000+" AP question bank plus AP score
+calculators), a `college.oneprep.com` subdomain, and a **schools/B2B** offering ("SAT, ACT & AP
+Tools for Schools"). The iOS app is renamed **"OnePrep: SAT & ACT Prep."** The SAT bank is still
+marketed at "4,000+ human-written" questions — unchanged from June, while AP got 11,000+, which
+is itself a signal about where the content investment went.
+
+**3. Domain moved to oneprep.com.** The primary marketing site is now `www.oneprep.com`;
+`oneprep.co` (itself the successor to `oneprep.xyz`) still appears in the index. Anything in the
+docs citing `.xyz` or `.co` should be read as a historical address.
+
+**4. It now runs the same SEO playbook the evidence ledger flagged AlphaTest for.** OnePrep
+publishes a blog, a "Best SAT Prep 2026: Free & Paid Options, Ranked" page, difficulty rankings,
+and free AP calculators — plus Instagram comment-bait growth ("Comment 'OnePrep' for 13000+ FREE
+SAT practice…") and a "250k+ students worldwide" claim. Note the tension the June doc already
+identified is now sharper: it markets itself as free at the top of the funnel while running a
+paid tier.
+
+**5. A needs-based scholarship appeared** (`/scholarship`, 3 months of free Pro). Read it as a
+direct answer to the "you took a free resource from underserved students" grievance that was the
+emotional core of the backlash — whether it lands with students is exactly the thing this sweep
+could not measure.
+
+**6. The rating inflation continued, which strengthens the astroturf finding.** Trustpilot now
+shows **4.8** (was 4.9/151 and dormant since ~May 6 in June); App Store ratings are now reported
+in the **4.2–4.7** range (was 4.1/39). Both moved *up* over a period whose organic complaints
+were unrelentingly negative. That is the pattern Bottom Line point 3 describes, continuing.
+**Discount both numbers; nothing here changes the manufactured-sentiment conclusion.**
+
+**7. The competitor comparison-page war widened.** AlphaTest added posts to its anti-OnePrep
+cluster; two new entrants now publish OnePrep-comparison pages — **Stellar Learning**
+(self-described nonprofit, free) and **Point One Prep**. Meanwhile `practicetestgeeks.com` is
+*still* stale and now demonstrably wrong: as of an August 2026 date-stamp it still claims OnePrep
+"has not pivoted to a paywall," contradicted by OnePrep's own pricing page. The June instruction
+to discount both clusters stands, and hardens.
+
+**8. Filed separately: overlay extensions are a real competitor category** — four Chrome
+extensions overlay CB's own Question Bank with hide-answer / mark-right-wrong / completion-
+tracking features. That is our architecture, shipped by others, and it is not customer voice, so
+it lives in [`competitor-landscape.md`](competitor-landscape.md). The free-clone tier also grew
+(1600.lol now claims 12,000+ free questions and no signup; `easy1600.org` is new).
+
+**What did not change:** the core unmet need. Every one of these moves is OnePrep going *further*
+from "real official questions in a good free UX" — more own-content, more exams, more monetized
+surface. Nothing in this sweep suggests the gap the synthesis identifies has been filled; if
+anything the incumbent has walked further away from it.
 
 ---
 
@@ -35,7 +116,7 @@ Everything else held. The acquisition-to-paywall story keeps getting restated in
 
 The brief asked me to treat its description as reported, not confirmed. Here is what the voices and records actually establish:
 
-- **"Begun charging": CONFIRMED, and recent.** A paywall is live. The live site (oneprep.co) shows "Plus" (~$67-89/mo) and "Pro" (~$74-99/mo) tiers; the App Store lists in-app purchases from $28.49/week up to $589/year. The free tier is capped (50 "orbs" per week, 2 practice tests). Users date the hard paywall to late May 2026 ("most of the features are behind a paywall now," "even oneprep is paid now??!!"). Note: the change is partial and rolling, which is why some users in early June still report the question bank as free and could not reproduce others' paywall complaints. The 2026-06-17 refresh added a likely mechanism (one flaired user's account): the upgrade wall fires on the "challenge" (purple) questions, so whether you hit it depends on what you click — which would explain how "still free" and "constantly paywalled" can both be true the same week.
+- **"Begun charging": CONFIRMED, and recent.** *(Pricing structure below is a June 2026 reading and is **superseded** — as of 2026-08-11 the site describes Plus/Pro as "pay once, no subscription" through a fixed date. The fact that it charges is unchanged; the mechanics are not. See "Refresh sweep, 2026-08-11.")* A paywall is live. The live site (oneprep.co) shows "Plus" (~$67-89/mo) and "Pro" (~$74-99/mo) tiers; the App Store lists in-app purchases from $28.49/week up to $589/year. The free tier is capped (50 "orbs" per week, 2 practice tests). Users date the hard paywall to late May 2026 ("most of the features are behind a paywall now," "even oneprep is paid now??!!"). Note: the change is partial and rolling, which is why some users in early June still report the question bank as free and could not reproduce others' paywall complaints. The 2026-06-17 refresh added a likely mechanism (one flaired user's account): the upgrade wall fires on the "challenge" (purple) questions, so whether you hit it depends on what you click — which would explain how "still free" and "constantly paywalled" can both be true the same week.
 - **"Swapped real questions for AI-generated ones": CONFIRMED as a strong, widely-held user perception (~Feb 2026), but the precise mechanism and motive are NOT independently confirmed.** Dozens of r/SAT students and tutors independently report the bank is now "AI-rewritten," "AI slop," "sometimes wonky," with concrete error examples, and one user even proposed a test (Google the question text; it no longer appears in the real bank). That perception of lost authenticity is well-supported by primary voice. Two honest caveats from adversarial checking: (1) the specific "rewrote real CB questions with AI *to avoid copyright*" framing traces heavily to a competitor (AlphaTest) and unsourced content farms, not to any OnePrep statement or neutral source; (2) OnePrep's own site markets "4,000+ human-written" questions and disclaims College Board affiliation, its privacy policy (Feb 2 2026) newly references OpenAI, and some reviewers still found real Bluebook questions after the alleged switch. The most defensible reading: the bank genuinely changed in ways students experience as AI degradation, the content is likely a shifting *mix* under near-daily updates, and the tidy "AI-to-dodge-copyright" story is a community inference amplified by a rival. What drives behavior either way is the perception that "this is no longer the real thing."
 - **"Users seem unhappy": CONFIRMED, but with meaningful dissent and a manufactured-positivity overlay** (see Bottom Line point 3).
 - **New, not in the brief: an ownership story.** OnePrep was a donation-supported free tool, then was acquired. The acquirer is RevisionDojo (legal entity MyDojo Inc., a YC startup, ~$3.4M raised, primarily an IB-exam-prep company). This "sold a nonprofit to a startup" narrative is the emotional root of the discontent, named by users before they get to AI or price. The link is confirmed independently of Reddit: the iOS app's developer is "MyDojo Inc." (the same entity behind RevisionDojo), Y Combinator lists "RevisionDojo (YC F24), formerly StudyDojo," and the original creator's Ko-fi page is now titled "Formerly OnePrep."
@@ -113,7 +194,7 @@ Other smaller surprises:
 
 An independent verification sweep (deliberately excluding Reddit, to avoid circularity) returned:
 - **Acquisition by RevisionDojo / end of donation model: SUPPORTED (high).** Confirmed via the App Store developer "MyDojo Inc.", YC's listing of RevisionDojo (F24, formerly StudyDojo, ~$3.4M), and the creator's Ko-fi now titled "Formerly OnePrep." Caveat: no neutral press release or M&A filing was found, so the precise legal form (sale vs. founder-joining vs. rebuild) is not documented; what is certain is who operates it now.
-- **Paywall and pricing: SUPPORTED (high).** Verified verbatim on oneprep.co/pricing and the App Store. The "$30/mo" perception is actually the discounted annual floor ("$37/mo"); headline is $67-99/mo. "Orbs" and gated "300+ challenge questions" (the very hard Module 2 items) confirmed.
+- **Paywall and pricing: SUPPORTED (high).** Verified verbatim on oneprep.co/pricing and the App Store. The "$30/mo" perception is actually the discounted annual floor ("$37/mo"); headline is $67-99/mo. "Orbs" and gated "300+ challenge questions" (the very hard Module 2 items) confirmed. **⚠ Superseded 2026-08-11:** this verification was against the June subscription model; the current site (oneprep.com) advertises a pay-once, term-dated model instead, and the status of "orbs" is unknown. The *existence* of paid tiers remains confirmed; the numbers here are historical.
 - **AI-question swap: MIXED (medium).** See the premise section above: strong user perception, weak independent confirmation of the exact mechanism, with the "to avoid copyright" motive largely competitor-amplified.
 - **Authenticity of the studybuddy.vc / Aniko / practicesat recommendations: MIXED (medium).** practicesat is the most plausibly *authentic* peer advice (free, MIT open-source, hobbyist, directly replicates OnePrep's old value prop); Aniko (paid, heavy marketing, flagged "risky") and studybuddy.vc (not even SAT-specific) read as self-promotion or cross-promotion, not targeted advice.
 
